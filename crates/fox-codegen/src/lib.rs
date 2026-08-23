@@ -682,8 +682,7 @@ fn render_rust(
 
     if let Some(fields) = multipart {
         // multipart：Form 链式构建（file 字段的 ? 在链中解开，后续仍可链式）。
-        let mut lines: Vec<String> =
-            vec!["    let form = reqwest::multipart::Form::new()".into()];
+        let mut lines: Vec<String> = vec!["    let form = reqwest::multipart::Form::new()".into()];
         for f in fields
             .iter()
             .filter(|f| f.enabled && !f.key.trim().is_empty())
