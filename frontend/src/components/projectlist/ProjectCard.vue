@@ -48,17 +48,21 @@ const emit = defineEmits<{
         <span class="proj-title" v-tooltip-overflow="project.name">{{ project.name }}</span>
         <span class="proj-status" :class="{ active }">{{ active ? 'Active' : 'Draft' }}</span>
       </div>
-      <p class="proj-desc">{{ project.description || '暂无描述' }}</p>
-      <div class="proj-metrics">
-        <span class="metric"><Icon name="plug" :size="12" />{{ count }} APIs</span>
-        <span class="metric-sep">·</span>
-        <span class="metric"><Icon name="clock" :size="12" />{{ timeAgo(project.updated_at) }}</span>
+      <p class="proj-desc" :class="{ empty: !project.description }">
+        {{ project.description || '暂无项目描述...' }}
+      </p>
+      <div class="proj-footer">
+        <div class="proj-metrics">
+          <span class="metric"><Icon name="plug" :size="12" />{{ count }} APIs</span>
+          <span class="metric-sep">·</span>
+          <span class="metric"><Icon name="clock" :size="12" />{{ timeAgo(project.updated_at) }}更新</span>
+        </div>
+        <span class="proj-open">
+          进入项目 <Icon name="arrow-up-right" :size="12" />
+        </span>
       </div>
     </div>
     <div class="proj-side" data-no-drag>
-      <span class="proj-open" title="打开项目">
-        <Icon name="arrow-up-right" :size="13" /> Open
-      </span>
       <div class="proj-more" @click.stop>
         <IconButton name="more-horizontal" :size="16" title="更多操作" @click="emit('toggle-menu')" />
         <div v-if="menuOpen" class="more-menu" role="menu">
@@ -99,7 +103,9 @@ const emit = defineEmits<{
   border-color: rgba(168, 85, 247, 0.5);
   background: rgba(255, 255, 255, 0.03);
   transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  box-shadow:
+    var(--shadow-lg),
+    0 8px 30px rgba(124, 58, 237, 0.05);
 }
 
 .proj-avatar {
@@ -160,6 +166,8 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 给右侧 ⋯ 菜单留出安全距离 */
+  padding-right: 6px;
 }
 
 .proj-title {
@@ -171,18 +179,21 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 
+/* 状态 Tag：Draft 琥珀 / Active 绿，带同色描边；窄 padding 避免挤压右上角 ⋯ 菜单 */
 .proj-status {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 1px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: var(--warning-tint);
-  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
 }
 .proj-status.active {
-  background: var(--success-tint);
-  color: var(--success);
+  border-color: rgba(34, 197, 94, 0.2);
+  background: rgba(34, 197, 94, 0.1);
+  color: #34d399;
 }
 
 .proj-desc {
@@ -193,13 +204,28 @@ const emit = defineEmits<{
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 空描述：更淡的占位文案 */
+.proj-desc.empty {
+  color: #737373;
+}
+
+/* 底栏：分隔线 + 指标行（修复文案重叠：显式行高与间距）+ hover「进入项目 →」 */
+.proj-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(38, 38, 38, 0.6);
+}
 
 .proj-metrics {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   font-size: 11px;
-  color: var(--text-3);
+  line-height: 1.5;
+  color: #737373;
 }
 
 .metric {
@@ -212,38 +238,32 @@ const emit = defineEmits<{
   color: var(--border-strong);
 }
 
-/* ---------- 卡片右侧：打开箭头 + 更多菜单 ---------- */
+/* ---------- 卡片右侧：更多菜单 ---------- */
 .proj-side {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
   flex-shrink: 0;
 }
 
+/* 进入项目 →：hover 浮现于底栏右下角 */
 .proj-open {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  font-family: inherit;
+  gap: 3px;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
-  cursor: pointer;
   opacity: 0;
+  transform: translateX(-4px);
   transition:
     opacity var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+    transform var(--dur) var(--ease);
 }
 .proj-card:hover .proj-open {
   opacity: 1;
-}
-.proj-open:hover {
-  background: var(--accent-tint);
+  transform: translateX(0);
 }
 
 .proj-more {

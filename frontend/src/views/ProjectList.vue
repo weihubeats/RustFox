@@ -14,11 +14,11 @@ import { ensureSwapMounted } from '../utils/sortable'
 import Sortable from 'sortablejs'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
-import CustomSelect from '../components/ui/CustomSelect.vue'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import DashboardNav from '../components/projectlist/DashboardNav.vue'
+import ImportDialog from '../components/ImportDialog.vue'
 import ProjectCard from '../components/projectlist/ProjectCard.vue'
 import ProjectCreateModal from '../components/projectlist/ProjectCreateModal.vue'
 import ProjectRenameModal from '../components/projectlist/ProjectRenameModal.vue'
@@ -27,7 +27,7 @@ import ScratchRequestModal from '../components/projectlist/ScratchRequestModal.v
 import { timeAgo } from '../components/projectlist/projectMeta'
 import { useWindowDrag } from '../composables/useWindowDrag'
 import logo from '../assets/rustfox-logo.png'
-import type { Project } from '../types/foxApi'
+import type { HttpMethod, Project } from '../types/foxApi'
 
 const api = useFoxApi()
 const toast = useToast()
@@ -35,46 +35,33 @@ const router = useRouter()
 
 const projects = ref<Project[]>([])
 const counts = ref<Record<string, number>>({})
+/** 每个项目最近更新的接口摘要（仅 method/path，统计命令返回，不拉全量）。 */
+const latestEndpoints = ref<Record<string, { method: HttpMethod; path: string } | null>>({})
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 const search = ref('')
 
 // ---------- 摘要 ----------
+const totalProjects = computed(() => projects.value.length)
+
 const totalApis = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0))
 
 const recentProjects = computed(() =>
-  [...projects.value].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 2),
+  [...projects.value].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 3),
 )
 
+// ---------- 过滤 ----------
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  const list = q ? projects.value.filter((p) => p.name.toLowerCase().includes(q)) : [...projects.value]
-  switch (sortKey.value) {
-    case 'name':
-      return list.sort((a, b) => a.name.localeCompare(b.name))
-    case 'apis':
-      return list.sort((a, b) => (counts.value[b.id] ?? 0) - (counts.value[a.id] ?? 0))
-    case 'manual':
-      return list
-    default:
-      return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-  }
+  // 无排序控件：保持数据库顺序（即用户手动拖拽的持久化顺序）
+  if (!q) return [...projects.value]
+  return projects.value.filter((p) => p.name.toLowerCase().includes(q))
 })
 
-// ---------- 视图切换 / 排序 ----------
-const viewMode = ref<'grid' | 'list'>('grid')
-const sortKey = ref<'manual' | 'updated' | 'name' | 'apis'>('manual')
-const SORT_OPTIONS = [
-  { value: 'manual', label: '手动排序' },
-  { value: 'updated', label: '最近修改' },
-  { value: 'name', label: '名称' },
-  { value: 'apis', label: 'API 数量' },
-]
-
 // ---------- 拖拽排序 ----------
-/** 手动排序 + 无搜索过滤时才允许拖拽（否则顺序无意义）。 */
+/** 手动顺序 + 无搜索过滤时才允许拖拽（否则顺序无意义）。 */
 const dragEnabled = computed(
-  () => sortKey.value === 'manual' && !search.value.trim() && projects.value.length > 1,
+  () => !search.value.trim() && projects.value.length > 1,
 )
 
 const gridEl = ref<HTMLElement | null>(null)
@@ -167,16 +154,24 @@ function isActive(p: Project): boolean {
 
 // ---------- 数据 ----------
 async function loadCounts(): Promise<void> {
-  await Promise.all(
-    projects.value.map(async (p) => {
-      try {
-        const eps = await api.listEndpoints(p.id)
-        counts.value[p.id] = eps.length
-      } catch {
-        counts.value[p.id] = 0
-      }
-    }),
-  )
+  // 单条统计 IPC（后端聚合），替代逐项目拉全量接口的 N+1 加载
+  try {
+    const stats = await api.listProjectStats()
+    const nextCounts: Record<string, number> = {}
+    const nextLatest: Record<string, { method: HttpMethod; path: string } | null> = {}
+    for (const s of stats) {
+      nextCounts[s.project_id] = s.endpoint_count
+      nextLatest[s.project_id] =
+        s.latest_method && s.latest_path
+          ? { method: s.latest_method as HttpMethod, path: s.latest_path }
+          : null
+    }
+    counts.value = nextCounts
+    latestEndpoints.value = nextLatest
+  } catch {
+    counts.value = {}
+    latestEndpoints.value = {}
+  }
 }
 
 async function load(): Promise<void> {
@@ -209,7 +204,7 @@ function onCreated(project: Project): void {
 async function enter(project: Project): Promise<void> {
   try {
     await api.setActiveProject(project.id)
-    await api.listEndpoints(project.id)
+    // 接口列表由工作区 store.init() 拉取，这里不再重复请求
     toast.info(`已进入项目：${project.name}`)
     router.push('/workspace')
   } catch (e) {
@@ -217,8 +212,15 @@ async function enter(project: Project): Promise<void> {
   }
 }
 
-// ---------- 快速请求 ----------
+// ---------- 快速请求 / 导入 ----------
 const showScratch = ref(false)
+const showImport = ref(false)
+
+/** 仪表板导入成功（新项目已创建并激活）：加入本地列表。 */
+function onImported(project: Project): void {
+  projects.value.push(project)
+  counts.value[project.id] = 0
+}
 
 // ---------- 卡片菜单：重命名 / 复制 / 删除 ----------
 const menuOpenId = ref<string | null>(null)
@@ -319,14 +321,23 @@ useWindowDrag(topBarEl)
 
         <template v-else>
           <section class="summary-grid">
+            <!-- 卡片 1：数据统计 -->
             <div class="stat-card">
               <span class="stat-icon"><Icon name="gauge" :size="16" /></span>
-              <div class="stat-body">
-                <span class="stat-label">总 API 数</span>
-                <span class="stat-value num">{{ totalApis }}</span>
-                <span class="stat-sub">分布在 {{ projects.length }} 个项目</span>
+              <div class="stat-body stat-pair">
+                <div class="stat-block">
+                  <span class="stat-value num">{{ totalProjects }}</span>
+                  <span class="stat-label"><Icon name="folder" :size="12" /> 总项目数</span>
+                </div>
+                <span class="stat-pair-divider"></span>
+                <div class="stat-block">
+                  <span class="stat-value num">{{ totalApis }}</span>
+                  <span class="stat-label"><Icon name="plug" :size="12" /> 总接口数</span>
+                </div>
               </div>
             </div>
+
+            <!-- 卡片 2：最近项目 / 活动 -->
             <div class="stat-card">
               <span class="stat-icon"><Icon name="clock" :size="16" /></span>
               <div class="stat-body">
@@ -339,21 +350,39 @@ useWindowDrag(topBarEl)
                     type="button"
                     @click="enter(p)"
                   >
-                    <span class="recent-name">{{ p.name }}</span>
-                    <span class="recent-time">{{ timeAgo(p.updated_at) }}</span>
+                    <span class="recent-line">
+                      <span class="recent-name">{{ p.name }}</span>
+                      <span class="recent-time">{{ timeAgo(p.updated_at) }}</span>
+                    </span>
+                    <span v-if="latestEndpoints[p.id]" class="recent-ep mono">
+                      {{ latestEndpoints[p.id]!.method }}
+                      {{ latestEndpoints[p.id]!.path }}
+                    </span>
                   </button>
                 </div>
                 <span v-else class="stat-sub">暂无项目</span>
               </div>
             </div>
+
+            <!-- 卡片 3：快速开始 & 导入 -->
             <div class="stat-card">
-              <span class="stat-icon"><Icon name="send" :size="16" /></span>
+              <span class="stat-icon"><Icon name="zap" :size="16" /></span>
               <div class="stat-body">
                 <span class="stat-label">快速开始</span>
-                <p class="stat-sub">不保存项目，直接发送临时请求</p>
-                <button class="quick-btn" type="button" @click="showScratch = true">
-                  <Icon name="zap" :size="13" /> 快速请求
-                </button>
+                <div class="quick-row">
+                  <button class="quick-btn" type="button" title="发送临时不保存的请求" @click="showScratch = true">
+                    ⚡ 快速请求
+                  </button>
+                  <button
+                    class="quick-btn ghost"
+                    type="button"
+                    title="从 Postman / Swagger / OpenAPI 导入为新项目"
+                    @click="showImport = true"
+                  >
+                    📥 导入项目
+                  </button>
+                </div>
+                <p class="quick-hint">Postman / Swagger / OpenAPI 一键导入为新项目</p>
               </div>
             </div>
           </section>
@@ -368,33 +397,6 @@ useWindowDrag(topBarEl)
                 spellcheck="false"
               />
             </div>
-            <div class="toolbar-view" role="group" aria-label="视图切换">
-              <button
-                type="button"
-                class="view-btn"
-                :class="{ on: viewMode === 'grid' }"
-                title="网格视图"
-                @click="viewMode = 'grid'"
-              >
-                <Icon name="layout-grid" :size="14" />
-              </button>
-              <button
-                type="button"
-                class="view-btn"
-                :class="{ on: viewMode === 'list' }"
-                title="列表视图"
-                @click="viewMode = 'list'"
-              >
-                <Icon name="list" :size="14" />
-              </button>
-            </div>
-            <CustomSelect
-              :model-value="sortKey"
-              :options="SORT_OPTIONS"
-              size="sm"
-              class="toolbar-sort"
-              @update:model-value="sortKey = String($event) as 'updated' | 'name' | 'apis'"
-            />
             <button class="btn-new" type="button" @click="showCreate = true">
               <Icon name="plus" :size="15" /> 新建 API 项目
             </button>
@@ -404,7 +406,6 @@ useWindowDrag(topBarEl)
             v-if="filtered.length"
             ref="gridEl"
             class="card-grid"
-            :class="{ list: viewMode === 'list' }"
           >
             <ProjectCard
               v-for="p in filtered"
@@ -426,7 +427,26 @@ useWindowDrag(topBarEl)
             <p class="rf-hint">加载中…</p>
           </div>
 
-          <div v-else class="dash-empty">
+          <!-- 底部虚线卡片：轻量创建 / 导入入口（有项目时显示在网格下方） -->
+          <div
+            v-if="filtered.length && !loading"
+            class="add-card"
+            role="group"
+            aria-label="快捷创建或导入项目"
+          >
+            <span class="add-icon"><Icon name="folder-plus" :size="20" /></span>
+            <p class="add-text">快捷创建或导入项目 (Postman / Swagger)</p>
+            <div class="add-actions">
+              <button class="add-btn" type="button" @click="showCreate = true">
+                <Icon name="plus" :size="13" /> 新建项目
+              </button>
+              <button class="add-btn" type="button" @click="showImport = true">
+                <Icon name="download" :size="13" /> 导入外部文档
+              </button>
+            </div>
+          </div>
+
+          <div v-else-if="!filtered.length && !loading" class="dash-empty">
             <span class="empty-icon"><Icon name="folder" :size="30" /></span>
             <p class="empty-title">{{ search ? '没有匹配的项目' : '还没有项目' }}</p>
             <p class="empty-hint">
@@ -447,6 +467,9 @@ useWindowDrag(topBarEl)
     <ProjectDeleteModal :project="deleting" @close="deleting = null" @deleted="onDeleted" />
 
     <ScratchRequestModal v-model:open="showScratch" />
+
+    <!-- 仪表板导入：创建新项目承接（区别于工作区内导入到当前项目） -->
+    <ImportDialog v-if="showImport" mode="new-project" @imported="onImported" @close="showImport = false" />
 
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
   </div>
@@ -545,11 +568,17 @@ useWindowDrag(topBarEl)
   gap: 18px;
 }
 
-/* ---------- 摘要卡片 ---------- */
+/* ---------- 摘要卡片（三列固定网格，统一高度与边距） ---------- */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  margin-bottom: 8px;
+}
+@media (max-width: 960px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .stat-card {
@@ -589,17 +618,44 @@ useWindowDrag(topBarEl)
   flex: 1;
 }
 
+/* 卡片 1：双指标并排 */
+.stat-pair {
+  flex-direction: row;
+  align-items: center;
+  gap: 22px;
+}
+
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stat-pair-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+}
+
 .stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   color: var(--text-2);
 }
 
 .stat-value {
-  font-size: 28px;
+  font-family: var(--font-mono);
+  font-size: 26px;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--text-1);
+  color: #fff;
   font-variant-numeric: tabular-nums;
+}
+html[data-theme='light'] .stat-value {
+  color: var(--text-1);
 }
 
 .stat-sub {
@@ -611,17 +667,17 @@ useWindowDrag(topBarEl)
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
+/* 最近活动条目：项目名 + 时间，第二行最近编辑的接口 */
 .recent-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
   border: none;
   background: none;
-  padding: 4px 6px;
+  padding: 5px 8px;
   border-radius: var(--radius);
   cursor: pointer;
   font-family: inherit;
@@ -629,7 +685,17 @@ useWindowDrag(topBarEl)
   transition: background var(--dur) var(--ease);
 }
 .recent-item:hover {
-  background: var(--bg-hover);
+  background: rgba(38, 38, 38, 0.5);
+}
+html[data-theme='light'] .recent-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.recent-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .recent-name {
@@ -646,21 +712,47 @@ useWindowDrag(topBarEl)
   flex-shrink: 0;
 }
 
+.recent-ep {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 单行轻量提示 */
+.quick-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #737373;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quick-btn {
-  align-self: flex-start;
+  flex: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  margin-top: 6px;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--accent-tint);
   border-radius: var(--radius);
   background: var(--accent-tint);
   color: var(--accent);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   font-family: inherit;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background var(--dur) var(--ease),
@@ -674,6 +766,88 @@ useWindowDrag(topBarEl)
 .quick-btn:active {
   transform: translateY(1px);
 }
+/* 次要动作（导入）：中性描边样式 */
+.quick-btn.ghost {
+  background: none;
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+.quick-btn.ghost:hover {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+/* ---------- 底部虚线卡片：创建 / 导入 ---------- */
+.add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  margin-top: 4px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  text-align: center;
+  cursor: default;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.add-card:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(124, 58, 237, 0.05);
+}
+
+.add-icon {
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.add-card:hover .add-icon {
+  color: #a78bfa;
+}
+
+.add-text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.add-card:hover .add-text {
+  color: #c4b5fd;
+}
+
+.add-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.add-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: #c4b5fd;
+}
 
 /* ---------- 工具栏：过滤 + 视图切换 + 排序 + 新建 ---------- */
 .toolbar {
@@ -683,8 +857,8 @@ useWindowDrag(topBarEl)
 }
 
 .toolbar-filter {
-  flex: 1;
-  max-width: 320px;
+  /* w-64：固定宽度，右侧留给主按钮 */
+  width: 256px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -715,47 +889,6 @@ useWindowDrag(topBarEl)
 }
 .toolbar-filter-input::placeholder {
   color: var(--text-3);
-}
-
-.toolbar-view {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.view-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text-3);
-  cursor: pointer;
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.view-btn:hover {
-  color: var(--text-1);
-  background: var(--bg-hover);
-}
-.view-btn.on {
-  background: var(--accent);
-  color: #fff;
-}
-.view-btn.on:hover {
-  background: var(--accent-hover);
-}
-
-.toolbar-sort {
-  width: 130px;
 }
 
 .btn-new {
@@ -808,33 +941,6 @@ useWindowDrag(topBarEl)
   .card-grid {
     grid-template-columns: repeat(4, 1fr);
   }
-}
-
-/* 列表视图：单列横向行（穿透到子组件的 .proj-card 等） */
-.card-grid.list {
-  grid-template-columns: 1fr;
-}
-.card-grid.list :deep(.proj-card) {
-  align-items: center;
-  padding: 12px 16px;
-}
-.card-grid.list :deep(.proj-main) {
-  flex-direction: row;
-  align-items: center;
-  gap: 16px;
-}
-.card-grid.list :deep(.proj-title-row) {
-  flex-shrink: 0;
-  min-width: 180px;
-  max-width: 260px;
-}
-.card-grid.list :deep(.proj-desc) {
-  flex: 1;
-  max-width: none;
-}
-.card-grid.list :deep(.proj-metrics) {
-  flex-shrink: 0;
-  margin-left: auto;
 }
 
 /* ---------- 拖拽排序 ---------- */

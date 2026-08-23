@@ -1147,6 +1147,9 @@ mod tests {
             value: "manual".into(),
             enabled: true,
             description: String::new(),
+            field_type: Default::default(),
+            required: true,
+            example: String::new(),
         }];
         let req = GenRequest {
             method: &method,

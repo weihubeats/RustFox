@@ -1,5 +1,6 @@
 //! 项目 Command：增删改查 + 激活上下文切换。
 
+use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
 
@@ -13,6 +14,32 @@ use crate::state::AppState;
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_projects(state: State<'_, AppState>) -> CommandResult<Vec<Project>> {
     repo::list_projects(&state.db).await.map_err(Into::into)
+}
+
+/// 项目仪表板统计（单条 IPC 替代逐项目 list_endpoints 的 N+1 加载）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStat {
+    pub project_id: Uuid,
+    pub endpoint_count: i64,
+    pub latest_method: Option<String>,
+    pub latest_path: Option<String>,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_project_stats(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<ProjectStat>> {
+    let stats = repo::list_endpoint_stats(&state.db).await?;
+    Ok(stats
+        .into_iter()
+        .map(|s| ProjectStat {
+            project_id: Uuid::parse_str(&s.project_id).unwrap_or_else(|_| Uuid::nil()),
+            endpoint_count: s.endpoint_count,
+            latest_method: s.latest_method,
+            latest_path: s.latest_path,
+        })
+        .collect())
 }
 
 /// 拖拽排序持久化：按前端拖拽后的 id 顺序（事务）批量更新 sort_order。

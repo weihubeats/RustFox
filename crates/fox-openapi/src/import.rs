@@ -308,6 +308,9 @@ fn kv_from_data(data: &openapiv3::ParameterData) -> KeyValue {
             .unwrap_or_default(),
         enabled: true,
         description: data.description.clone().unwrap_or_default(),
+        field_type: Default::default(),
+        required: data.required,
+        example: String::new(),
     }
 }
 

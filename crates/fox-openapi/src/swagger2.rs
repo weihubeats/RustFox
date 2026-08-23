@@ -169,6 +169,9 @@ fn map_operation(
             value: default,
             enabled: true,
             description,
+            field_type: Default::default(),
+            required: true,
+            example: String::new(),
         };
         match location {
             "query" => params.push(kv),

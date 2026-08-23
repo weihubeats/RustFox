@@ -301,6 +301,10 @@ fn render_kv(items: &[KeyValue], vars: &VariableMap) -> Vec<KeyValue> {
             value: fox_core::resolve_variables(&kv.value, vars),
             enabled: kv.enabled,
             description: kv.description.clone(),
+            // 设计元数据（类型/必填/示例）随环境变量渲染原样保留。
+            field_type: kv.field_type,
+            required: kv.required,
+            example: kv.example.clone(),
         })
         .collect()
 }

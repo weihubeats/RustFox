@@ -31,6 +31,12 @@ function meta(type: ToastType): { label: string; color: string } {
 function onClose(item: ToastItem): void {
   dismiss(item.id)
 }
+
+/** 动作按钮：执行回调后关闭该条 toast。 */
+function onAction(item: ToastItem): void {
+  item.action?.run()
+  dismiss(item.id)
+}
 </script>
 
 <template>
@@ -46,6 +52,9 @@ function onClose(item: ToastItem): void {
           <div class="rf-toast-title">{{ item.title }}</div>
           <div v-if="item.message" class="rf-toast-message">{{ item.message }}</div>
         </div>
+        <button v-if="item.action" class="rf-toast-action" type="button" @click="onAction(item)">
+          {{ item.action.label }}
+        </button>
         <button
           class="rf-toast-close"
           type="button"
@@ -150,6 +159,27 @@ function onClose(item: ToastItem): void {
 .rf-toast-close:hover {
   color: var(--rf-text);
   background: var(--rf-hover);
+}
+
+.rf-toast-action {
+  flex: none;
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.rf-toast-action:hover {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .rf-toast-enter-active,

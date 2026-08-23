@@ -13,7 +13,8 @@ import type { TabItem } from '../ui/Tabs.vue'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
-import type { CodeLang, Endpoint } from '../../types/foxApi'
+import { dedupeJsonKeys } from '../../utils/jsonFormat'
+import type { BodySpec, CodeLang, Endpoint } from '../../types/foxApi'
 
 const props = defineProps<{
   draft: Endpoint
@@ -44,6 +45,17 @@ const lang = ref<CodeLang>('curl')
 const code = ref('')
 const generating = ref(false)
 
+/**
+ * 生成用 Body：JSON 模式先折叠重复键（历史数据可能出现同一字段多次，
+ * 导致 cURL / JS / Java 代码里 "body": … 重复 N 次），其余模式原样。
+ */
+function bodyForCodegen(): BodySpec {
+  const body = props.draft.request.body
+  if (body.mode !== 'json') return body
+  const raw = dedupeJsonKeys(body.raw)
+  return raw === null || raw === body.raw ? body : { ...body, raw }
+}
+
 async function generate(): Promise<void> {
   generating.value = true
   try {
@@ -52,7 +64,7 @@ async function generate(): Promise<void> {
       method: props.draft.method,
       url: props.url,
       headers: props.draft.request.headers,
-      body: props.draft.request.body,
+      body: bodyForCodegen(),
       auth: props.draft.request.auth,
     })
     if (disposed) return
@@ -119,9 +131,10 @@ watch(
 }
 
 .csp-body {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-code);
+  /* 沉浸式纯深色代码底（neutral-950），与卡片背景拉开层次 */
+  border: 1px solid rgba(38, 38, 38, 0.8);
+  border-radius: var(--radius-lg);
+  background: #0a0a0a;
   max-height: 320px;
   overflow: auto;
 }

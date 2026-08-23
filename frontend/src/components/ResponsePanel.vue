@@ -227,6 +227,25 @@ const activeMatch = ref(0)
 /** JSON 树上报的匹配总数（树视图的权威计数）。 */
 const treeTotal = ref(0)
 
+/**
+ * 防抖后的查找词：树匹配 / 行视图高亮 / 计数全部基于它。
+ * 大响应上这些计算都是全量的，逐键执行会明显卡顿；输入框本身
+ * （FindBar v-model）仍用即时 query 保持跟手。空词立即生效，保证
+ * 清空搜索时高亮无残留。
+ */
+const searchQuery = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(query, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!q) {
+    searchQuery.value = ''
+    return
+  }
+  searchTimer = setTimeout(() => {
+    searchQuery.value = q
+  }, 160)
+})
+
 /** JSON 树是否可见（查找对其生效；行视图走本地计数）。 */
 const treeVisible = computed(
   () => activeTab.value === 'body' && viewMode.value === 'pretty' && isJson.value && !bodyTooLarge.value,
@@ -234,14 +253,14 @@ const treeVisible = computed(
 
 /** 行视图（rp-lines）当前渲染的行；仅按实际可见行计数，保证大响应不卡顿。 */
 const searchLines = computed(() => {
-  if (!query.value) return []
+  if (!searchQuery.value) return []
   if (viewMode.value === 'raw') return shownRawLines.value
   if (viewMode.value === 'preview') return isHtml.value ? [] : shownRawLines.value
   return shownPrettyLines.value
 })
 
 function countIn(text: string): number {
-  const ql = query.value.toLowerCase()
+  const ql = searchQuery.value.toLowerCase()
   let n = 0
   let from = 0
   for (;;) {
@@ -357,7 +376,10 @@ function toggleCollapsed(): void {
 }
 
 onMounted(() => window.addEventListener('keydown', onWindowKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onWindowKeydown)
+  if (searchTimer) clearTimeout(searchTimer)
+})
 </script>
 
 <template>
@@ -445,14 +467,14 @@ onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown))
           v-else-if="viewMode === 'pretty' && isJson"
           ref="treeRef"
           :data="parsed"
-          :query="treeVisible ? query : ''"
+          :query="treeVisible ? searchQuery : ''"
           :active-match="activeMatch"
           @match-count="treeTotal = $event"
         />
         <div v-else-if="viewMode === 'pretty'" class="rp-lines">
           <div v-for="(ln, i) in shownPrettyLines" :key="i" class="rp-line">
             <span class="rp-line-gutter">{{ i + 1 }}</span>
-            <span class="rp-line-text" v-html="highlightPrettyText(ln, query)"></span>
+            <span class="rp-line-text" v-html="highlightPrettyText(ln, searchQuery)"></span>
           </div>
           <button
             v-if="hasMorePretty"
@@ -466,7 +488,7 @@ onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown))
         <div v-else-if="viewMode === 'raw'" class="rp-lines">
           <div v-for="(ln, i) in shownRawLines" :key="i" class="rp-line">
             <span class="rp-line-gutter">{{ i + 1 }}</span>
-            <span class="rp-line-text" v-html="highlightText(ln, query)"></span>
+            <span class="rp-line-text" v-html="highlightText(ln, searchQuery)"></span>
           </div>
           <button v-if="hasMoreRaw" class="rp-more" type="button" @click="showMoreLines">
             显示更多（{{ visibleLines }} / {{ rawLines.length }} 行）

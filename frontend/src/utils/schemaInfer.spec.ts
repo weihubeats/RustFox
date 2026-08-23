@@ -1,6 +1,6 @@
 /** schemaInfer：JSON 样本 → 树状 Schema 行（文档预览 Tree Table 数据源）。 */
 import { describe, expect, it } from 'vitest'
-import { exampleText, inferSchema, typeLabelOf } from './schemaInfer'
+import { exampleText, inferSchema, mockJsonFromSchema, typeLabelOf } from './schemaInfer'
 
 describe('inferSchema 嵌套对象', () => {
   it(' payer/payee 嵌套对象下钻为 children，叶子带示例值', () => {
@@ -80,5 +80,52 @@ describe('exampleText', () => {
     expect(out.length).toBeLessThanOrEqual(42)
     expect(out.endsWith('...')).toBe(true)
     expect(Array.from(out).length).toBeLessThanOrEqual(42 + 0)
+  })
+})
+
+describe('mockJsonFromSchema：Schema → Mock JSON', () => {
+  it('叶子取示例值，嵌套 object / 数组递归映射', () => {
+    const mock = mockJsonFromSchema(
+      inferSchema({
+        title: '测试标题',
+        body: '测试内容',
+        count: 3,
+        ok: true,
+        tags: ['a'],
+        payer: { userId: 'u1' },
+        items: [{ id: 1 }],
+      }),
+    )
+    expect(mock).toEqual({
+      title: '测试标题',
+      body: '测试内容',
+      count: 3,
+      ok: true,
+      tags: ['string'],
+      payer: { userId: 'u1' },
+      items: [{ id: 1 }],
+    })
+  })
+
+  it('同名 key 只保留首次出现（重复键样本唯一性保障）', () => {
+    // JSON.parse 会丢弃重复键，这里手工构造重名兄弟行验证映射逻辑。
+    const rows = inferSchema({ body: 'first' })
+    rows.push({ ...rows[0], example: 'second' })
+    expect(mockJsonFromSchema(rows)).toEqual({ body: 'first' })
+  })
+
+  it('无示例值时按类型给占位值，空输入返回 null', () => {
+    expect(mockJsonFromSchema(inferSchema({ s: '', n: 0, b: false, x: null }))).toEqual({
+      s: 'string',
+      n: 0,
+      b: false,
+      x: null,
+    })
+    expect(mockJsonFromSchema([])).toBeNull()
+    expect(mockJsonFromSchema(inferSchema({}))).toBeNull()
+  })
+
+  it('空数组 / 全 null 数组元素占位为 null', () => {
+    expect(mockJsonFromSchema(inferSchema({ a: [] }))).toEqual({ a: [null] })
   })
 })

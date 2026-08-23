@@ -6,7 +6,7 @@
  *   hover 时圆点被 ✕ 替换（两者不同时出现，避免挤占）；
  * - 关闭按钮 hover 才出现；脏标签关闭走 Popconfirm。
  */
-import { ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import Icon from './ui/Icon.vue'
@@ -26,6 +26,27 @@ const emit = defineEmits<{
 function close(id: string): void {
   store.closeTab(id)
 }
+
+/** 中键直接关闭（对标浏览器标签页；mousedown 阶段拦截以抑制中键自动滚动）。 */
+function onTabMouseDown(event: MouseEvent, id: string): void {
+  if (event.button === 1) {
+    event.preventDefault()
+    close(id)
+  }
+}
+
+// ---------- 激活标签滚动到可视区 ----------
+const barEl = ref<HTMLElement | null>(null)
+
+watch(
+  () => store.activeTabId,
+  async () => {
+    await nextTick()
+    barEl.value
+      ?.querySelector('.tab.active')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  },
+)
 
 function methodOf(id: string): string {
   return store.draftOf(id)?.method ?? 'GET'
@@ -80,13 +101,14 @@ async function createFolder(): Promise<void> {
 </script>
 
 <template>
-  <div class="tab-bar">
+  <div ref="barEl" class="tab-bar">
     <div
       v-for="id in store.openTabs"
       :key="id"
       class="tab"
       :class="{ active: store.activeTabId === id }"
       @click="store.activeTabId = id"
+      @mousedown="onTabMouseDown($event, id)"
     >
       <span class="method-tag" :class="`mt-${methodOf(id).toLowerCase()}`">{{ methodOf(id) }}</span>
       <span class="tab-title" v-tooltip-overflow="store.titleOf(id)">{{ store.titleOf(id) }}</span>

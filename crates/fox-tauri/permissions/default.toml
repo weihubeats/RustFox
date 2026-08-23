@@ -45,6 +45,8 @@ permissions = [
     "allow-backup-restore",
     "allow-import-document",
     "allow-export-openapi",
+    "allow-export-docs",
+    "allow-save-text-file",
     "allow-test-endpoint",
     "allow-load-test",
     "allow-list-mock-rules",

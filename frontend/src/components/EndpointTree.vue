@@ -572,8 +572,11 @@ function onMenuConfirm(item: MenuItem): void {
 :global(html[data-theme='light']) .tree-row:hover {
   background: rgba(0, 0, 0, 0.04);
 }
+/* 选中态：清爽半透明紫底 + 右缘主题色条（border-right 补偿 padding 防止行宽跳动） */
 .tree-row.active {
-  background: var(--accent-tint);
+  background: rgba(124, 58, 237, 0.15);
+  border-right: 2px solid #a855f7;
+  padding-right: 4px;
 }
 /* 拖入文件夹：细虚线描边 + 浅色高亮 */
 .tree-row.dnd-over {
@@ -594,6 +597,7 @@ function onMenuConfirm(item: MenuItem): void {
 }
 .tree-row.active .tree-name {
   color: var(--text-1);
+  font-weight: 500;
 }
 
 .tree-chevron {
@@ -668,11 +672,12 @@ function onMenuConfirm(item: MenuItem): void {
   text-align: center;
 }
 
-/* Method 胶囊 Badge：固定宽高、微亮色系（放弃纯文本彩色方案） */
+/* Method 胶囊 Badge：固定宽高、微亮色系（放弃纯文本彩色方案）；mr 与名称留出间距 */
 .tree-method {
   width: 42px;
   height: 18px;
   flex-shrink: 0;
+  margin-right: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

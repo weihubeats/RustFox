@@ -10,7 +10,7 @@
  * 编辑只改草稿；「保存」调用 save_endpoint 后回写列表并清除脏标记。
  */
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { planCrossGroupMove, planSameGroupMove, wouldCreateCycle } from './treeOps'
@@ -108,12 +108,47 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return drafts.value.get(activeTabId.value) ?? null
   })
 
+  /**
+   * 脏检查定版机制：
+   * eq() 是全量 JSON.stringify 比较，而 isDirty 被树行 / 标签页高频调用——
+   * 若直接暴露，草稿每敲一键就会触发所有可见节点各自重新序列化整个
+   * Endpoint（O(可见节点 × 草稿体积) 的「stringify 风暴」）。
+   * 这里用 deep watch + 微任务合并把连续编辑折叠为一次 dirtyTick 自增，
+   * 同一定版内的重复调用命中 dirtyCache，序列化每键批次至多一次。
+   */
+  const dirtyTick = ref(0)
+  let dirtyScheduled = false
+  watch(
+    drafts,
+    () => {
+      if (dirtyScheduled) return
+      dirtyScheduled = true
+      nextTick(() => {
+        dirtyScheduled = false
+        dirtyTick.value++
+      })
+    },
+    { deep: true },
+  )
+  // 列表整体刷新（load/refresh）同样会改变「已保存态」，推进定版使缓存失效
+  watch(endpoints, () => {
+    dirtyTick.value++
+  })
+
+  /** [定版本号, 结果]：仅当本版未计算过时才做全量比较。 */
+  const dirtyCache = new Map<string, [number, boolean]>()
+
   const isDirty = (id: string): boolean => {
+    void dirtyTick.value // 建立响应式依赖：定版推进后调用方重新求值
     const draft = drafts.value.get(id)
     if (!draft) return false
     const saved = endpoints.value.find((e) => e.id === id)
     if (!saved) return true
-    return !eq(draft, saved)
+    const cached = dirtyCache.get(id)
+    if (cached && cached[0] === dirtyTick.value) return cached[1]
+    const result = !eq(draft, saved)
+    dirtyCache.set(id, [dirtyTick.value, result])
+    return result
   }
 
   const draftOf = (id: string): Endpoint | null => drafts.value.get(id) ?? null
@@ -128,11 +163,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return '未保存'
   }
 
-  async function load(projectId: string): Promise<void> {
+  /** 拉取文件夹 + 接口列表；knownProject 传入时跳过重复的 getActiveProject IPC。 */
+  async function load(projectId: string, knownProject?: Project): Promise<void> {
     loadError.value = null
     try {
       const [p, f, e] = await Promise.all([
-        api.getActiveProject(),
+        knownProject ? Promise.resolve(knownProject) : api.getActiveProject(),
         api.listFolders(projectId),
         api.listEndpoints(projectId),
       ])
@@ -150,7 +186,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const p = await api.getActiveProject()
     if (!p) return null
     project.value = p
-    await load(p.id)
+    await load(p.id, p)
     await loadEnvironments()
     return p
   }
@@ -168,7 +204,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /** 切换到另一项目：设为激活 → 清空标签/草稿/示例 → 重载树与环境。 */
   async function switchProject(projectId: string): Promise<void> {
-    await api.setActiveProject(projectId)
+    const p = await api.setActiveProject(projectId)
     openTabs.value = []
     drafts.value = new Map()
     examples.value = new Map()
@@ -177,10 +213,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeTabId.value = null
     activeView.value = 'debug'
     sessionBaseUrl.value = 'http://localhost'
-    const p = await api.getActiveProject()
     if (!p) throw new Error('项目不存在')
     project.value = p
-    await load(p.id)
+    await load(p.id, p)
     await loadEnvironments()
   }
 

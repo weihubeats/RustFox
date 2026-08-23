@@ -11,6 +11,7 @@
     "window-state:default",
     "updater:default",
     "process:allow-restart",
-    "opener:default"
+    "opener:default",
+    "dialog:default"
   ]
 }

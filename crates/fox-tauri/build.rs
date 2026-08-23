@@ -40,6 +40,8 @@ const COMMANDS: &[&str] = &[
     "backup_restore",
     "import_document",
     "export_openapi",
+    "export_docs",
+    "save_text_file",
     "test_endpoint",
     "load_test",
     "list_mock_rules",

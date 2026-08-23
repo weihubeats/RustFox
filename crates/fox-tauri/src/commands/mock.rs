@@ -13,16 +13,17 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
 /// 启动 Mock 服务（重复启动返回 409 语义错误码 MOCK_RUNNING）。
+///
+/// 全程持有 `state.mock` 写锁：check-then-act 若分两段加锁，两个并发
+/// `mock_start` 都能通过检查、各自 bind 成功，先启动的服务句柄被覆盖泄漏。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mock_start(state: State<'_, AppState>) -> CommandResult<String> {
-    {
-        let running = state.mock.read().await;
-        if running.is_some() {
-            return Err(CommandError::with_code(
-                "MOCK_RUNNING",
-                "Mock 服务已在运行，请先停止",
-            ));
-        }
+    let mut guard = state.mock.write().await;
+    if guard.is_some() {
+        return Err(CommandError::with_code(
+            "MOCK_RUNNING",
+            "Mock 服务已在运行，请先停止",
+        ));
     }
 
     let project = state
@@ -60,12 +61,12 @@ pub async fn mock_start(state: State<'_, AppState>) -> CommandResult<String> {
         ));
     }
 
-    // 2. 启动并托管句柄。
+    // 2. 启动并托管句柄（复用函数入口取得的写锁，避免二次加锁间隙）。
     let store = fox_mock::server::MockStore::new();
     store.set_definitions(defs);
     let server = fox_mock::server::start(store).await?;
     let address = server.address();
-    *state.mock.write().await = Some(server);
+    *guard = Some(server);
     Ok(address)
 }
 

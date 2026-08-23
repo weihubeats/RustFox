@@ -2,37 +2,29 @@
 /**
  * DashboardNav：仪表板左侧导航。
  *
- * - 仪表板 / API 项目 / 集合 / API 文档 / 设置；
- * - 未实现项点击 Toast 提示「即将提供」；设置项 emit('settings') 打开设置弹窗。
+ * - 仅保留已实现入口：仪表板 / API 项目（主页面）/ 设置；
+ * - 集合、API 文档等未实现模块暂不展示；设置项 emit('settings') 打开设置弹窗。
  */
 import { useRouter } from 'vue-router'
 import Icon from '../ui/Icon.vue'
-import { useToast } from '../../composables/useToast'
 
 const router = useRouter()
-const toast = useToast()
 
 const emit = defineEmits<{ settings: [] }>()
 
 const NAV_ITEMS = [
-  { key: 'dashboard', label: '仪表板', icon: 'gauge' as const, route: '/projects', action: null as null | 'settings' },
-  { key: 'projects', label: 'API 项目', icon: 'folder' as const, route: '/projects', action: null },
-  { key: 'collections', label: '集合', icon: 'list' as const, route: '', action: null, done: false },
-  { key: 'docs', label: 'API 文档', icon: 'file' as const, route: '', action: null, done: false },
-  { key: 'settings', label: '设置', icon: 'settings' as const, route: '', action: 'settings' as const },
+  { key: 'dashboard', label: '仪表板', icon: 'gauge' as const, route: '/projects' },
+  { key: 'projects', label: 'API 项目', icon: 'folder' as const, route: '/projects' },
+  { key: 'settings', label: '设置', icon: 'settings' as const, route: '', settings: true },
 ]
 
 function navActive(item: (typeof NAV_ITEMS)[number]): boolean {
-  return router.currentRoute.value.path === '/projects' && item.route === '/projects'
+  return item.route === '/projects'
 }
 
 function onNav(item: (typeof NAV_ITEMS)[number]): void {
-  if (item.action === 'settings') {
+  if (item.settings) {
     emit('settings')
-    return
-  }
-  if ('done' in item && !item.done) {
-    toast.info(`「${item.label}」将在后续版本提供`)
     return
   }
   router.push(item.route)
@@ -45,13 +37,12 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
       v-for="item in NAV_ITEMS"
       :key="item.key"
       class="nav-item"
-      :class="{ active: navActive(item), soon: !item.done }"
+      :class="{ active: navActive(item) }"
       type="button"
       @click="onNav(item)"
     >
       <Icon :name="item.icon" :size="15" />
       <span class="nav-label">{{ item.label }}</span>
-      <span v-if="!item.done && !item.action" class="nav-soon">即将</span>
     </button>
   </nav>
 </template>
@@ -74,8 +65,10 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
   align-items: center;
   gap: 10px;
   height: 34px;
-  padding: 0 10px;
+  padding: 0 10px 0 8px;
   border: none;
+  /* 左侧 2px 高亮条占位（active 时着色），避免选中态布局跳动 */
+  border-left: 2px solid transparent;
   border-radius: var(--radius);
   background: none;
   color: var(--text-2);
@@ -85,7 +78,8 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
   cursor: pointer;
   transition:
     background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 .nav-item:hover {
   background: var(--bg-hover);
@@ -94,13 +88,12 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
 .nav-item:active {
   background: var(--bg-active);
 }
+/* 选中态：半透明紫底 + 紫色文字 + 左缘主题色条 */
 .nav-item.active {
-  background: var(--accent-tint);
-  color: var(--accent);
-  font-weight: 600;
-}
-.nav-item.soon {
-  color: var(--text-3);
+  background: rgba(124, 58, 237, 0.1);
+  color: #a78bfa;
+  border-left-color: #a855f7;
+  font-weight: 500;
 }
 
 .nav-label {
@@ -110,11 +103,4 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
   white-space: nowrap;
 }
 
-.nav-soon {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  color: var(--text-3);
-}
 </style>

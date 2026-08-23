@@ -1,16 +1,27 @@
 <script setup lang="ts">
 /**
  * ImportDialog：OpenAPI/Swagger/Postman 文档导入。
- * 粘贴文本或选择文件 → 后端解析预览 → 确认后经 workspace store 落库。
+ * 粘贴文本或选择文件 → 后端解析预览 → 确认后落库。
+ *
+ * - mode="workspace"（默认）：导入到当前激活项目（工作区内使用）；
+ * - mode="new-project"：先创建新项目并激活，再写入接口（仪表板「导入项目」）。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import Modal from './ui/Modal.vue'
-import type { ImportedEndpoint, ImportFormat } from '../types/foxApi'
+import type { ImportedEndpoint, ImportFormat, Project } from '../types/foxApi'
 
-const emit = defineEmits<{ close: [] }>()
+const props = withDefaults(
+  defineProps<{
+    /** workspace：写入当前激活项目；new-project：创建新项目承接导入。 */
+    mode?: 'workspace' | 'new-project'
+  }>(),
+  { mode: 'workspace' },
+)
+
+const emit = defineEmits<{ close: []; imported: [project: Project] }>()
 
 const store = useWorkspaceStore()
 const api = useFoxApi()
@@ -20,6 +31,9 @@ const text = ref('')
 const busy = ref(false)
 const result = ref<{ format: ImportFormat; endpoints: ImportedEndpoint[] } | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+
+/** new-project 模式下的目标项目名。 */
+const projectName = ref('')
 
 const FORMAT_LABEL: Record<ImportFormat, string> = {
   openapi30: 'OpenAPI 3.0',
@@ -55,8 +69,28 @@ async function confirm(): Promise<void> {
   if (!result.value) return
   busy.value = true
   try {
-    const summary = await store.importEndpoints(result.value.endpoints)
-    toast.success(`已导入 ${summary.endpoints} 个接口（含 ${summary.examples} 个示例）`)
+    if (props.mode === 'new-project') {
+      // 先建项目并激活（switchProject 会加载其环境/接口缓存），再写入接口
+      const now = new Date().toISOString()
+      const name =
+        projectName.value.trim() ||
+        `导入项目 ${new Date().toLocaleDateString('zh-CN')}`
+      const project = await api.saveProject({
+        id: crypto.randomUUID(),
+        name,
+        description: `由 ${FORMAT_LABEL[result.value.format]} 导入`,
+        variables: {},
+        created_at: now,
+        updated_at: now,
+      })
+      await store.switchProject(project.id)
+      const summary = await store.importEndpoints(result.value.endpoints)
+      toast.success(`已创建「${project.name}」并导入 ${summary.endpoints} 个接口`)
+      emit('imported', project)
+    } else {
+      const summary = await store.importEndpoints(result.value.endpoints)
+      toast.success(`已导入 ${summary.endpoints} 个接口（含 ${summary.examples} 个示例）`)
+    }
     emit('close')
   } catch (err) {
     toast.error('导入失败', { message: err instanceof Error ? err.message : String(err) })
@@ -64,11 +98,33 @@ async function confirm(): Promise<void> {
     busy.value = false
   }
 }
+
+/** 确认按钮可用性：workspace 模式需激活项目；两种模式都要求已解析出接口。 */
+const canConfirm = computed(
+  () => !!result.value && !busy.value && (props.mode === 'new-project' || !!store.project),
+)
 </script>
 
 <template>
-  <Modal :open="true" title="导入文档" width="560px" @close="emit('close')">
-    <p class="import-hint">支持 OpenAPI 3.0 / Swagger 2.0 / Postman Collection v2.1，自动识别格式。</p>
+  <Modal :open="true" :title="mode === 'new-project' ? '导入为新项目' : '导入文档'" width="560px" @close="emit('close')">
+    <p class="import-hint">
+      {{
+        mode === 'new-project'
+          ? '将解析结果写入一个新建项目（自动设为激活）。支持 OpenAPI / Swagger / Postman。'
+          : '支持 OpenAPI 3.0 / Swagger 2.0 / Postman Collection v2.1，自动识别格式，导入到当前项目。'
+      }}
+    </p>
+
+    <label v-if="mode === 'new-project'" class="import-name-row">
+      <span class="import-name-label">新项目名称</span>
+      <input
+        v-model="projectName"
+        class="rf-input"
+        placeholder="例如：支付网关"
+        spellcheck="false"
+      />
+    </label>
+
     <textarea
       v-model="text"
       class="rf-input import-text"
@@ -100,8 +156,14 @@ async function confirm(): Promise<void> {
     </div>
 
     <template #footer>
-      <button v-if="result" class="rf-btn rf-btn-primary rf-btn-sm" type="button" :disabled="busy" @click="confirm">
-        确认导入
+      <button
+        v-if="result"
+        class="rf-btn rf-btn-primary rf-btn-sm"
+        type="button"
+        :disabled="!canConfirm"
+        @click="confirm"
+      >
+        {{ mode === 'new-project' ? '创建并导入' : '确认导入' }}
       </button>
       <button class="rf-btn rf-btn-sm" type="button" @click="emit('close')">取消</button>
     </template>
@@ -113,6 +175,22 @@ async function confirm(): Promise<void> {
   margin: 0;
   font-size: 12.5px;
   color: var(--text-2);
+}
+
+.import-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.import-name-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.import-name-row .rf-input {
+  flex: 1;
+  height: 30px;
 }
 
 .import-text {

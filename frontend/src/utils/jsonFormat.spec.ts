@@ -3,7 +3,7 @@
  * 对无重复键的常规 JSON，输出与 JSON.stringify 风格完全一致。
  */
 import { describe, expect, it } from 'vitest'
-import { JsonFormatError, compactJson, prettyJson } from './jsonFormat'
+import { JsonFormatError, compactJson, dedupeJsonKeys, prettyJson } from './jsonFormat'
 
 describe('prettyJson：无损性', () => {
   it('保留重复键（用户场景：多个 "body" 键格式化后不丢失）', () => {
@@ -58,6 +58,29 @@ describe('prettyJson：无损性', () => {
 describe('compactJson', () => {
   it('紧凑输出且保留重复键', () => {
     expect(compactJson('{ "a" : 1, "a": 2, "b": [1, 2] }')).toBe('{"a":1,"a":2,"b":[1,2]}')
+  })
+})
+
+describe('dedupeJsonKeys：代码生成的重复键折叠', () => {
+  it('同名 key 只保留首次出现（回归：4 个 "body" 折叠为 1 个）', () => {
+    const src =
+      '{"title":"测试标题","body":"测试内容","body":"测试内容","body":"测试内容","body":"测试内容","userId":1}'
+    expect(dedupeJsonKeys(src)).toBe('{"title":"测试标题","body":"测试内容","userId":1}')
+  })
+
+  it('嵌套对象与数组内递归去重，键顺序不变', () => {
+    expect(dedupeJsonKeys('{"a":{"k":1,"k":2},"arr":[{"x":1,"x":9}],"a":{"z":3}}')).toBe(
+      '{"a":{"k":1},"arr":[{"x":1}]}',
+    )
+  })
+
+  it('无重复键时输出紧凑等价 JSON，数字保留原文', () => {
+    expect(dedupeJsonKeys('{ "price": 1.50, "tags": ["a"] }')).toBe('{"price":1.50,"tags":["a"]}')
+  })
+
+  it('非 JSON 输入返回 null（调用方回退原文）', () => {
+    expect(dedupeJsonKeys('not json')).toBeNull()
+    expect(dedupeJsonKeys('')).toBeNull()
   })
 })
 

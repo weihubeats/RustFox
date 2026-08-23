@@ -326,7 +326,12 @@ struct ClientPair {
 
 fn build_pair(proxy: Option<&str>) -> Result<ClientPair, String> {
     let build = |policy: reqwest::redirect::Policy| -> Result<Client, String> {
-        let mut b = Client::builder().cookie_store(true).redirect(policy);
+        let mut b = Client::builder()
+            .cookie_store(true)
+            .redirect(policy)
+            // TCP/TLS 握手阶段的独立上限：总超时留给请求本身，
+            // 避免对死地址长时间挂起无反馈
+            .connect_timeout(Duration::from_secs(10));
         b = match proxy {
             Some(url) => {
                 b.proxy(reqwest::Proxy::all(url).map_err(|e| format!("代理地址无效：{e}"))?)
@@ -470,7 +475,6 @@ async fn send_request_inner(
         }
         None => req.send().await.map_err(AppError::from_reqwest)?,
     };
-    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     let status = resp.status().as_u16();
     let headers: Vec<(String, String)> = resp
@@ -517,6 +521,9 @@ async fn send_request_inner(
     }
 
     let size_bytes = body.len();
+    // 耗时口径：含响应体下载（与 Postman 一致）——大文件场景只计到响应头
+    // 会把 30s 的下载显示成 80ms，严重误导。
+    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(HttpResponseData {
         status,
         headers,

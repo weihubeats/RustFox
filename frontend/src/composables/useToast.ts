@@ -26,6 +26,14 @@ export interface ToastItem {
   message?: string
   /** 自动关闭毫秒数；0 表示不自动关闭。 */
   duration: number
+  /** 可选动作按钮（如「打开文件位置」），点击后自动关闭该条。 */
+  action?: ToastAction
+}
+
+/** Toast 动作按钮（不可序列化，仅会话内使用）。 */
+export interface ToastAction {
+  label: string
+  run: () => void
 }
 
 /** 同屏最大条数，超出后丢弃最旧的。 */
@@ -65,10 +73,17 @@ function toast(opts: {
   title?: string
   message?: string
   duration?: number
+  action?: ToastAction
 }): number {
   const type = opts.type
   const title = opts.title ?? TOAST_TYPE_META[type].label
-  return push({ type, title, message: opts.message, duration: opts.duration ?? 3500 })
+  return push({
+    type,
+    title,
+    message: opts.message,
+    duration: opts.duration ?? 3500,
+    action: opts.action,
+  })
 }
 
 export function useToast() {
@@ -76,13 +91,13 @@ export function useToast() {
     /** 全部可见 toast（只读，供 ToastHost 渲染）。 */
     toasts: readonly(toasts),
     toast,
-    success: (title: string, opts?: { message?: string; duration?: number }) =>
+    success: (title: string, opts?: { message?: string; duration?: number; action?: ToastAction }) =>
       toast({ type: 'success', title, ...opts }),
-    info: (title: string, opts?: { message?: string; duration?: number }) =>
+    info: (title: string, opts?: { message?: string; duration?: number; action?: ToastAction }) =>
       toast({ type: 'info', title, ...opts }),
-    warning: (title: string, opts?: { message?: string; duration?: number }) =>
+    warning: (title: string, opts?: { message?: string; duration?: number; action?: ToastAction }) =>
       toast({ type: 'warning', title, ...opts }),
-    error: (title: string, opts?: { message?: string; duration?: number }) =>
+    error: (title: string, opts?: { message?: string; duration?: number; action?: ToastAction }) =>
       toast({ type: 'error', title, ...opts }),
     dismiss,
     clearAll,

@@ -8,7 +8,7 @@
  * - 请求 / 响应参数用树状表格（SchemaTreeTable）展示，
  *   Schema 从请求 Body 与 2xx 响应示例的 JSON 样本推断（不改动草稿）。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { copyText } from '../utils/clipboard'
@@ -16,6 +16,7 @@ import { inferSchema } from '../utils/schemaInfer'
 import type { SchemaRow } from '../utils/schemaInfer'
 import { bodyTypeLabel, bodyTypeOf } from '../utils/testCases'
 import CodeSnippetsPanel from './docs/CodeSnippetsPanel.vue'
+import ExportDocsDialog from './docs/ExportDocsDialog.vue'
 import ResponseExamplesPanel from './docs/ResponseExamplesPanel.vue'
 import SchemaTreeTable from './docs/SchemaTreeTable.vue'
 import Icon from './ui/Icon.vue'
@@ -168,6 +169,10 @@ async function copyPath(): Promise<void> {
 function jumpToDebug(): void {
   store.setActiveView('debug')
 }
+
+// ---------- 文档导出 ----------
+
+const showExport = ref(false)
 </script>
 
 <template>
@@ -178,6 +183,9 @@ function jumpToDebug(): void {
         <span class="method-pill" :class="`m-${draft.method.toLowerCase()}`">{{ draft.method }}</span>
         <code class="head-path" v-tooltip-overflow>{{ draft.path }}</code>
         <div class="head-actions">
+          <button class="head-export" type="button" @click="showExport = true">
+            <Icon name="download" :size="13" /> 导出文档
+          </button>
           <button class="rf-btn rf-btn-sm" type="button" @click="copyPath">
             <Icon name="copy" :size="12" /> 复制 Path
           </button>
@@ -201,22 +209,21 @@ function jumpToDebug(): void {
         <!-- 基本信息 -->
         <section class="doc-card sec">
           <h4 class="doc-sec-title">基本信息 (Overview)</h4>
-          <dl class="meta-list">
+          <dl class="meta-grid">
             <div class="meta-item">
               <dt>接口名称</dt>
               <dd>{{ draft.name || '—' }}</dd>
             </div>
             <div class="meta-item">
-              <dt>状态</dt>
-              <dd>{{ STATUS_LABELS[draft.status] }}</dd>
+              <dt>当前状态</dt>
+              <dd class="status-val">
+                <span class="status-dot" :class="`d-${draft.status}`"></span>
+                {{ STATUS_LABELS[draft.status] }}
+              </dd>
             </div>
             <div class="meta-item">
-              <dt>超时</dt>
-              <dd class="num">{{ spec?.timeout_ms ?? '-' }}ms</dd>
-            </div>
-            <div class="meta-item">
-              <dt>跟随重定向</dt>
-              <dd>{{ spec?.follow_redirects ? '是' : '否' }}</dd>
+              <dt>超时时间</dt>
+              <dd>{{ spec?.timeout_ms ?? '-' }} ms</dd>
             </div>
             <div class="meta-item">
               <dt>更新时间</dt>
@@ -311,7 +318,7 @@ function jumpToDebug(): void {
 
       <!-- 右栏：响应示例 置顶 + 代码生成 -->
       <div class="doc-right">
-        <ResponseExamplesPanel :examples="examples" />
+        <ResponseExamplesPanel :examples="examples" :draft="draft" />
         <CodeSnippetsPanel v-if="url" :draft="draft" :url="url" />
         <section v-else class="doc-card sec">
           <h4 class="doc-sec-title">代码生成 (Code)</h4>
@@ -319,6 +326,9 @@ function jumpToDebug(): void {
         </section>
       </div>
     </div>
+
+    <!-- 文档导出弹窗 -->
+    <ExportDocsDialog v-if="showExport" :draft="draft" @close="showExport = false" />
   </div>
 </template>
 
@@ -387,6 +397,36 @@ function jumpToDebug(): void {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* 导出文档入口：中性暗底按钮（区别于主操作「跳转调试」） */
+.head-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4.5px 12px;
+  border: 1px solid rgba(64, 64, 64, 0.6);
+  border-radius: 8px;
+  background: #262626;
+  color: #e5e5e5;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.head-export:hover {
+  background: #404040;
+}
+html[data-theme='light'] .head-export {
+  background: var(--bg-hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+html[data-theme='light'] .head-export:hover {
+  background: var(--bg-active);
 }
 
 .head-sub {
@@ -472,13 +512,13 @@ function jumpToDebug(): void {
   gap: 10px;
 }
 
-/* ---- 基本信息 ---- */
+/* ---- 基本信息（2x2 Key-Value 极简网格） ---- */
 
-.meta-list {
+.meta-grid {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
 }
 
 .meta-item dt {
@@ -487,12 +527,41 @@ function jumpToDebug(): void {
 }
 
 .meta-item dd {
-  margin: 2px 0 0;
-  font-size: 12.5px;
+  margin: 3px 0 0;
+  font-size: 12px;
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.status-val {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 状态 Dot：随生命周期着色 */
+.status-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.d-designing {
+  background: var(--info);
+}
+.d-developing {
+  background: var(--warning);
+}
+.d-testing {
+  background: var(--patch);
+}
+.d-released {
+  background: var(--success);
+}
+.d-deprecated {
+  background: var(--danger);
 }
 
 .path-vars {

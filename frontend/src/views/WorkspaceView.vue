@@ -4,7 +4,7 @@
  * 左侧接口树（文件夹 + 接口，含 CRUD），右侧标签页 + 编辑器 + 响应区。
  * 树操作全部走 workspace store（Pinia），点击接口打开草稿标签页。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -37,7 +37,69 @@ const curlFolderId = ref<string | null>(null)
 const showDocImport = ref(false)
 const showMockRules = ref(false)
 const showSettings = ref(false)
+
+/**
+ * 侧栏搜索：输入即时回显（v-model），过滤词经 200ms 防抖下发。
+ * EndpointTree 每个文件夹实例都会对全量 endpoints 做过滤，逐键触发
+ * 会造成 O(文件夹数 × 接口数) 的重复计算风暴。
+ */
+const apiSearchInput = ref('')
 const apiSearch = ref('')
+let apiSearchTimer: ReturnType<typeof setTimeout> | undefined
+watch(apiSearchInput, (v) => {
+  if (apiSearchTimer) clearTimeout(apiSearchTimer)
+  if (!v) {
+    apiSearch.value = ''
+    return
+  }
+  apiSearchTimer = setTimeout(() => {
+    apiSearch.value = v
+  }, 200)
+})
+
+function clearApiSearch(): void {
+  if (apiSearchTimer) clearTimeout(apiSearchTimer)
+  apiSearchInput.value = ''
+  apiSearch.value = ''
+}
+
+// ---------- 侧栏宽度分割（拖拽调整，双击恢复默认） ----------
+const SIDEBAR_MIN = 220
+const SIDEBAR_MAX = 520
+const SIDEBAR_DEFAULT = 300
+
+const sidebarWidth = ref(SIDEBAR_DEFAULT)
+const sidebarResizing = ref(false)
+let sidebarDragging = false
+let resizeStartX = 0
+let resizeStartWidth = 0
+
+function onSidebarResizeDown(event: MouseEvent): void {
+  if (event.button !== 0) return
+  event.preventDefault()
+  sidebarDragging = true
+  sidebarResizing.value = true
+  resizeStartX = event.clientX
+  resizeStartWidth = sidebarWidth.value
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onSidebarResizeMove)
+  document.addEventListener('mouseup', onSidebarResizeUp)
+}
+
+function onSidebarResizeMove(event: MouseEvent): void {
+  if (!sidebarDragging) return
+  const next = resizeStartWidth + (event.clientX - resizeStartX)
+  sidebarWidth.value = Math.min(Math.max(next, SIDEBAR_MIN), SIDEBAR_MAX)
+}
+
+function onSidebarResizeUp(): void {
+  if (!sidebarDragging) return
+  sidebarDragging = false
+  sidebarResizing.value = false
+  document.body.style.userSelect = ''
+  document.removeEventListener('mousemove', onSidebarResizeMove)
+  document.removeEventListener('mouseup', onSidebarResizeUp)
+}
 
 // ---------- 侧栏页签：接口目录 / 请求历史 ----------
 type SidebarTab = 'collections' | 'history'
@@ -319,6 +381,9 @@ useWindowDrag(topBarEl)
 
 onBeforeUnmount(() => {
   menuRef.value?.close()
+  if (apiSearchTimer) clearTimeout(apiSearchTimer)
+  document.removeEventListener('mousemove', onSidebarResizeMove)
+  document.removeEventListener('mouseup', onSidebarResizeUp)
 })
 </script>
 
@@ -353,7 +418,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="workspace-body">
-      <aside class="rf-sidebar">
+      <aside class="rf-sidebar" :style="{ width: `${sidebarWidth}px` }">
         <div class="sidebar-head">
           <button
             ref="projectBtn"
@@ -393,19 +458,19 @@ onBeforeUnmount(() => {
           <div class="sidebar-search">
             <Icon name="search" :size="13" class="ss-icon" />
             <input
-              v-model="apiSearch"
+              v-model="apiSearchInput"
               class="ss-input"
               type="text"
               placeholder="搜索接口名称或路径..."
               spellcheck="false"
             />
             <button
-              v-if="apiSearch"
+              v-if="apiSearchInput"
               class="ss-clear"
               type="button"
               title="清除搜索"
               aria-label="清除搜索"
-              @click="apiSearch = ''"
+              @click="clearApiSearch"
             >
               <Icon name="x" :size="12" />
             </button>
@@ -422,6 +487,16 @@ onBeforeUnmount(() => {
         </div>
         <HistoryPanel v-if="sidebarTab === 'history'" class="sidebar-history" />
       </aside>
+      <div
+        class="sidebar-resizer"
+        :class="{ active: sidebarResizing }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整侧栏宽度"
+        title="拖拽调整宽度，双击恢复默认"
+        @mousedown="onSidebarResizeDown"
+        @dblclick="sidebarWidth = 300"
+      ></div>
       <main class="rf-main">
         <TabBar
           v-if="store.openTabs.length"
@@ -642,13 +717,26 @@ onBeforeUnmount(() => {
 }
 
 .rf-sidebar {
-  width: 300px;
+  /* 宽度由内联 style 驱动（拖拽分割条），保留 min/max 约束兜底 */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--rf-border);
   background: var(--rf-bg-panel);
   overflow: hidden;
+}
+
+/* ---- 拖拽分割条：透明叠加在边框上，悬停/拖拽中高亮 ---- */
+.sidebar-resizer {
+  flex-shrink: 0;
+  width: 7px;
+  margin-left: -4px;
+  cursor: col-resize;
+  z-index: 10;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer.active {
+  background: var(--accent);
 }
 
 /* ---- 统一头部栏：h-10、下边框、左=项目切换器 / 右=动作图标组 ---- */

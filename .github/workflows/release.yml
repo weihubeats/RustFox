@@ -44,6 +44,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 门禁：tag 必须与 tauri.conf.json / package.json 版本一致，
+      # 否则 updater 清单与产物命名会互相矛盾。放在装依赖之前，失败即快速退出。
+      - name: 校验 tag 与版本一致
+        shell: bash
+        run: |
+          TAG_VERSION="${RELEASE_TAG#v}"
+          CONF_VERSION=$(node -p "require('./frontend/src-tauri/tauri.conf.json').version")
+          PKG_VERSION=$(node -p "require('./frontend/package.json').version")
+          if [ "$TAG_VERSION" != "$CONF_VERSION" ]; then
+            echo "::error::tag ${RELEASE_TAG} 与 frontend/src-tauri/tauri.conf.json 的 version (${CONF_VERSION}) 不一致"
+            echo "::error::请运行 node scripts/release.mjs bump <version> 统一后再打标签"
+            exit 1
+          fi
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::tag ${RELEASE_TAG} 与 frontend/package.json 的 version (${PKG_VERSION}) 不一致"
+            exit 1
+          fi
+          echo "✓ tag / tauri.conf.json / package.json 版本一致：${TAG_VERSION}"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 

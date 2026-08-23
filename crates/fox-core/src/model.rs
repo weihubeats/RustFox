@@ -106,7 +106,21 @@ impl EndpointStatus {
     }
 }
 
+/// 参数字段类型（接口设计页的 Schema 标注；旧数据缺省为 String）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldType {
+    #[default]
+    String,
+    Number,
+    Boolean,
+    Object,
+}
+
 /// 键值对：用于 Query / Header / Path 变量等。
+///
+/// `field_type` / `required` / `example` 为接口设计的参数元数据，
+/// serde 带默认值：旧持久化 JSON 缺省这些字段时照常反序列化。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct KeyValue {
@@ -116,6 +130,12 @@ pub struct KeyValue {
     pub enabled: bool,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub field_type: FieldType,
+    #[serde(default = "default_true")]
+    pub required: bool,
+    #[serde(default)]
+    pub example: String,
 }
 
 fn default_true() -> bool {
@@ -129,6 +149,9 @@ impl KeyValue {
             value: value.into(),
             enabled: true,
             description: String::new(),
+            field_type: FieldType::default(),
+            required: true,
+            example: String::new(),
         }
     }
 }
@@ -644,6 +667,41 @@ mod tests {
         assert_eq!(json["body"]["mode"], "none");
         assert_eq!(json["timeout_ms"], 30_000);
         assert_eq!(json["follow_redirects"], true);
+    }
+
+    #[test]
+    fn keyvalue_design_metadata_roundtrip() {
+        let kv = KeyValue {
+            key: "userId".into(),
+            value: "1".into(),
+            enabled: true,
+            description: "用户 ID".into(),
+            field_type: FieldType::Number,
+            required: false,
+            example: "42".into(),
+        };
+        let json = serde_json::to_value(&kv).unwrap();
+        assert_eq!(json["field_type"], "number");
+        assert_eq!(json["required"], false);
+        assert_eq!(json["example"], "42");
+        let back: KeyValue = serde_json::from_value(json).unwrap();
+        assert_eq!(back, kv);
+    }
+
+    /// 旧数据兼容：缺省 field_type / required / example 时按默认值反序列化。
+    #[test]
+    fn keyvalue_legacy_json_defaults() {
+        let legacy = serde_json::json!({
+            "key": "page", "value": "1", "enabled": true, "description": ""
+        });
+        let kv: KeyValue = serde_json::from_value(legacy).unwrap();
+        assert_eq!(kv.field_type, FieldType::String);
+        assert!(kv.required);
+        assert_eq!(kv.example, "");
+        // 新字段序列化后仍可被旧读取方忽略（未知字段不报错由 serde 默认保证）。
+        let full = serde_json::to_string(&KeyValue::new("a", "1")).unwrap();
+        assert!(full.contains("\"field_type\":\"string\""));
+        assert!(full.contains("\"required\":true"));
     }
 
     #[test]

@@ -2,10 +2,12 @@
 /**
  * ResponseExamplesPanel：文档预览右栏的「响应示例」面板。
  *
- * - 按状态码分组 Tab（2xx 成功在前，4xx/5xx 错误在后）；
+ * - 按状态码分组 Tab（2xx 成功在前，4xx/5xx 错误在后；首个为 Default）；
  * - 同状态码多示例时提供示例切换列表；
  * - Body 用 CodeMirror 只读模式渲染（JSON 语法高亮 + 行号 + 折叠）；
- * - 右上角一键复制当前示例 Body。
+ * - 右上角一键复制当前示例 Body；
+ * - 空态提供「手动添加示例」与「从 Mock 快速填充」（请求 Body Schema 映射，
+ *   字段唯一）两个快捷入口。
  */
 import { computed, ref, watch } from 'vue'
 import JsonCodeMirror from '../JsonCodeMirror.vue'
@@ -13,25 +15,30 @@ import EmptyState from '../ui/EmptyState.vue'
 import Icon from '../ui/Icon.vue'
 import Tabs from '../ui/Tabs.vue'
 import type { TabItem } from '../ui/Tabs.vue'
+import { useWorkspaceStore } from '../../stores/workspace'
+import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
 import { prettyJson } from '../../utils/jsonFormat'
 import { statusTextOf } from '../../utils/testCases'
-import type { ResponseExample } from '../../types/foxApi'
+import { inferSchema, mockJsonFromSchema } from '../../utils/schemaInfer'
+import type { Endpoint, ResponseExample } from '../../types/foxApi'
 
-const props = defineProps<{ examples: ResponseExample[] }>()
+const props = defineProps<{ examples: ResponseExample[]; draft?: Endpoint | null }>()
 
+const store = useWorkspaceStore()
+const api = useFoxApi()
 const toast = useToast()
 
-/** 状态码分组：2xx 在前、3xx 次之、4xx/5xx 在后，各自升序。 */
+/** 状态码分组：2xx 在前、3xx 次之、4xx/5xx 在后，各自升序；首个标记 Default。 */
 const statusTabs = computed<TabItem[]>(() => {
   const statuses = Array.from(new Set(props.examples.map((e) => e.status))).sort((a, b) => {
     const rank = (s: number): number => (s < 400 ? 0 : 1)
     return rank(a) - rank(b) || a - b
   })
-  return statuses.map((s) => ({
+  return statuses.map((s, i) => ({
     key: String(s),
-    label: `${s} ${statusTextOf(s)}`,
+    label: `${s} ${statusTextOf(s)}${i === 0 ? ' (Default)' : ''}`,
   }))
 })
 
@@ -85,6 +92,70 @@ async function copyBody(): Promise<void> {
     toast.error('复制失败，请手动选择文本')
   }
 }
+
+// ---------- 空态快捷入口 ----------
+
+/** 落库并写入 store 缓存（与 workspace.saveAsExample 同一缓存约定）。 */
+async function persistExample(example: ResponseExample): Promise<void> {
+  const saved = await api.saveExample(example)
+  const endpointId = example.endpoint_id
+  const list = store.examples.get(endpointId) ?? []
+  list.unshift(saved)
+  store.examples.set(endpointId, list)
+  toast.success(`示例已保存：${saved.name}`)
+}
+
+function newExample(name: string, status: number, body: string): ResponseExample {
+  const now = new Date().toISOString()
+  return {
+    id: crypto.randomUUID(),
+    endpoint_id: props.draft?.id ?? '',
+    name,
+    status,
+    headers: {},
+    body,
+    content_type: 'application/json',
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+/** 空示例（200 / 空 Body），创建后可切到调试页或直接编辑。 */
+async function addManual(): Promise<void> {
+  if (!props.draft) return
+  try {
+    await persistExample(newExample('手动示例', 200, ''))
+  } catch (err) {
+    toast.error('添加示例失败', { message: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+/**
+ * 从 Mock 快速填充：请求 Body JSON → Schema → Mock JSON 映射
+ * （mockJsonFromSchema 保证每个字段唯一），生成 200 示例。
+ */
+async function fillFromMock(): Promise<void> {
+  if (!props.draft) return
+  const body = props.draft.request.body
+  let mockBody: string | null = null
+  if (body.mode === 'json') {
+    try {
+      const mock = mockJsonFromSchema(inferSchema(JSON.parse(body.raw)))
+      mockBody = mock ? JSON.stringify(mock, null, 2) : null
+    } catch {
+      mockBody = null
+    }
+  }
+  if (mockBody === null) {
+    toast.warning('当前接口没有可推断的 JSON Body Schema')
+    return
+  }
+  try {
+    await persistExample(newExample('Mock 示例', 200, mockBody))
+  } catch (err) {
+    toast.error('填充失败', { message: err instanceof Error ? err.message : String(err) })
+  }
+}
 </script>
 
 <template>
@@ -128,13 +199,20 @@ async function copyBody(): Promise<void> {
         <p v-else class="rep-empty-body">（该示例无响应 Body）</p>
       </div>
     </template>
-    <EmptyState
-      v-else
-      icon="file"
-      title="暂无响应示例"
-      description="在调试页发送请求后，可将真实响应保存为示例（200 成功 / 400 错误）"
-      compact
-    />
+    <template v-else>
+      <EmptyState
+        icon="file"
+        title="暂无响应示例"
+        description="在调试页发送请求后，可将真实响应保存为示例（200 成功 / 400 错误）"
+        compact
+      />
+      <div class="rep-empty-actions">
+        <button type="button" class="rep-mini-btn" @click="addManual">
+          <Icon name="plus" :size="12" /> 手动添加示例
+        </button>
+        <button type="button" class="rep-mini-btn" @click="fillFromMock">从 Mock 快速填充</button>
+      </div>
+    </template>
   </section>
 </template>
 
@@ -226,5 +304,34 @@ async function copyBody(): Promise<void> {
   padding: 14px;
   font-size: 12px;
   color: var(--text-3);
+}
+
+/* ---- 空态快捷按钮（neutral-800 微型按钮） ---- */
+
+.rep-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rep-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #262626;
+  color: #e5e5e5;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.rep-mini-btn:hover {
+  background: #404040;
+}
+.rep-mini-btn:active {
+  background: #4a4a4a;
 }
 </style>

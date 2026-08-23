@@ -8,7 +8,7 @@
  *   各渲染独立面板组件（Tests 断言、Code 生成代码已从底部工具区迁入）；
  * - Ctrl+S 保存 / Ctrl+Enter 发送；响应区展示状态码、耗时与正文（JSON 自动美化）。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -24,7 +24,6 @@ import BodyPanel from './BodyPanel.vue'
 import CodeExportMenu from './CodeExportMenu.vue'
 import CodePanel from './CodePanel.vue'
 import DesignPanel from './DesignPanel.vue'
-import DocsPanel from './DocsPanel.vue'
 import EnvironmentManager from './EnvironmentManager.vue'
 import HeadersPanel from './HeadersPanel.vue'
 import MockPanel from './MockPanel.vue'
@@ -39,11 +38,8 @@ import ParamsPanel from './ParamsPanel.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 import ResponsePanel from './ResponsePanel.vue'
 import RequestExamplesPanel from './RequestExamplesPanel.vue'
-import ScriptsPanel from './ScriptsPanel.vue'
 import Tabs from './ui/Tabs.vue'
 import TestCaseModal from './TestCaseModal.vue'
-import TestCasesPanel from './TestCasesPanel.vue'
-import TestsPanel from './TestsPanel.vue'
 import Tooltip from './ui/Tooltip.vue'
 import ToolsDrawer from './ToolsDrawer.vue'
 import type { TabItem } from './ui/Tabs.vue'
@@ -58,6 +54,11 @@ const store = useWorkspaceStore()
 const toast = useToast()
 const api = useFoxApi()
 
+// DocsPanel / TestCasesPanel 内部链路引入 CodeMirror 全家桶（约 300KB），
+// 异步化后拆出主 chunk，仅首次切到对应视图时加载
+const DocsPanel = defineAsyncComponent(() => import('./DocsPanel.vue'))
+const TestCasesPanel = defineAsyncComponent(() => import('./TestCasesPanel.vue'))
+
 const sending = ref(false)
 /** 在途请求的取消标识（非空表示有请求可取消）。 */
 const activeRequestId = ref<string | null>(null)
@@ -70,19 +71,29 @@ const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }))
 
 // ---------- 配置 Tab 系统 ----------
-type ConfigTabKey = 'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'tests' | 'examples' | 'code'
+type ConfigTabKey =
+  | 'params'
+  | 'auth'
+  | 'headers'
+  | 'body'
+  | 'examples'
+  | 'code'
 
-/** Method 系智能默认：POST / PUT / PATCH → Body；其余 → Params。 */
+/** 合法 Tab 集合（历史数据可能持久化过已下线的 scripts / tests）。 */
+const VALID_TABS: readonly ConfigTabKey[] = ['params', 'auth', 'headers', 'body', 'examples', 'code']
 
 /** 未保存 active_tab 时的智能默认（不写回草稿，避免标记脏）。 */
 const smartTab = ref<ConfigTabKey>('params')
 
 /**
- * 配置 Tab：优先读接口保存的 active_tab；未设置时按 Method 智能默认。
- * 用户点击 / 切换 Method 时写回 request.active_tab（随接口持久化）。
+ * 配置 Tab：优先读接口保存的 active_tab；未设置（或为已下线 Tab）时按
+ * Method 智能默认。用户点击 / 切换 Method 时写回 request.active_tab。
  */
 const activeTab = computed<ConfigTabKey>({
-  get: () => (draft.value?.request.active_tab as ConfigTabKey | null) ?? smartTab.value,
+  get: () => {
+    const saved = draft.value?.request.active_tab as ConfigTabKey | null
+    return saved && VALID_TABS.includes(saved) ? saved : smartTab.value
+  },
   set: (tab: ConfigTabKey) => {
     smartTab.value = tab
     if (draft.value) draft.value.request.active_tab = tab
@@ -111,8 +122,6 @@ const configTabs = computed<TabItem[]>(() => {
       label: bodyMode !== 'none' ? `Body (${BODY_TAB_LABELS[bodyMode] ?? bodyMode})` : 'Body',
       count: bodyMode !== 'none' ? 1 : undefined,
     },
-    { key: 'scripts', label: 'Scripts' },
-    { key: 'tests', label: 'Tests', count: d.request.tests ? 1 : undefined },
     { key: 'examples', label: 'Examples' },
     { key: 'code', label: 'Code' },
   ]
@@ -667,7 +676,7 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="editor-actions">
-        <button class="rf-btn rf-btn-sm" type="button" title="压测（并发基准）" @click="showTools = true">
+        <button class="rf-btn rf-btn-sm" type="button" title="断言测试 / 压测" @click="showTools = true">
           <Icon name="gauge" :size="13" /> 工具
         </button>
         <CodeExportMenu :draft="draft" :url="requestUrl" />
@@ -697,8 +706,6 @@ onUnmounted(() => {
       <AuthPanel v-else-if="activeTab === 'auth'" :draft="draft" />
       <HeadersPanel v-else-if="activeTab === 'headers'" :draft="draft" />
       <BodyPanel v-else-if="activeTab === 'body'" :draft="draft" />
-      <ScriptsPanel v-else-if="activeTab === 'scripts'" :draft="draft" />
-      <TestsPanel v-else-if="activeTab === 'tests'" :draft="draft" :url="requestUrl" />
       <RequestExamplesPanel v-else-if="activeTab === 'examples'" :draft="draft" />
       <CodePanel v-else :draft="draft" :url="requestUrl" />
     </div>
@@ -755,7 +762,7 @@ onUnmounted(() => {
       <pre v-if="viewingExample" class="example-body">{{ prettyBody(viewingExample.body) }}</pre>
     </div>
     </template>
-    <DesignPanel v-else-if="store.activeView === 'design'" :draft="draft" />
+    <DesignPanel v-else-if="store.activeView === 'design'" :draft="draft" @save="save" />
     <DocsPanel v-else-if="store.activeView === 'docs'" :draft="draft" :url="requestUrl" />
     <TestCasesPanel v-else-if="store.activeView === 'cases'" :draft="draft" />
     <MockPanel

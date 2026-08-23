@@ -1,8 +1,9 @@
 //! 数据库连接、路径与迁移。
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 
 use fox_core::{AppError, Result};
@@ -50,7 +51,10 @@ pub async fn connect(path: &Path) -> Result<SqlitePool> {
         .filename(path)
         .create_if_missing(true)
         .foreign_keys(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        // WAL 下的推荐档位：崩溃不丢事务，且写入时不再每笔 fsync（性能差异可达数倍）
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)

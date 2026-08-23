@@ -48,6 +48,10 @@ pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> Comm
 
 /// 从备份 JSON 恢复：校验格式 → 全量重映射 UUID → 落库为全新项目。
 /// 返回 `{ id, name, counts }` 摘要。
+///
+/// 原子性：落库逐条执行（repository 以连接池为参数，事务化需全链路重构），
+/// 任一步失败时级联删除已创建的项目（所有子表对 projects(id) 声明了
+/// ON DELETE CASCADE），用户视角等效于「要么全部成功，要么什么都没发生」。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn backup_restore(
     state: State<'_, AppState>,
@@ -56,24 +60,44 @@ pub async fn backup_restore(
     let file = BackupFile::parse(&text)?;
     let restored = restore_backup(&file);
 
-    repo::save_project(&state.db, &restored.project).await?;
-    for folder in &restored.folders {
-        repo::save_folder(&state.db, folder).await?;
+    let result: fox_core::Result<()> = async {
+        repo::save_project(&state.db, &restored.project).await?;
+        for folder in &restored.folders {
+            repo::save_folder(&state.db, folder).await?;
+        }
+        for endpoint in &restored.endpoints {
+            repo::save_endpoint(&state.db, endpoint).await?;
+        }
+        for environment in &restored.environments {
+            repo::save_environment(&state.db, environment).await?;
+        }
+        for rule in &restored.mock_rules {
+            repo::save_mock_rule(&state.db, rule).await?;
+        }
+        for example in &restored.response_examples {
+            repo::save_response_example(&state.db, example).await?;
+        }
+        for example in &restored.request_examples {
+            repo::create_request_example(&state.db, example).await?;
+        }
+        Ok(())
     }
-    for endpoint in &restored.endpoints {
-        repo::save_endpoint(&state.db, endpoint).await?;
-    }
-    for environment in &restored.environments {
-        repo::save_environment(&state.db, environment).await?;
-    }
-    for rule in &restored.mock_rules {
-        repo::save_mock_rule(&state.db, rule).await?;
-    }
-    for example in &restored.response_examples {
-        repo::save_response_example(&state.db, example).await?;
-    }
-    for example in &restored.request_examples {
-        repo::create_request_example(&state.db, example).await?;
+    .await;
+
+    if let Err(e) = result {
+        // 补偿删除（含级联）；删除本身失败时仅记录，不掩盖原始错误
+        if let Err(del) = sqlx::query("DELETE FROM projects WHERE id = ?")
+            .bind(restored.project.id)
+            .execute(&state.db)
+            .await
+        {
+            tracing::error!(
+                project = %restored.project.id,
+                error = %del,
+                "backup_restore 补偿删除残留项目失败"
+            );
+        }
+        return Err(e.into());
     }
 
     Ok(serde_json::json!({

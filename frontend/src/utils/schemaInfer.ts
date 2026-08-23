@@ -110,3 +110,57 @@ export function typeLabelOf(row: Pick<SchemaRow, 'type' | 'itemType'>): string {
   }
   return row.type
 }
+
+// ---------- Schema → Mock JSON（响应示例「从 Mock 快速填充」用） ----------
+
+/** 叶子类型的占位值（示例值可转换时优先）。 */
+function mockScalarOf(row: SchemaRow): unknown {
+  const ex = row.example.trim()
+  switch (row.type) {
+    case 'number': {
+      const n = Number(ex)
+      return Number.isFinite(n) && ex !== '' ? n : 0
+    }
+    case 'boolean':
+      return ex === 'true'
+    case 'null':
+      return null
+    default:
+      return ex || 'string'
+  }
+}
+
+/**
+ * SchemaRow 树 → Mock JSON 值。
+ *
+ * 映射保证每个字段唯一：同名 key 只取首次出现（历史样本可能含重复键，
+ * 推断出的兄弟行会重名），嵌套 object / 数组元素递归生成。
+ */
+function mockValueOf(row: SchemaRow): unknown {
+  if (row.type === 'object') return mockObjectOf(row.children)
+  if (row.type === 'array') {
+    // object 数组 → 单元素样本数组；标量数组 → 单元素占位（数组行无示例值）。
+    if (row.itemType === 'object') return [mockObjectOf(row.children)]
+    const item = row.itemType
+    if (!item || item === 'array') return [null]
+    return [mockScalarOf({ ...row, type: item })]
+  }
+  return mockScalarOf(row)
+}
+
+/** 子行列表 → Mock 对象（键唯一：重复 name 取首个，空名跳过）。 */
+function mockObjectOf(rows: SchemaRow[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const row of rows) {
+    const key = row.name.trim()
+    if (!key || key in out) continue
+    out[key] = mockValueOf(row)
+  }
+  return out
+}
+
+/** 根级 Schema 行 → Mock JSON 对象（空输入返回 null，由调用方回退提示）。 */
+export function mockJsonFromSchema(rows: SchemaRow[]): Record<string, unknown> | null {
+  const out = mockObjectOf(rows)
+  return Object.keys(out).length ? out : null
+}

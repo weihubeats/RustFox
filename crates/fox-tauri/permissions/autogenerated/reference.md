@@ -44,6 +44,8 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-backup-restore`
 - `allow-import-document`
 - `allow-export-openapi`
+- `allow-export-docs`
+- `allow-save-text-file`
 - `allow-test-endpoint`
 - `allow-load-test`
 - `allow-list-mock-rules`
@@ -482,6 +484,32 @@ Enables the execute_request command without any pre-configured scope.
 <td>
 
 Denies the execute_request command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-export-docs`
+
+</td>
+<td>
+
+Enables the export_docs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-export-docs`
+
+</td>
+<td>
+
+Denies the export_docs command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1262,6 +1290,32 @@ Enables the save_test_case command without any pre-configured scope.
 <td>
 
 Denies the save_test_case command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-save-text-file`
+
+</td>
+<td>
+
+Enables the save_text_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-save-text-file`
+
+</td>
+<td>
+
+Denies the save_text_file command without any pre-configured scope.
 
 </td>
 </tr>

@@ -24,6 +24,9 @@ async function openFind(wrapper: ReturnType<typeof mount>): Promise<void> {
   expect(input.exists()).toBe(true)
   await input.setValue('id')
   await flushPromises()
+  // 查找词经 160ms 防抖后才驱动高亮/计数
+  await new Promise((r) => setTimeout(r, 200))
+  await flushPromises()
 }
 
 describe('ResponsePanel：状态栏元数据', () => {
@@ -90,6 +93,8 @@ describe('ResponsePanel：查找（Find in Response）', () => {
     })
     await openFind(wrapper)
     await wrapper.find('.findbar-input').setValue('zzz')
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 200))
     await flushPromises()
     expect(wrapper.text()).toContain('无匹配')
     expect(wrapper.findAll('.jt-mark')).toHaveLength(0)

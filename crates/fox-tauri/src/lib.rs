@@ -57,6 +57,32 @@ use tauri::Manager;
 pub use error::{CommandError, CommandResult};
 pub use state::AppState;
 
+/// 初始化日志：stdout + `{log_dir}/rustfox.log` 按天滚动。
+///
+/// `RUST_LOG` 环境变量可覆盖级别（默认 `info`）。guard 有意泄漏——
+/// 与进程同生命周期，否则后台写线程退出后日志静默丢失。
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let dir = fox_storage::db::log_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        // 目录不可用时降级为仅 stdout，不阻断启动
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_ansi(false)
+            .try_init();
+        return;
+    }
+    let (writer, guard) =
+        tracing_appender::non_blocking(tracing_appender::rolling::daily(&dir, "rustfox.log"));
+    std::mem::forget(guard);
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(writer)
+        .try_init();
+}
+
 /// 插件命名空间。`init()` 注册状态与全部 Command。
 ///
 /// 非泛型 `Wry` 实现:便于 Command 直接取 `tauri::AppHandle` 推送事件
@@ -69,6 +95,7 @@ pub mod plugin {
         tauri::plugin::Builder::new("fox")
             .setup(
                 |app: &tauri::AppHandle, _api: tauri::plugin::PluginApi<tauri::Wry, ()>| {
+                    init_tracing();
                     // 初始化数据库（建目录 + 迁移）。阻塞主线程代价低（本地 SQLite）。
                     let db = match tauri::async_runtime::block_on(fox_storage::db::init_db(
                         &fox_storage::db::database_path(),
@@ -101,6 +128,7 @@ pub mod plugin {
             .invoke_handler(tauri::generate_handler![
                 commands::get_projects,
                 commands::update_projects_order,
+                commands::list_project_stats,
                 commands::save_project,
                 commands::delete_project,
                 commands::set_active_project,
@@ -124,6 +152,9 @@ pub mod plugin {
                 commands::list_examples,
                 commands::save_example,
                 commands::delete_example,
+                commands::list_request_examples,
+                commands::save_request_example,
+                commands::delete_request_example,
                 commands::oauth_authorize,
                 commands::oauth_access_token,
                 commands::codegen_render,
@@ -137,6 +168,8 @@ pub mod plugin {
                 commands::backup_restore,
                 commands::import_document,
                 commands::export_openapi,
+                commands::export_docs,
+                commands::save_text_file,
                 commands::test_endpoint,
                 commands::load_test,
                 commands::list_mock_rules,

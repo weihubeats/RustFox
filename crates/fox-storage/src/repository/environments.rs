@@ -9,7 +9,7 @@ use uuid::Uuid;
 use fox_core::model::Environment;
 use fox_core::{AppError, Result};
 
-use super::rows::EnvironmentRow;
+use super::rows::{decrypt_env_json, EnvironmentRow};
 
 pub async fn create_environment(
     db: &SqlitePool,
@@ -90,7 +90,17 @@ pub async fn list_environments(db: &SqlitePool, project_id: Uuid) -> Result<Vec<
     .bind(project_id.to_string())
     .fetch_all(db)
     .await?;
-    rows.into_iter().map(EnvironmentRow::into_model).collect()
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        // 单行密文损坏（主密钥更换 / 数据篡改）不毒化整个列表：
+        // 该环境按空变量表返回，前端仍有全局 DECRYPT 去重提示兜底。
+        if decrypt_env_json(&row.variables_json).is_err() {
+            tracing::warn!(project = %project_id, env = %row.name, "环境变量解密失败，该环境变量表按空处理");
+            row.variables_json = "{}".into();
+        }
+        out.push(row.into_model()?);
+    }
+    Ok(out)
 }
 
 /// 带 id：原样写入环境（upsert，同一 id 重复保存时更新而非报主键冲突）。

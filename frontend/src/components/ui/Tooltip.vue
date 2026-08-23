@@ -3,8 +3,7 @@
  * Tooltip：hover 提示（250ms 延迟出现，随触发元素定位）。
  * 触发元素为默认插槽；气泡 fixed 定位避免被 overflow 裁剪。
  */
-import { nextTick, onBeforeUnmount, ref } from 'vue'
-import { onMounted } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{ content: string; placement?: 'top' | 'bottom' }>(),
@@ -57,14 +56,41 @@ function onReposition(): void {
   if (visible.value) position()
 }
 
+/**
+ * 模块级共享 reposition 注册表：工具栏 / 树中几十个 Tooltip 实例
+ * 只挂一组 window 监听（每实例一组 scroll+resize 会显著放大滚动开销）。
+ */
+const repositionSubscribers = new Set<() => void>()
+let windowListenersAttached = false
+
+function notifyReposition(): void {
+  for (const fn of repositionSubscribers) fn()
+}
+
+function attachWindowListeners(): void {
+  if (windowListenersAttached) return
+  windowListenersAttached = true
+  window.addEventListener('scroll', notifyReposition, true)
+  window.addEventListener('resize', notifyReposition)
+}
+
+function detachWindowListenersIfIdle(): void {
+  if (!windowListenersAttached || repositionSubscribers.size > 0) return
+  windowListenersAttached = false
+  window.removeEventListener('scroll', notifyReposition, true)
+  window.removeEventListener('resize', notifyReposition)
+}
+
 onMounted(() => {
-  window.addEventListener('scroll', onReposition, true)
-  window.addEventListener('resize', onReposition)
+  repositionSubscribers.add(onReposition)
+  attachWindowListeners()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', onReposition, true)
-  window.removeEventListener('resize', onReposition)
+  // 先清掉 pending 的 show timer：卸载后回调仍会置 visible 并尝试定位
+  hide()
+  repositionSubscribers.delete(onReposition)
+  detachWindowListenersIfIdle()
 })
 </script>
 

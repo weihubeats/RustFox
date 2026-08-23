@@ -141,6 +141,13 @@ fn map_request(
                             .and_then(|x| x.as_str())
                             .unwrap_or("")
                             .to_string(),
+                        field_type: Default::default(),
+                        required: true,
+                        example: q
+                            .get("value")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     });
                 }
             }
@@ -174,6 +181,9 @@ fn map_request(
                     .and_then(|x| x.as_str())
                     .unwrap_or("")
                     .to_string(),
+                field_type: Default::default(),
+                required: true,
+                example: String::new(),
             });
         }
     }
@@ -342,6 +352,9 @@ fn parse_body(body: Option<&Value>) -> BodySpec {
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .to_string(),
+                                field_type: Default::default(),
+                                required: true,
+                                example: String::new(),
                             })
                         })
                         .collect()

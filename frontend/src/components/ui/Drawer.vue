@@ -2,6 +2,7 @@
 /**
  * Drawer：右侧侧滑抽屉。
  * - v-model:open 受控；Esc / 遮罩点击 / 右上 ✕ 关闭；
+ * - 打开后焦点移入抽屉、Tab 圈定在内部（焦点陷阱），关闭后归还触发元素；
  * - 打开期间锁定 body 滚动；Teleport 到 body。
  */
 import { onBeforeUnmount, ref, watch } from 'vue'
@@ -24,27 +25,70 @@ const emit = defineEmits<{
 
 const bodyEl = ref<HTMLElement | null>(null)
 
+const titleId = `rf-drawer-title-${Math.random().toString(36).slice(2, 9)}`
+
 function close(): void {
   emit('update:open', false)
   emit('close')
+}
+
+function focusables(): HTMLElement[] {
+  if (!bodyEl.value) return []
+  return Array.from(
+    bodyEl.value.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  )
 }
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault()
     close()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const root = bodyEl.value
+  if (!root) return
+  const items = focusables()
+  if (!items.length) {
+    event.preventDefault()
+    root.focus()
+    return
+  }
+  const first = items[0]
+  const last = items[items.length - 1]
+  const active = document.activeElement
+  const inside = !!active && root.contains(active)
+  if (event.shiftKey) {
+    if (!inside || active === first) {
+      event.preventDefault()
+      last.focus()
+    }
+  } else if (!inside || active === last) {
+    event.preventDefault()
+    first.focus()
   }
 }
+
+let lastFocused: HTMLElement | null = null
 
 watch(
   () => props.open,
   (open) => {
     if (open) {
+      lastFocused = document.activeElement as HTMLElement | null
       document.body.style.overflow = 'hidden'
       document.addEventListener('keydown', onKeydown)
+      // 首个可聚焦元素可能随内容异步渲染，先兜底聚焦容器
+      setTimeout(() => {
+        ;(focusables()[0] ?? bodyEl.value)?.focus()
+      }, 0)
     } else {
       document.body.style.overflow = ''
       document.removeEventListener('keydown', onKeydown)
+      lastFocused?.focus?.()
+      lastFocused = null
     }
   },
 )
@@ -64,11 +108,13 @@ onBeforeUnmount(() => {
           class="d-drawer"
           role="dialog"
           aria-modal="true"
+          :aria-labelledby="title ? titleId : undefined"
+          tabindex="-1"
           :style="{ width }"
           @mousedown.stop
         >
           <div class="d-head">
-            <h3 class="d-title">{{ title }}</h3>
+            <h3 :id="titleId" class="d-title">{{ title }}</h3>
             <IconButton v-if="closable" name="x" :size="14" title="关闭" @click="close" />
           </div>
           <div class="d-body">

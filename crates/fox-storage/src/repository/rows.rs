@@ -403,7 +403,12 @@ pub(crate) fn encrypt_env_json(vars: &HashMap<String, String>) -> String {
     let json = serde_json::to_string(vars).unwrap_or_else(|_| "{}".into());
     match fox_secret::ensure_master_key().and_then(|k| fox_secret::encrypt(&k, &json)) {
         Ok(cipher) => cipher,
-        Err(_) => json,
+        Err(e) => {
+            // 可用性优先降级为明文落库，但必须留下痕迹：密钥文件只读 /
+            // 磁盘满等故障若静默发生，用户无从得知敏感数据未加密。
+            tracing::warn!(error = %e, "环境变量加密失败，已降级为明文存储");
+            json
+        }
     }
 }
 

@@ -32,6 +32,8 @@ import type {
   Environment,
   ExecuteRequestArgs,
   ExecuteResponse,
+  ExportFormat,
+  ExportedDoc,
   Folder,
   HttpMethod,
   ImportResult,
@@ -40,6 +42,7 @@ import type {
   MockRule,
   OAuth2Token,
   Project,
+  ProjectStat,
   RequestExample,
   RequestHistory,
   RequestSpec,
@@ -89,38 +92,43 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
-export function useFoxApi() {
-  /** 全局请求中标记（可用于按钮 loading）。 */
-  const pending = ref(false)
+/**
+ * 模块级单例状态。
+ *
+ * pending / inflight / activeProject / activeEnvironment 必须全局唯一：
+ * 全仓 25+ 处 `useFoxApi()` 若各自持有一套计数器，任一实例的并发归零都会
+ * 提前收尾全局进度条，activeProject 缓存也会分叉（历史缺陷，勿回退为函数内状态）。
+ */
+const pending = ref(false)
 
-  /** 全局顶部加载进度条（配合 ProgressBar 组件）。 */
-  const progress = useProgress()
+const progress = useProgress()
 
-  /** 激活项目 / 环境的响应式缓存（由 setActive* 命令同步）。 */
-  const activeProject = ref<Project | null>(null)
-  const activeEnvironment = ref<Environment | null>(null)
+/** 激活项目 / 环境的响应式缓存（由 setActive* 命令同步）。 */
+const activeProject = ref<Project | null>(null)
+const activeEnvironment = ref<Environment | null>(null)
 
-  /** 并发请求深度：归零时才结束进度条，避免嵌套请求提前收尾。 */
-  let inflight = 0
+/** 并发请求深度：归零时才结束进度条，避免嵌套请求提前收尾。 */
+let inflight = 0
 
-  /** 执行一个异步任务并维护 pending 状态与顶部进度条。 */
-  async function run<T>(task: () => Promise<T>): Promise<T> {
+/** 执行一个异步任务并维护 pending 状态与顶部进度条。 */
+async function run<T>(task: () => Promise<T>): Promise<T> {
+  if (inflight === 0) {
+    pending.value = true
+    progress.start()
+  }
+  inflight += 1
+  try {
+    return await task()
+  } finally {
+    inflight -= 1
     if (inflight === 0) {
-      pending.value = true
-      progress.start()
-    }
-    inflight += 1
-    try {
-      return await task()
-    } finally {
-      inflight -= 1
-      if (inflight === 0) {
-        pending.value = false
-        progress.done()
-      }
+      pending.value = false
+      progress.done()
     }
   }
+}
 
+export function useFoxApi() {
   // ---------- 项目 ----------
   const getProjects = () => run(() => call<Project[]>('get_projects'))
 
@@ -128,6 +136,9 @@ export function useFoxApi() {
 
   const updateProjectsOrder = (projectIds: string[]) =>
     run(() => call<void>('update_projects_order', { projectIds }))
+
+  /** 项目仪表板统计：单条 IPC 返回全部项目的接口数 + 最近更新接口（替代 N+1）。 */
+  const listProjectStats = () => run(() => call<ProjectStat[]>('list_project_stats'))
 
   const deleteProject = (projectId: string) =>
     run(() => call<void>('delete_project', { projectId }))
@@ -317,6 +328,17 @@ export function useFoxApi() {
   const exportOpenapi = (projectId: string) =>
     run(() => call<string>('export_openapi', { projectId }))
 
+  /** 多格式文档导出：endpointId 为 null 时导出整个项目。 */
+  const exportDocs = (args: {
+    projectId: string
+    endpointId: string | null
+    format: ExportFormat
+  }) => run(() => call<ExportedDoc>('export_docs', args))
+
+  /** 写入磁盘（路径来自原生保存框）。 */
+  const writeTextFile = (path: string, contents: string) =>
+    run(() => call<void>('save_text_file', { path, contents }))
+
   // ---------- 测试 / 压测 ----------
   const testEndpoint = (args: { endpoint: Endpoint; url: string; environment_id: string | null }) =>
     run(() => call<EndpointResult>('test_endpoint', { args }))
@@ -337,6 +359,7 @@ export function useFoxApi() {
     getProjects,
     saveProject,
     updateProjectsOrder,
+    listProjectStats,
     deleteProject,
     setActiveProject,
     getActiveProject,
@@ -385,6 +408,8 @@ export function useFoxApi() {
     backupRestore,
     importDocument,
     exportOpenapi,
+    exportDocs,
+    writeTextFile,
     testEndpoint,
     loadTest,
   }

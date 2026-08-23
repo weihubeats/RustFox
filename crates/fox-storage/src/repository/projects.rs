@@ -53,6 +53,34 @@ pub async fn list_projects(db: &SqlitePool) -> Result<Vec<Project>> {
     rows.into_iter().map(ProjectRow::into_model).collect()
 }
 
+/// 项目级接口统计（仪表板用）：每个项目的接口总数 + 最近更新的一个接口。
+///
+/// 单条 SQL（窗口函数）替代「逐项目 list_endpoints 拉全量再在前端聚合」，
+/// 接口含完整请求体时后者会把全部 body 传回前端，项目一多启动即卡。
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProjectEndpointStat {
+    pub project_id: String,
+    pub endpoint_count: i64,
+    pub latest_method: Option<String>,
+    pub latest_path: Option<String>,
+}
+
+pub async fn list_endpoint_stats(db: &SqlitePool) -> Result<Vec<ProjectEndpointStat>> {
+    // 以 projects 驱动：零接口的项目也返回（count=0 / latest=NULL）。
+    let stats: Vec<ProjectEndpointStat> = sqlx::query_as(
+        "SELECT p.id AS project_id,
+                (SELECT COUNT(*) FROM endpoints e WHERE e.project_id = p.id) AS endpoint_count,
+                (SELECT e.method FROM endpoints e WHERE e.project_id = p.id
+                  ORDER BY e.updated_at DESC LIMIT 1) AS latest_method,
+                (SELECT e.path FROM endpoints e WHERE e.project_id = p.id
+                  ORDER BY e.updated_at DESC LIMIT 1) AS latest_path
+         FROM projects p",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(stats)
+}
+
 /// 拖拽排序持久化：按给定 id 顺序（事务）批量重写 sort_order。
 /// 任一 id 不存在则整体回滚并报错，避免前端的脏顺序污染数据库。
 pub async fn update_projects_order(db: &SqlitePool, project_ids: &[Uuid]) -> Result<()> {
@@ -141,6 +169,58 @@ pub async fn save_project(db: &SqlitePool, project: &Project) -> Result<()> {
 mod tests {
     use super::*;
     use crate::db::memory_pool;
+    use crate::repository::endpoints::save_endpoint;
+    use fox_core::model::{Endpoint, EndpointStatus, HttpMethod, RequestSpec};
+
+    fn endpoint_for(project_id: Uuid, name: &str, method: HttpMethod, path: &str) -> Endpoint {
+        Endpoint {
+            id: Uuid::new_v4(),
+            project_id,
+            folder_id: None,
+            name: name.into(),
+            method,
+            path: path.into(),
+            description: String::new(),
+            status: EndpointStatus::Released,
+            sort_order: 0,
+            request: RequestSpec::default(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    /// 仪表板统计：零接口项目 count=0/latest=NULL；多接口项目取最近更新的一条。
+    #[tokio::test]
+    async fn list_endpoint_stats_counts_and_latest() {
+        let db = memory_pool().await.expect("建库");
+        let empty = create_project(&db, "空项目", "").await.unwrap();
+        let busy = create_project(&db, "活跃项目", "").await.unwrap();
+
+        save_endpoint(
+            &db,
+            &endpoint_for(busy.id, "旧接口", HttpMethod::GET, "/old"),
+        )
+        .await
+        .unwrap();
+        // 保证 updated_at 严格更大（RFC3339 精度依赖时钟推进）
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        // save_endpoint 对带 id 的记录做 upsert，updated_at 刷新为当前时间
+        let newer = endpoint_for(busy.id, "新接口", HttpMethod::POST, "/latest");
+        save_endpoint(&db, &newer).await.unwrap();
+
+        let stats = list_endpoint_stats(&db).await.unwrap();
+        assert_eq!(stats.len(), 2);
+
+        let empty_stat = stats.iter().find(|s| s.project_id == empty.id.to_string()).unwrap();
+        assert_eq!(empty_stat.endpoint_count, 0);
+        assert!(empty_stat.latest_method.is_none());
+        assert!(empty_stat.latest_path.is_none());
+
+        let busy_stat = stats.iter().find(|s| s.project_id == busy.id.to_string()).unwrap();
+        assert_eq!(busy_stat.endpoint_count, 2);
+        assert_eq!(busy_stat.latest_method.as_deref(), Some("POST"));
+        assert_eq!(busy_stat.latest_path.as_deref(), Some("/latest"));
+    }
 
     #[tokio::test]
     async fn update_projects_order_persists_and_orders_list() {

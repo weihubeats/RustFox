@@ -1,5 +1,8 @@
 //! 测试 Command：单接口断言测试（`test_endpoint`）+ 并发压测（`load_test`）。
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
@@ -69,7 +72,16 @@ pub async fn load_test(
     let url = fox_core::resolve_variables(&args.url, &vars);
     let spec = render_spec(&args.spec, &vars);
     let cfg = fox_test::load::LoadConfig { concurrency, total };
+    // 进度节流：高并发短请求下逐请求 emit 会产生每秒数千次 IPC，
+    // 按 100ms 时间窗合并；终态（done == total）必发一次保证收尾准确。
+    let started = Instant::now();
+    let last_emit_ms = AtomicU64::new(0);
     let progress = move |p: fox_test::load::LoadProgress| {
+        let now = started.elapsed().as_millis() as u64;
+        if p.done < p.total && now.saturating_sub(last_emit_ms.load(Ordering::Relaxed)) < 100 {
+            return;
+        }
+        last_emit_ms.store(now, Ordering::Relaxed);
         let _ = app.emit("fox:load-progress", &p);
     };
     Ok(fox_test::load::run_load(args.method, &url, &spec, &cfg, Some(&progress)).await)

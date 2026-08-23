@@ -107,22 +107,29 @@ impl AppState {
 
     /// 设置激活项目（`None` 表示清空）。项目切换后，属于其他项目的环境自动失效。
     /// 持久化到 settings 表，重启后由 `restore_active` 恢复。
+    ///
+    /// 数据库查询全部在锁外完成：写锁若跨 await，会阻塞所有并发读
+    /// （每次发请求的 `variables_for` 都要读激活上下文）。
     pub async fn set_active_project(&self, project_id: Option<Uuid>) -> CommandResult<()> {
-        let mut write = self.active.write().await;
-        write.project_id = project_id;
-        write.project = match project_id {
+        let project = match project_id {
             Some(id) => Some(repo::get_project(&self.db, id).await?),
             None => None,
         };
-        // 环境归属：优先用缓存，缓存缺失（如恢复后的初始状态）时查库补全。
-        let env_project = match (write.environment.as_ref(), write.environment_id) {
-            (Some(env), _) => Some(env.project_id),
-            (None, Some(id)) => match repo::get_environment(&self.db, id).await {
-                Ok(env) => Some(env.project_id),
-                Err(_) => None,
-            },
+
+        // 短读锁快照环境归属信息，查库在锁外进行
+        let (cur_env_id, cached_env_project) = {
+            let read = self.active.read().await;
+            (read.environment_id, read.environment.as_ref().map(|e| e.project_id))
+        };
+        let env_project = match (cached_env_project, cur_env_id) {
+            (Some(pid), _) => Some(pid),
+            (None, Some(id)) => repo::get_environment(&self.db, id).await.ok().map(|e| e.project_id),
             (None, None) => None,
         };
+
+        let mut write = self.active.write().await;
+        write.project_id = project_id;
+        write.project = project;
         let mut env_id = write.environment_id;
         if env_project != project_id {
             write.environment_id = None;
@@ -137,12 +144,14 @@ impl AppState {
 
     /// 设置激活环境（`None` 表示不使用环境变量）。持久化到 settings 表。
     pub async fn set_active_environment(&self, environment_id: Option<Uuid>) -> CommandResult<()> {
-        let mut write = self.active.write().await;
-        write.environment_id = environment_id;
-        write.environment = match environment_id {
+        // 查库在锁外：无效 id 在此返回错误，不占用写锁
+        let environment = match environment_id {
             Some(id) => Some(repo::get_environment(&self.db, id).await?),
             None => None,
         };
+        let mut write = self.active.write().await;
+        write.environment_id = environment_id;
+        write.environment = environment;
         drop(write);
         repo::set_setting(
             &self.db,

@@ -59,6 +59,41 @@ function select(env: Environment | null): void {
   dirty.value = false
 }
 
+// ---------- 未保存修改的关闭/切换确认 ----------
+/** 确认条可见性（有未保存修改时拦截关闭或切换环境后显示）。 */
+const confirmLeave = ref(false)
+let pendingAction: (() => void) | null = null
+
+/** Modal 关闭守卫：脏时拦截并展示确认条。 */
+function guardClose(): boolean {
+  if (!dirty.value) return true
+  confirmLeave.value = true
+  return false
+}
+
+/** 用户动作（切换环境 / 取消 / 关闭）统一经此：干净直接执行，脏则挂起待确认。 */
+function guard(action: () => void): void {
+  if (!dirty.value) {
+    action()
+    return
+  }
+  pendingAction = action
+  confirmLeave.value = true
+}
+
+function discardChanges(): void {
+  const act = pendingAction
+  pendingAction = null
+  confirmLeave.value = false
+  dirty.value = false
+  act?.()
+}
+
+function keepEditing(): void {
+  pendingAction = null
+  confirmLeave.value = false
+}
+
 watch(
   () => props.open,
   (isOpen) => {
@@ -121,6 +156,7 @@ async function save(): Promise<void> {
     selected.value = saved
     envs.value = [...store.environments]
     dirty.value = false
+    confirmLeave.value = false
   } catch (err) {
     toast.error('保存环境失败', { message: err instanceof Error ? err.message : String(err) })
   } finally {
@@ -129,10 +165,12 @@ async function save(): Promise<void> {
 }
 
 function cancel(): void {
-  envs.value = [...store.environments]
-  const active = store.environments.find((e) => e.id === store.activeEnvId)
-  select(active ?? store.environments[0] ?? null)
-  emit('update:open', false)
+  guard(() => {
+    envs.value = [...store.environments]
+    const active = store.environments.find((e) => e.id === store.activeEnvId)
+    select(active ?? store.environments[0] ?? null)
+    emit('update:open', false)
+  })
 }
 
 async function remove(env: Environment): Promise<void> {
@@ -155,9 +193,20 @@ async function remove(env: Environment): Promise<void> {
     :open="open"
     title="环境管理"
     width="760px"
+    :guard-close="guardClose"
     @update:open="emit('update:open', $event)"
   >
     <div class="em">
+      <div v-if="confirmLeave" class="em-confirm" role="alert">
+        <span class="em-confirm-text">当前环境有未保存的修改</span>
+        <span class="em-confirm-actions">
+          <button class="rf-btn rf-btn-sm" type="button" @click="keepEditing">继续编辑</button>
+          <button class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="discardChanges">
+            放弃修改
+          </button>
+        </span>
+      </div>
+      <div class="em-body">
       <aside class="em-list">
         <div class="em-list-head">环境列表</div>
         <div class="em-list-body">
@@ -166,7 +215,7 @@ async function remove(env: Environment): Promise<void> {
             :key="env.id"
             class="em-row"
             :class="{ active: env.id === activeEnvId, sel: env.id === selected?.id }"
-            @click="select(env)"
+            @click="guard(() => select(env))"
           >
             <span class="edot" :class="`ed-${envColorClass(env.name)}`"></span>
             <span class="em-row-name" v-tooltip-overflow="env.name">{{ env.name }}</span>
@@ -280,6 +329,7 @@ async function remove(env: Environment): Promise<void> {
           暂无环境。点击左侧「添加环境」创建，或从工作区顶部环境选择器进入。
         </p>
       </section>
+      </div>
     </div>
 
     <template #footer>
@@ -299,9 +349,41 @@ async function remove(env: Environment): Promise<void> {
 <style scoped>
 .em {
   display: flex;
+  flex-direction: column;
   gap: 14px;
   min-height: 380px;
   max-height: 58vh;
+}
+
+/* 列表 + 编辑器横向主区（确认条出现在其上方） */
+.em-body {
+  display: flex;
+  gap: 14px;
+  min-height: 0;
+}
+
+/* ---- 未保存修改确认条 ---- */
+.em-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--warning-tint, var(--border));
+  border-radius: var(--radius);
+  background: var(--warning-tint, var(--bg-panel));
+}
+
+.em-confirm-text {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.em-confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* ---- 左侧：环境列表 ---- */

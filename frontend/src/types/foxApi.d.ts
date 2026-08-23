@@ -42,12 +42,21 @@ export type EndpointStatus =
 
 export type ApiKeyLocation = 'header' | 'query'
 
+/** 参数字段类型（接口设计页的 Schema 标注，Rust `FieldType`）。 */
+export type FieldType = 'string' | 'number' | 'boolean' | 'object'
+
 /** Query / Header / Path 变量等键值对（Rust `KeyValue`）。 */
 export interface KeyValue {
   key: string
   value: string
   enabled: boolean
   description: string
+  /** 设计元数据：字段类型（旧数据缺省 string）。 */
+  field_type?: FieldType
+  /** 设计元数据：是否必填（缺省 true）。 */
+  required?: boolean
+  /** 设计元数据：示例值。 */
+  example?: string
 }
 
 /** 认证方式（Rust `AuthSpec`，tag = "type"）。 */
@@ -148,6 +157,14 @@ export interface Project {
   updated_at: string
 }
 
+/** 项目仪表板统计（Rust `ProjectStat`，list_project_stats 命令）。 */
+export interface ProjectStat {
+  project_id: string
+  endpoint_count: number
+  latest_method: string | null
+  latest_path: string | null
+}
+
 /** 文件夹（Rust `Folder`）。 */
 export interface Folder {
   id: string
@@ -242,6 +259,21 @@ export interface ResponseExample {
   content_type: string
   created_at: string
   updated_at: string
+}
+
+/** 文档导出格式（Rust `ExportFormat`，snake_case 序列化）。 */
+export type ExportFormat =
+  | 'openapi_json'
+  | 'openapi_yaml'
+  | 'postman'
+  | 'markdown'
+  | 'html'
+  | 'curl_script'
+
+/** 文档导出结果（内容 + 建议文件名）。 */
+export interface ExportedDoc {
+  content: string
+  suggested_name: string
 }
 
 /** 请求用例（Rust `RequestExample`）：接口请求快照，可一键回填编辑器。 */

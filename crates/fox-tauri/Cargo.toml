@@ -29,6 +29,11 @@ arboard = "3"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# serde_yaml 已停更，serde_norway 为 API 兼容接续分支（与根 workspace 一致）
+serde_norway = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 chrono = { version = "0.4", features = ["serde"] }

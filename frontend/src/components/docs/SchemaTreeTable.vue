@@ -4,7 +4,7 @@
  *
  * - 列：字段名 | 类型 | 必填 | 说明（示例值）；
  * - 嵌套 object / object 数组可展开折叠（chevron + 缩进层级）；
- * - 类型 Badge 按语义着色：string 绿 / object 蓝 / number 黄 / boolean 紫 / array 紫罗兰；
+ * - 类型 Badge 按语义着色：string 柔和绿 / object 蓝 / number 黄 / boolean 紫 / array 紫罗兰；
  * - 数据来自 schemaInfer（样本推断），「必填」由调用方语义决定（默认 true）。
  */
 import { computed, ref, watch } from 'vue'
@@ -163,12 +163,13 @@ function toggle(key: string, expandable: boolean): void {
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  border-bottom: 1px solid var(--border);
+  /* 表头分隔线：比行分隔线更重一档，划分字段区与数据区 */
+  border-bottom: 1px solid var(--border-strong);
   white-space: nowrap;
 }
 
 .stt-row td {
-  padding: 5px 8px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   color: var(--text-2);
   vertical-align: middle;
@@ -213,6 +214,10 @@ function toggle(key: string, expandable: boolean): void {
 .field-caret {
   flex-shrink: 0;
   color: var(--text-3);
+  transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.field-cell.clickable:hover .field-caret {
+  color: var(--text-2);
 }
 
 /* 叶子行的占位圆点（与 caret 对齐） */
@@ -243,21 +248,21 @@ function toggle(key: string, expandable: boolean): void {
   font-weight: 600;
 }
 
-/* ---- 类型 Badge：string 绿 / object 蓝 / number 黄 / boolean 紫 / array 紫罗兰 ---- */
+/* ---- 类型 Badge：string 柔和绿 / object 蓝 / number 黄 / boolean 紫 / array 紫罗兰 ---- */
 .type-badge {
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.6;
   border: 1px solid transparent;
   white-space: nowrap;
 }
 .t-string {
-  color: var(--success);
-  background: var(--success-tint);
-  border-color: color-mix(in srgb, var(--success) 22%, transparent);
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.2);
 }
 .t-object {
   color: var(--info);

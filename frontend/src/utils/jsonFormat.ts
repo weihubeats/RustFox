@@ -27,6 +27,44 @@ export function compactJson(src: string): string {
   return serialize(parseJson(src), 0, false)
 }
 
+/**
+ * 折叠对象重复键（代码生成用）：同名 key 只保留首次出现，嵌套递归处理，
+ * 键顺序与其余内容保持原样。解析失败返回 null（由调用方回退原文）。
+ *
+ * 背景：Body 原文可能因历史数据 / 导入产生 `"body": …` 重复键，
+ * 直接嵌入生成的 cURL / JS / Java 代码会出现同一字段多次出现，
+ * 这里在「Schema → Mock JSON」映射出口统一保证每个字段唯一。
+ */
+export function dedupeJsonKeys(src: string): string | null {
+  let root: Node
+  try {
+    root = parseJson(src)
+  } catch {
+    return null
+  }
+
+  const clean = (node: Node): Node => {
+    switch (node.kind) {
+      case 'object': {
+        const seen = new Set<string>()
+        const entries: Array<{ key: string; value: Node }> = []
+        for (const e of node.entries) {
+          if (seen.has(e.key)) continue
+          seen.add(e.key)
+          entries.push({ key: e.key, value: clean(e.value) })
+        }
+        return { kind: 'object', entries }
+      }
+      case 'array':
+        return { kind: 'array', items: node.items.map(clean) }
+      default:
+        return node
+    }
+  }
+
+  return serialize(clean(root), 0, false)
+}
+
 // ---------- 解析（递归下降，保序保重键） ----------
 
 function parseJson(src: string): Node {
