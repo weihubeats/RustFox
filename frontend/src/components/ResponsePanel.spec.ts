@@ -112,6 +112,17 @@ describe('ResponsePanel：查找（Find in Response）', () => {
   })
 })
 
+describe('ResponsePanel：大响应保护', () => {
+  it('超过 10 万行时提示截断，且行数组不再全量驻留（回归：rawLines 全量 split）', async () => {
+    const body = Array.from({ length: 100_002 }, (_, i) => `line-${i}`).join('\n')
+    const wrapper = mount(ResponsePanel, { props: { response: makeResponse(body) } })
+    // 非 JSON 文本 → pretty 视图退化为行视图；提示出现且初始仅渲染首块 1000 行。
+    expect(wrapper.text()).toMatch(/超出部分未展示/)
+    expect(wrapper.findAll('.rp-line').length).toBeLessThanOrEqual(1000)
+    wrapper.unmount()
+  })
+})
+
 describe('ResponsePanel：展开全部 / 收起全部', () => {
   it('切换 JSON 树全部节点的展开状态', async () => {
     const wrapper = mount(ResponsePanel, {

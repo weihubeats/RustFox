@@ -95,9 +95,18 @@ const variablesHtml = computed(() => {
   return escapeHtml(t)
 })
 
+// 大响应保护（与 ResponsePanel 的 PARSE_LIMIT_BYTES 对齐）：
+// parse + stringify(pretty) + 正则高亮会把体积放大数十倍并生成海量 <span>，
+// 超过阈值跳过格式化，仅转义显示前 200KB 纯文本；完整内容可切换「原始」查看。
+const PARSE_LIMIT_BYTES = 1_000_000
+const PREVIEW_LIMIT_BYTES = 200_000
+
+const responseTooLarge = computed(() => (response.value?.body.length ?? 0) > PARSE_LIMIT_BYTES)
+
 const responseHtml = computed(() => {
   if (!response.value) return ''
   const text = response.value.body
+  if (text.length > PARSE_LIMIT_BYTES) return escapeHtml(text.slice(0, PREVIEW_LIMIT_BYTES))
   try {
     const parsed = JSON.parse(text)
     return highlightJSON(JSON.stringify(parsed, null, 2))
@@ -431,6 +440,9 @@ async function copyCode() {
     </div>
 
     <div v-if="response" class="resp-body">
+      <p v-if="responseTooLarge && !responseRaw" class="resp-too-large">
+        响应超过 1 MB，已跳过格式化与高亮，仅显示前 200 KB（切换「原始」可查看全部文本）
+      </p>
       <pre v-if="!responseRaw" class="resp-pre" v-html="responseHtml"></pre>
       <pre v-else class="resp-pre">{{ response.body }}</pre>
     </div>
@@ -737,6 +749,15 @@ async function copyCode() {
   border-radius: var(--r-s);
   max-height: 320px;
   overflow: auto;
+}
+
+.resp-too-large {
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--text-2);
+  font-size: 12px;
 }
 
 .resp-pre {

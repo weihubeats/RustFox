@@ -587,6 +587,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (idx === -1) return
     openTabs.value.splice(idx, 1)
     drafts.value.delete(id)
+    // 示例缓存随标签释放（每条含完整响应 body），重开标签时懒加载重建。
+    examples.value.delete(id)
     if (activeTabId.value === id) {
       activeTabId.value = openTabs.value[idx] ?? openTabs.value[idx - 1] ?? null
     }

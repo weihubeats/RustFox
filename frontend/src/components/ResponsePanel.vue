@@ -114,13 +114,30 @@ const isPreviewable = computed(() =>
 )
 const isImage = computed(() => props.response.content_type.toLowerCase().startsWith('image/'))
 
-const prettyLines = computed(() => pretty.value.split('\n'))
-const rawLines = computed(() => props.response.body.split('\n'))
+/** 行数上限：后端最多放行 20MB 响应体，全量 split 会产生数十万行字符串驻留内存。 */
+const LINE_LIMIT = 100_000
+
+function splitLines(text: string): { lines: string[]; truncated: boolean } {
+  const lines = text.split('\n', LINE_LIMIT + 1)
+  if (lines.length > LINE_LIMIT) {
+    lines.length = LINE_LIMIT
+    return { lines, truncated: true }
+  }
+  return { lines, truncated: false }
+}
+
+const prettySplit = computed(() => splitLines(pretty.value))
+const rawSplit = computed(() => splitLines(props.response.body))
+
+const prettyLines = computed(() => prettySplit.value.lines)
+const rawLines = computed(() => rawSplit.value.lines)
 const shownPrettyLines = computed(() => prettyLines.value.slice(0, visibleLines.value))
 const shownRawLines = computed(() => rawLines.value.slice(0, visibleLines.value))
 const hasMorePretty = computed(() => prettyLines.value.length > visibleLines.value)
 const hasMoreRaw = computed(() => rawLines.value.length > visibleLines.value)
 const bodyTooLarge = computed(() => props.response.body.length > PARSE_LIMIT_BYTES)
+/** 行数组截断提示：超大响应全量 split 会产生数十万行字符串驻留内存。 */
+const linesTruncated = computed(() => rawSplit.value.truncated || prettySplit.value.truncated)
 function showMoreLines(): void {
   visibleLines.value += LINE_CHUNK
 }
@@ -422,6 +439,7 @@ onUnmounted(() => window.removeEventListener('keydown', onWindowKeydown))
         <p v-if="bodyTooLarge" class="rp-note">
           响应超过 1 MB，已按原始文本显示（跳过 JSON 解析与树形渲染以保证流畅）
         </p>
+        <p v-if="linesTruncated" class="rp-note">响应行数超过 100,000，超出部分未展示</p>
         <p v-if="!response.body.trim()" class="rp-empty">响应正文为空</p>
         <JsonTree
           v-else-if="viewMode === 'pretty' && isJson"

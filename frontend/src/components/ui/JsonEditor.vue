@@ -31,15 +31,30 @@ const taRef = ref<HTMLTextAreaElement | null>(null)
 const preRef = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 
-/** 空内容渲染一个空格，保证 pre 与 textarea 高度一致（滚动同步前提）。 */
-const html = computed(() => highlightJSON(props.modelValue.length ? props.modelValue : ' '))
+/**
+ * 大内容保护：超过阈值后停用逐键语法高亮 / JSON 校验 / 行号渲染。
+ * 这些计算随内容大小线性放大（每次键入全文 parse + 正则高亮 + v-html 重建
+ * + 每行一个行号 div），大文档下会造成明显卡顿与内存高水位，故退化为
+ * 纯文本编辑（textarea 直接着色，无覆盖层）。
+ */
+const LARGE_DOC_CHARS = 200_000
 
-const lineCount = computed(() => props.modelValue.split('\n').length)
+const isLargeDoc = computed(() => props.modelValue.length > LARGE_DOC_CHARS)
+
+/** 空内容渲染一个空格，保证 pre 与 textarea 高度一致（滚动同步前提）。 */
+const html = computed(() =>
+  isLargeDoc.value ? '' : highlightJSON(props.modelValue.length ? props.modelValue : ' '),
+)
+
+const lineCount = computed(() => (isLargeDoc.value ? 0 : props.modelValue.split('\n').length))
 
 /** 行号栏宽度随位数增长：左留白 + 位数×字宽 + 右留白。 */
-const gutterWidth = computed(() => 10 + String(lineCount.value).length * 8 + 10)
+const gutterWidth = computed(() =>
+  isLargeDoc.value ? 0 : 10 + String(lineCount.value).length * 8 + 10,
+)
 
-const status = computed<'empty' | 'ok' | 'invalid'>(() => {
+const status = computed<'empty' | 'ok' | 'invalid' | 'large'>(() => {
+  if (isLargeDoc.value) return 'large'
   const t = props.modelValue.trim()
   if (!t) return 'empty'
   try {
@@ -115,7 +130,12 @@ function format(): void {
 <template>
   <div class="json-editor">
     <div class="hl-wrap" :style="{ minHeight: `${minHeight}px` }">
-      <div class="hl-gutter" :style="{ width: `${gutterWidth}px` }" aria-hidden="true">
+      <div
+        v-if="!isLargeDoc"
+        class="hl-gutter"
+        :style="{ width: `${gutterWidth}px` }"
+        aria-hidden="true"
+      >
         <div
           class="hl-gutter-inner"
           :style="{ transform: `translateY(${-scrollTop}px)` }"
@@ -124,6 +144,7 @@ function format(): void {
         </div>
       </div>
       <pre
+        v-if="!isLargeDoc"
         ref="preRef"
         class="hl-pre"
         aria-hidden="true"
@@ -133,6 +154,7 @@ function format(): void {
       <textarea
         ref="taRef"
         class="hl-ta"
+        :class="{ plain: isLargeDoc }"
         :value="modelValue"
         :placeholder="placeholder"
         spellcheck="false"
@@ -146,10 +168,12 @@ function format(): void {
         <span
           v-if="status !== 'empty'"
           class="hl-status"
-          :class="{ invalid: status === 'invalid' }"
-          :title="status === 'invalid' ? 'JSON 无效' : 'JSON 有效'"
+          :class="{ invalid: status === 'invalid', large: status === 'large' }"
+          :title="
+            status === 'invalid' ? 'JSON 无效' : status === 'large' ? '内容过大，高亮已停用' : 'JSON 有效'
+          "
         >
-          <span class="hl-dot"></span>{{ status === 'invalid' ? '无效' : '有效' }}
+          <span class="hl-dot"></span>{{ status === 'invalid' ? '无效' : status === 'large' ? '内容过大' : '有效' }}
         </span>
         <CustomSelect
           :model-value="formatMode"
@@ -231,6 +255,11 @@ function format(): void {
 .hl-ta::placeholder {
   color: rgba(215, 219, 227, 0.35);
 }
+
+/* 大内容模式：无高亮覆盖层，textarea 直接着色 */
+.hl-ta.plain {
+  color: #d7dbe3;
+}
 .hl-ta::selection {
   background: rgba(168, 85, 247, 0.28);
 }
@@ -298,6 +327,10 @@ function format(): void {
 }
 .hl-status.invalid {
   color: #f87171;
+}
+
+.hl-status.large {
+  color: rgba(215, 219, 227, 0.45);
 }
 
 .hl-mode :deep(.cs-trigger) {

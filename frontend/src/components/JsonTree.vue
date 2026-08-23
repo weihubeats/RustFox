@@ -41,14 +41,25 @@ const props = withDefaults(
     query?: string
     /** 当前激活的匹配序号（0-based，由父级控制上/下一个）。 */
     activeMatch?: number
+    /** 渲染行数上限：展开全部 / 查找强制展开时，避免一次渲染数万行 DOM 冻结页面。 */
+    maxLines?: number
   }>(),
-  { expandDepth: 3, query: '', activeMatch: 0 },
+  { expandDepth: 3, query: '', activeMatch: 0, maxLines: 10_000 },
 )
 
 const emit = defineEmits<{ 'match-count': [number] }>()
 
 /** 折叠状态：path（`$["key"]` / `$[0]`）→ 是否展开。 */
 const expanded = reactive<Record<string, boolean>>({})
+
+// 数据更换（新响应）时清空折叠状态：旧 path 键跨响应累积既持续占用内存，
+// 也会让新响应中同路径节点意外保持展开。同一标签页内组件实例是复用的。
+watch(
+  () => props.data,
+  () => {
+    for (const k of Object.keys(expanded)) delete expanded[k]
+  },
+)
 
 const rootRef = ref<HTMLDivElement | null>(null)
 
@@ -78,6 +89,7 @@ const lines = computed<Line[]>(() => {
   const out: Line[] = []
   // 查找激活时强制展开：保证折叠节点内的文本也能被匹配到。
   const force = props.query.length > 0
+  let capped = false
 
   function walk(
     value: unknown,
@@ -86,6 +98,10 @@ const lines = computed<Line[]>(() => {
     keyHtml: Seg[] | null,
     isLast: boolean,
   ): void {
+    if (out.length >= props.maxLines) {
+      capped = true
+      return
+    }
     if (value === null || typeof value !== 'object') {
       const segments = [...(keyHtml ?? []), ...leafSegs(value)]
       if (!isLast) segments.push(tok(',', 'punct'))
@@ -139,6 +155,17 @@ const lines = computed<Line[]>(() => {
   }
 
   if (props.data !== undefined) walk(props.data, 0, '$', null, true)
+  if (capped) {
+    out.push({
+      depth: 0,
+      segments: [
+        {
+          text: `… 已达展示上限（前 ${props.maxLines.toLocaleString()} 行），收起部分节点后可查看剩余内容`,
+          cls: 'meta',
+        },
+      ],
+    })
+  }
   return out
 })
 

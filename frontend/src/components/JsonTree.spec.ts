@@ -34,6 +34,35 @@ describe('JsonTree：折叠 / 展开全部', () => {
     expectCollapsed(wrapper, true)
     wrapper.unmount()
   })
+
+  it('数据更换（新响应）时清空上一响应的展开状态（回归：expanded 键跨响应累积泄漏）', async () => {
+    const wrapper = mount(JsonTree, { props: { data: DATA, expandDepth: 0 } })
+    expectCollapsed(wrapper, true)
+
+    const tree = wrapper.findComponent(JsonTree)
+    ;(tree.vm as unknown as { expandAll: () => void }).expandAll()
+    await wrapper.vm.$nextTick()
+    expectCollapsed(wrapper, false)
+
+    // 同一标签页内组件实例复用、响应体替换：应回到默认折叠，无残留展开
+    await wrapper.setProps({ data: { ...DATA, extra: true } })
+    expectCollapsed(wrapper, true)
+    wrapper.unmount()
+  })
+
+  it('展开行数超过上限时截断并提示（回归：展开全部/查找渲染数万行 DOM）', async () => {
+    const rows = Array.from({ length: 80 }, (_, i) => ({ i, text: `row-${i}` }))
+    const wrapper = mount(JsonTree, {
+      props: { data: { rows }, expandDepth: 99, maxLines: 50 },
+    })
+    // 全量展开约 325 行：截断后仅保留上限附近的行 + 1 条截断提示，
+    // 不再渲染剩余节点（允许末尾 tail 行在触发截断后入队的小幅超出）。
+    const rendered = wrapper.findAll('.jt-line').length
+    expect(rendered).toBeGreaterThanOrEqual(50)
+    expect(rendered).toBeLessThanOrEqual(55)
+    expect(wrapper.text()).toMatch(/已达展示上限/)
+    wrapper.unmount()
+  })
 })
 
 describe('JsonTree：查找高亮与导航', () => {
