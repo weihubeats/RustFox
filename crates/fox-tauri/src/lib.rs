@@ -122,6 +122,12 @@ pub mod plugin {
                     let state = AppState::new(db);
                     let _ = tauri::async_runtime::block_on(state.restore_active());
                     app.manage(state);
+                    // Agent 控制面随应用自动拉起（幂等；失败仅记日志不阻断启动）
+                    if let Err(e) =
+                        tauri::async_runtime::block_on(commands::agent::ensure_started(app))
+                    {
+                        tracing::warn!("Agent 控制面启动失败（不影响应用使用）：{e}");
+                    }
                     Ok(())
                 },
             )
@@ -164,6 +170,9 @@ pub mod plugin {
                 commands::mock_start,
                 commands::mock_stop,
                 commands::mock_status,
+                commands::agent_start,
+                commands::agent_stop,
+                commands::agent_status,
                 commands::backup_export,
                 commands::backup_restore,
                 commands::import_document,

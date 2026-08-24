@@ -1,0 +1,20 @@
+[package]
+name = "fox-mcp"
+version = "0.0.1"
+edition = "2021"
+description = "RustFox MCP Server：stdio JSON-RPC，把 AI Agent 接到 RustFox Agent 控制面"
+
+[[bin]]
+name = "rustfox-mcp"
+path = "src/main.rs"
+
+[dependencies]
+fox-agent = { path = "../fox-agent" }
+fox-core = { path = "../fox-core" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+fox-storage = { path = "../fox-storage" }

@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod backup;
 pub mod clipboard;
 pub mod codegen;
@@ -18,6 +19,7 @@ pub mod request_example;
 pub mod settings;
 pub mod test_case;
 
+pub use agent::*;
 pub use backup::*;
 pub use clipboard::*;
 pub use codegen::*;

@@ -1,0 +1,22 @@
+[package]
+name = "fox-agent"
+version = "0.0.1"
+edition = "2021"
+description = "Agent 控制面：本地 HTTP API，供 AI Agent / MCP 工具把 cURL 导入为 RustFox 接口"
+
+[dependencies]
+fox-core = { path = "../fox-core" }
+fox-storage = { path = "../fox-storage" }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+sqlx = { workspace = true }
+url = { workspace = true }
+chrono = { workspace = true }
+# 控制面客户端（rustfox-mcp 复用）与集成测试共用
+reqwest = { workspace = true }
+
+[dev-dependencies]

@@ -1509,6 +1509,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "fox-agent"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "chrono",
+ "fox-core",
+ "fox-storage",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "fox-backup"
 version = "0.0.1"
 dependencies = [
@@ -1658,6 +1676,7 @@ version = "0.0.2"
 dependencies = [
  "arboard",
  "chrono",
+ "fox-agent",
  "fox-backup",
  "fox-codegen",
  "fox-core",

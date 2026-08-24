@@ -75,6 +75,84 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 <tr>
 <td>
 
+`fox-tauri:allow-agent-start`
+
+</td>
+<td>
+
+Enables the agent_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-agent-start`
+
+</td>
+<td>
+
+Denies the agent_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-agent-status`
+
+</td>
+<td>
+
+Enables the agent_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-agent-status`
+
+</td>
+<td>
+
+Denies the agent_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-agent-stop`
+
+</td>
+<td>
+
+Enables the agent_stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-agent-stop`
+
+</td>
+<td>
+
+Denies the agent_stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-backup-export`
 
 </td>

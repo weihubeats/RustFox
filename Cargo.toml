@@ -12,6 +12,8 @@ members = [
     "crates/fox-codegen",
     "crates/fox-oauth",
     "crates/fox-smoke",
+    "crates/fox-agent",
+    "crates/fox-mcp",
 ]
 
 [workspace.package]

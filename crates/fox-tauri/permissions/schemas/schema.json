@@ -295,6 +295,42 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the agent_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-agent-start",
+          "markdownDescription": "Enables the agent_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the agent_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-agent-start",
+          "markdownDescription": "Denies the agent_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the agent_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-agent-status",
+          "markdownDescription": "Enables the agent_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the agent_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-agent-status",
+          "markdownDescription": "Denies the agent_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the agent_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-agent-stop",
+          "markdownDescription": "Enables the agent_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the agent_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-agent-stop",
+          "markdownDescription": "Denies the agent_stop command without any pre-configured scope."
+        },
+        {
           "description": "Enables the backup_export command without any pre-configured scope.",
           "type": "string",
           "const": "allow-backup-export",

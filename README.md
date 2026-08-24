@@ -76,6 +76,45 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 - 备份（JSON）与恢复（ID 全量重映射，绝不覆盖现有数据）
 - 深色 / 浅色 / 跟随系统主题
 
+## AI Agent 集成
+
+RustFox 内置 **Agent 控制面**（应用启动时自动拉起）：本机回环地址上的带令牌 HTTP API，
+让 AI Agent（Claude / Cursor / 任意能执行命令的工具）直接把 cURL 命令保存为接口，无需人工粘贴。
+
+### MCP Server（推荐）
+
+Claude Code 等支持 MCP 的客户端，在项目 `.mcp.json` 中配置一次：
+
+```json
+{ "mcpServers": { "rustfox": { "command": "rustfox-mcp" } } }
+```
+
+之后对话里说「把这个 curl 存到 RustFox」即可。提供 4 个工具：
+
+| 工具 | 说明 |
+| --- | --- |
+| `save_curl` | 解析 cURL 并保存为接口（URL 拆 base_url + 路径 + query） |
+| `list_projects` | 项目列表 |
+| `list_endpoints` | 项目下的接口列表 |
+| `agent_info` | 控制面地址与令牌文件位置 |
+
+### 直接 HTTP
+
+任何能发 HTTP 的工具也可以直接调用控制面：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/agent/curl` | `{command, projectId?, name?, folderId?}` → endpointId |
+| GET | `/agent/projects` | 项目列表 |
+| GET | `/agent/endpoints/:projectId` | 接口列表 |
+| GET | `/agent/health` | 存活探针 |
+
+鉴权：请求头 `Authorization: Bearer <token>` 或 `X-Agent-Token`；
+token 位于数据目录 `agent-token` 文件（0600），应用内「Agent 状态」或
+`agent_status` 命令可查路径。端口从 `4110` 起自动探测。
+
+安全设计：只绑定 `127.0.0.1`；写操作仅限导入；不覆盖已有 `base_url` 配置（冲突时返回 warning）。
+
 ## 下载与安装
 
 在 [Releases](https://github.com/weihubeats/RustFox/releases) 下载对应平台安装包：

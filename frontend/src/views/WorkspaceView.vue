@@ -6,6 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
@@ -369,10 +370,32 @@ function onMenuConfirm(item: MenuItem): void {
   if (item.key === 'delete-project') void confirmDeleteProject()
 }
 
+/** Agent 控制面事件载荷（fox-agent::server::AgentEvent，字段 snake_case）。 */
+interface AgentEventPayload {
+  type: string
+  endpoint_id?: string
+  project_id?: string
+  name?: string
+}
+
+let unlistenAgent: UnlistenFn | null = null
+
 onMounted(() => {
   load()
   refreshMockStatus()
   void store.loadHistories()
+  // AI Agent 经控制面导入接口后刷新侧栏并提示（仅当前激活项目时）
+  if ('__TAURI_INTERNALS__' in window) {
+    void listen<AgentEventPayload>('fox:agent-event', async (event) => {
+      const payload = event.payload
+      if (payload.type !== 'endpoint-imported') return
+      if (!store.project || payload.project_id !== store.project.id) return
+      await store.refresh()
+      toast.info(`AI Agent 已导入接口「${payload.name ?? '未命名'}」`)
+    }).then((unlisten) => {
+      unlistenAgent = unlisten
+    })
+  }
 })
 
 /** 顶栏拖拽窗口：空白处 mousedown → startDragging；交互元素（按钮/输入等）跳过；双击切换最大化。 */
@@ -381,6 +404,7 @@ useWindowDrag(topBarEl)
 
 onBeforeUnmount(() => {
   menuRef.value?.close()
+  unlistenAgent?.()
   if (apiSearchTimer) clearTimeout(apiSearchTimer)
   document.removeEventListener('mousemove', onSidebarResizeMove)
   document.removeEventListener('mouseup', onSidebarResizeUp)

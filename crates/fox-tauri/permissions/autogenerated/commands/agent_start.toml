@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-agent-start"
+description = "Enables the agent_start command without any pre-configured scope."
+commands.allow = ["agent_start"]
+
+[[permission]]
+identifier = "deny-agent-start"
+description = "Denies the agent_start command without any pre-configured scope."
+commands.deny = ["agent_start"]
