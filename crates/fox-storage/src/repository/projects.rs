@@ -211,12 +211,18 @@ mod tests {
         let stats = list_endpoint_stats(&db).await.unwrap();
         assert_eq!(stats.len(), 2);
 
-        let empty_stat = stats.iter().find(|s| s.project_id == empty.id.to_string()).unwrap();
+        let empty_stat = stats
+            .iter()
+            .find(|s| s.project_id == empty.id.to_string())
+            .unwrap();
         assert_eq!(empty_stat.endpoint_count, 0);
         assert!(empty_stat.latest_method.is_none());
         assert!(empty_stat.latest_path.is_none());
 
-        let busy_stat = stats.iter().find(|s| s.project_id == busy.id.to_string()).unwrap();
+        let busy_stat = stats
+            .iter()
+            .find(|s| s.project_id == busy.id.to_string())
+            .unwrap();
         assert_eq!(busy_stat.endpoint_count, 2);
         assert_eq!(busy_stat.latest_method.as_deref(), Some("POST"));
         assert_eq!(busy_stat.latest_path.as_deref(), Some("/latest"));
