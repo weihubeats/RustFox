@@ -81,6 +81,8 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 RustFox 内置 **Agent 控制面**（应用启动时自动拉起）：本机回环地址上的带令牌 HTTP API，
 让 AI Agent（Claude / Cursor / 任意能执行命令的工具）直接把 cURL 命令保存为接口，无需人工粘贴。
 
+完整指南（获取 `rustfox-mcp`、各客户端配置、HTTP API 手册、排障）：**[docs/AGENT.md](docs/AGENT.md)**
+
 ### MCP Server（推荐）
 
 Claude Code 等支持 MCP 的客户端，在项目 `.mcp.json` 中配置一次：
@@ -156,6 +158,7 @@ scripts/package-tauri.sh                # 一键打包分发包
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构总览（Tauri 2 + Vue 3，含架构图与界面布局图） |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 用户手册 |
+| [docs/AGENT.md](docs/AGENT.md) | AI Agent 集成（MCP / HTTP 控制面） |
 | [docs/SPEC.md](docs/SPEC.md) | 详细规范（模型 / 数据库 / 命令） |
 | [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md) | 手动验收清单 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 发布与部署 |
