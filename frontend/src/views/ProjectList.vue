@@ -14,10 +14,12 @@ import { ensureSwapMounted } from '../utils/sortable'
 import Sortable from 'sortablejs'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useWorkspaceStore } from '../stores/workspace'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import DashboardNav from '../components/projectlist/DashboardNav.vue'
+import ProjectTabs from '../components/ProjectTabs.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ProjectCard from '../components/projectlist/ProjectCard.vue'
 import ProjectCreateModal from '../components/projectlist/ProjectCreateModal.vue'
@@ -32,6 +34,7 @@ import type { HttpMethod, Project } from '../types/foxApi'
 const api = useFoxApi()
 const toast = useToast()
 const router = useRouter()
+const workspace = useWorkspaceStore()
 
 const projects = ref<Project[]>([])
 const counts = ref<Record<string, number>>({})
@@ -203,9 +206,9 @@ function onCreated(project: Project): void {
 // ---------- 进入工作区 ----------
 async function enter(project: Project): Promise<void> {
   try {
-    await api.setActiveProject(project.id)
-    // 接口列表由工作区 store.init() 拉取，这里不再重复请求
-    toast.info(`已进入项目：${project.name}`)
+    // 走 store 切换：当前项目 UI 态入快照，目标项目加入顶栏标签
+    // （成功不弹 toast：跳转到工作区本身已是明确反馈）
+    await workspace.switchProject(project.id)
     router.push('/workspace')
   } catch (e) {
     toast.error('进入项目失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
@@ -303,6 +306,7 @@ useWindowDrag(topBarEl)
         <span class="top-title">RustFox</span>
         <span class="top-tag">API 调试工具</span>
       </button>
+      <ProjectTabs class="top-tabs" @new-project="showCreate = true" />
       <div class="top-right">
         <IconButton name="settings" :size="15" title="设置" @click="showSettings = true" />
       </div>
@@ -495,6 +499,12 @@ useWindowDrag(topBarEl)
   background: var(--bg-panel);
   cursor: grab;
   user-select: none;
+}
+
+/* 标签条在顶栏内占满品牌与设置之间 */
+.top-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .top-brand {

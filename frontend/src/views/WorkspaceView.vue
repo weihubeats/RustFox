@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import Brand from '../components/Brand.vue'
+import ProjectTabs from '../components/ProjectTabs.vue'
 import EndpointTree from '../components/EndpointTree.vue'
 import EnvironmentBar from '../components/EnvironmentBar.vue'
 import HistoryPanel from '../components/HistoryPanel.vue'
@@ -187,35 +188,8 @@ const docsBtn = ref<HTMLButtonElement | null>(null)
 const mockBtn = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<InstanceType<typeof Menu> | null>(null)
 
-// ---------- 项目切换器（侧栏头部左侧） ----------
-const projectBtn = ref<HTMLButtonElement | null>(null)
+// ---------- 项目标签（顶栏多项目切换，共享组件） ----------
 const treeRef = ref<InstanceType<typeof EndpointTree> | null>(null)
-
-async function openProjectMenu(): Promise<void> {
-  if (!projectBtn.value) return
-  let items: MenuItem[] = []
-  try {
-    items = (await api.getProjects()).map((p) => ({
-      key: `switch-project:${p.id}`,
-      label: p.name,
-      icon: 'folder' as const,
-      checked: p.id === store.project?.id,
-    }))
-  } catch {
-    toast.error('项目列表加载失败')
-  }
-  items.push({ key: 'new-project', label: '新建项目', icon: 'plus', iconAccent: true, dividerBefore: true })
-  menuRef.value?.openAt(projectBtn.value, items, 'left')
-}
-
-async function switchProject(projectId: string): Promise<void> {
-  try {
-    await store.switchProject(projectId)
-    toast.success(`已切换到项目：${store.project?.name ?? ''}`)
-  } catch (err) {
-    toast.error('切换项目失败', { message: err instanceof Error ? err.message : String(err) })
-  }
-}
 
 // ---------- 项目创建 / 重命名 / 删除 ----------
 const showCreateProject = ref(false)
@@ -247,7 +221,7 @@ async function confirmCreateProject(): Promise<void> {
       updated_at: now,
     })
     showCreateProject.value = false
-    await switchProject(p.id)
+    await store.switchProject(p.id)
     toast.success('项目创建成功', { message: name })
   } catch (err) {
     toast.error('创建项目失败', { message: err instanceof Error ? err.message : String(err) })
@@ -287,6 +261,7 @@ async function confirmDeleteProject(): Promise<void> {
   try {
     await api.deleteProject(target.id)
     await api.setActiveProject(null).catch(() => undefined)
+    store.closeProjectTab(target.id)
     toast.success('项目已删除', { message: target.name })
     router.replace('/projects')
   } catch (err) {
@@ -294,7 +269,7 @@ async function confirmDeleteProject(): Promise<void> {
   }
 }
 
-// ---------- 「⋯」更多菜单 ----------
+// ---------- 「⋯」更多菜单（仅项目操作；导入在顶栏「文档」，导航在顶栏标签条） ----------
 const MORE_ITEMS: MenuItem[] = [
   { key: 'rename-project', label: '重命名项目', icon: 'pencil' },
   {
@@ -305,9 +280,6 @@ const MORE_ITEMS: MenuItem[] = [
     dividerBefore: true,
     confirm: `删除项目「${''}」？`,
   },
-  { key: 'import-doc', label: '导入 API 文档', icon: 'upload', dividerBefore: true },
-  { key: 'go-projects', label: '项目列表', icon: 'folder' },
-  { key: 'go-graphql', label: 'GraphQL 工作台', icon: 'code' },
 ]
 
 function openSidebarMore(event: MouseEvent): void {
@@ -357,10 +329,6 @@ function onMockSelect(item: MenuItem): void {
 
 function onMenuSelect(item: MenuItem): void {
   if (item.key === 'rename-project') openRenameProject()
-  else if (item.key === 'import-doc') showDocImport.value = true
-  else if (item.key === 'go-projects') void router.push('/projects')
-  else if (item.key === 'go-graphql') void router.push('/graphql')
-  else if (item.key.startsWith('switch-project:')) void switchProject(item.key.slice('switch-project:'.length))
   else if (item.key === 'new-project') openCreateProject()
   else if (item.key === 'import' || item.key === 'export') onDocsSelect(item)
   else onMockSelect(item)
@@ -379,6 +347,14 @@ interface AgentEventPayload {
 }
 
 let unlistenAgent: UnlistenFn | null = null
+
+// 关闭最后一个项目标签（或项目被删）后回到项目列表
+watch(
+  () => store.project,
+  (p) => {
+    if (!p) void router.replace('/projects')
+  },
+)
 
 onMounted(() => {
   load()
@@ -419,6 +395,11 @@ onBeforeUnmount(() => {
       </div>
       <span class="tb-divider" aria-hidden="true"></span>
 
+      <div class="tb-region tb-projects">
+        <ProjectTabs @new-project="openCreateProject" />
+      </div>
+      <span class="tb-divider" aria-hidden="true"></span>
+
       <div class="tb-region tb-middle">
         <span class="mock-status" :class="{ on: mockAddress }">
           <span class="mock-dot"></span>
@@ -437,6 +418,13 @@ onBeforeUnmount(() => {
           Mock <Icon name="chevron-down" :size="12" />
         </button>
         <EnvironmentBar />
+        <IconButton
+          class="tb-settings"
+          name="code"
+          :size="15"
+          title="GraphQL 工作台"
+          @click="router.push('/graphql')"
+        />
         <IconButton class="tb-settings" name="settings" :size="15" title="设置" @click="showSettings = true" />
       </div>
     </div>
@@ -444,16 +432,6 @@ onBeforeUnmount(() => {
     <div class="workspace-body">
       <aside class="rf-sidebar" :style="{ width: `${sidebarWidth}px` }">
         <div class="sidebar-head">
-          <button
-            ref="projectBtn"
-            class="project-switcher"
-            type="button"
-            title="切换项目"
-            @click="openProjectMenu"
-          >
-            <span class="ps-name">{{ store.project?.name ?? '工作区' }}</span>
-            <Icon name="chevron-down" :size="13" class="ps-caret" />
-          </button>
           <div class="sidebar-actions">
             <IconButton
               v-if="sidebarTab === 'collections'"
@@ -643,6 +621,12 @@ onBeforeUnmount(() => {
   width: 140px;
 }
 
+/* ---- 顶栏项目标签条（ProjectTabs 组件） ---- */
+.tb-projects {
+  flex: 1 1 auto;
+  gap: 6px;
+}
+
 .tb-middle {
   justify-content: center;
 }
@@ -763,11 +747,11 @@ onBeforeUnmount(() => {
   background: var(--accent);
 }
 
-/* ---- 统一头部栏：h-10、下边框、左=项目切换器 / 右=动作图标组 ---- */
+/* ---- 统一头部栏：h-10、下边框、左=侧栏页签上下文 / 右=动作图标组 ---- */
 .sidebar-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   height: 40px;
   padding: 8px 12px;
@@ -780,47 +764,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-}
-
-/* 项目切换器：静默文本 + ▾，hover 淡底提示可点 */
-.project-switcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 180px;
-  padding: 4px 6px;
-  margin-left: -6px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-1);
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.project-switcher:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-1);
-}
-.project-switcher:active {
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.ps-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ps-caret {
-  flex-shrink: 0;
-  color: var(--text-3);
-  transition: transform var(--dur) var(--ease);
 }
 
 .rf-heading {

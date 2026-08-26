@@ -22,6 +22,7 @@ import type {
   Endpoint,
   Environment,
   ExecuteResponse,
+  Folder,
   HttpMethod,
   KeyValue,
   OAuth2Token,
@@ -181,8 +182,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 初始化：取激活项目（无则返回 null，调用方负责跳回项目列表）。 */
+  /** 初始化：取激活项目（无则返回 null，调用方负责跳回项目列表）；同时恢复标签栏。 */
   async function init(): Promise<Project | null> {
+    await ensureOpenProjectsRestored()
     const p = await api.getActiveProject()
     if (!p) return null
     project.value = p
@@ -202,22 +204,193 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     endpoints.value = e
   }
 
-  /** 切换到另一项目：设为激活 → 清空标签/草稿/示例 → 重载树与环境。 */
+  /** 切换到另一项目：当前项目 UI 态入快照，目标项目恢复快照或全新加载。
+   *  草稿 / 打开的标签页 / 环境选择等在项目间来回切换均不丢失。 */
   async function switchProject(projectId: string): Promise<void> {
+    if (project.value?.id === projectId) return
+    // 应用可能从项目列表页直接进入：确保持久化的标签已恢复再操作
+    await ensureOpenProjectsRestored()
+    if (project.value) snapshots.set(project.value.id, snapshotCurrent())
     const p = await api.setActiveProject(projectId)
-    openTabs.value = []
-    drafts.value = new Map()
-    examples.value = new Map()
-    requestExamples.value = new Map()
-    testCases.value = new Map()
-    activeTabId.value = null
-    activeView.value = 'debug'
-    sessionBaseUrl.value = 'http://localhost'
-    if (!p) throw new Error('项目不存在')
-    project.value = p
-    await load(p.id, p)
-    await loadEnvironments()
+    if (!p) {
+      // 目标项目已不存在（他处删除）：移除标签后抛错
+      snapshots.delete(projectId)
+      removeOpenTab(projectId)
+      throw new Error('项目不存在或已删除')
+    }
+    await activateProject(p)
   }
+
+  // ---------- 多项目标签：快照切换 ----------
+  /** 顶部标签栏的项目（有序）。 */
+  const openProjects = ref<{ id: string; name: string }[]>([])
+  /** 标签列表持久化键（仅存 id 顺序；草稿等 UI 态不跨重启保留）。 */
+  const OPEN_TABS_KEY = 'rustfox.open-projects'
+
+  /** 非激活项目的完整 UI 快照。 */
+  interface ProjectSnapshot {
+    project: Project
+    folders: Folder[]
+    endpoints: Endpoint[]
+    environments: Environment[]
+    activeEnvId: string | null
+    sessionBaseUrl: string
+    openTabs: string[]
+    drafts: Map<string, Endpoint>
+    activeTabId: string | null
+    activeView: 'debug' | 'design' | 'docs' | 'cases' | 'mock'
+    examples: Map<string, ResponseExample[]>
+    requestExamples: Map<string, RequestExample[]>
+    testCases: Map<string, TestCase[]>
+    histories: RequestHistory[]
+    historyOnlyCurrent: boolean
+  }
+  /** 快照无需响应式：仅在切换瞬间读写。 */
+  const snapshots = new Map<string, ProjectSnapshot>()
+
+  function snapshotCurrent(): ProjectSnapshot {
+    return {
+      project: project.value!,
+      folders: folders.value,
+      endpoints: endpoints.value,
+      environments: environments.value,
+      activeEnvId: activeEnvId.value,
+      sessionBaseUrl: sessionBaseUrl.value,
+      openTabs: openTabs.value,
+      drafts: drafts.value,
+      activeTabId: activeTabId.value,
+      activeView: activeView.value,
+      examples: examples.value,
+      requestExamples: requestExamples.value,
+      testCases: testCases.value,
+      histories: histories.value,
+      historyOnlyCurrent: historyOnlyCurrent.value,
+    }
+  }
+
+  function persistOpenProjects(): void {
+    try {
+      localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(openProjects.value.map((t) => t.id)))
+    } catch {
+      // 存储不可用时静默：仅影响重启后的标签恢复
+    }
+  }
+
+  function removeOpenTab(id: string): void {
+    const idx = openProjects.value.findIndex((t) => t.id === id)
+    if (idx !== -1) openProjects.value.splice(idx, 1)
+    persistOpenProjects()
+  }
+
+  function upsertOpenTab(id: string, name: string): void {
+    const idx = openProjects.value.findIndex((t) => t.id === id)
+    if (idx === -1) openProjects.value.push({ id, name })
+    else openProjects.value[idx].name = name
+    persistOpenProjects()
+  }
+
+  // 重命名当前项目时同步标签栏名称
+  watch(
+    () => [project.value?.id, project.value?.name] as const,
+    ([id, name]) => {
+      if (id && name) upsertOpenTab(id, name)
+    },
+  )
+
+  /** 激活目标项目：有快照则恢复（数据不重新拉取），否则全新加载。 */
+  async function activateProject(p: Project): Promise<void> {
+    const snap = snapshots.get(p.id)
+    if (snap) {
+      snapshots.delete(p.id)
+      project.value = snap.project
+      folders.value = snap.folders
+      endpoints.value = snap.endpoints
+      environments.value = snap.environments
+      activeEnvId.value = snap.activeEnvId
+      sessionBaseUrl.value = snap.sessionBaseUrl
+      openTabs.value = snap.openTabs
+      drafts.value = snap.drafts
+      activeTabId.value = snap.activeTabId
+      activeView.value = snap.activeView
+      examples.value = snap.examples
+      requestExamples.value = snap.requestExamples
+      testCases.value = snap.testCases
+      histories.value = snap.histories
+      historyOnlyCurrent.value = snap.historyOnlyCurrent
+      loadError.value = null
+    } else {
+      project.value = p
+      openTabs.value = []
+      drafts.value = new Map()
+      examples.value = new Map()
+      requestExamples.value = new Map()
+      testCases.value = new Map()
+      activeTabId.value = null
+      activeView.value = 'debug'
+      sessionBaseUrl.value = 'http://localhost'
+      histories.value = []
+      historyOnlyCurrent.value = false
+      loadError.value = null
+      await load(p.id, p)
+      await loadEnvironments()
+    }
+    upsertOpenTab(p.id, p.name)
+  }
+
+  /** 关闭项目标签：丢弃快照；若是当前项目则切到相邻标签，一个不剩时清空（视图负责跳转）。 */
+  function closeProjectTab(id: string): void {
+    snapshots.delete(id)
+    const idx = openProjects.value.findIndex((t) => t.id === id)
+    if (idx !== -1) openProjects.value.splice(idx, 1)
+    persistOpenProjects()
+    if (project.value?.id !== id) return
+    const next = openProjects.value[Math.min(idx, openProjects.value.length - 1)]
+    if (next) {
+      void switchProject(next.id).catch((err) => {
+        toast.error('切换项目失败', { message: err instanceof Error ? err.message : String(err) })
+      })
+    } else {
+      project.value = null
+    }
+  }
+
+  /** 启动时恢复持久化的标签列表（名称从项目列表回填，已删除的项目自动剔除）。
+   *  与已有条目做并集合并：恢复是异步的，期间用户可能已打开新标签。 */
+  async function restoreOpenProjects(): Promise<void> {
+    let ids: unknown
+    try {
+      ids = JSON.parse(localStorage.getItem(OPEN_TABS_KEY) ?? '[]')
+    } catch {
+      ids = []
+    }
+    if (Array.isArray(ids) && ids.length) {
+      try {
+        const all = await api.getProjects()
+        const byId = new Map(all.map((p) => [p.id, p]))
+        const restored = ids
+          .filter((id): id is string => typeof id === 'string' && byId.has(id))
+          .map((id) => ({ id, name: byId.get(id)!.name }))
+        const seen = new Set(restored.map((t) => t.id))
+        // 恢复期间用户已打开的标签排在恢复列表之后，避免丢失
+        for (const t of openProjects.value) {
+          if (!seen.has(t.id)) restored.push(t)
+        }
+        openProjects.value = restored
+      } catch {
+        // 项目列表拉取失败：保留现有标签，下次再试
+      }
+    }
+    persistOpenProjects()
+  }
+
+  /** 恢复只做一次（store 生命周期内）；switchProject / init 前调用以确保标签就绪。 */
+  let restorePromise: Promise<void> | null = null
+  function ensureOpenProjectsRestored(): Promise<void> {
+    restorePromise ??= restoreOpenProjects()
+    return restorePromise
+  }
+  // store 创建即触发：应用可能直接落在项目列表页（此时 WorkspaceView 尚未挂载）
+  void ensureOpenProjectsRestored()
 
   /** 打开接口为标签页；已打开则仅切换。草稿懒克隆自保存态。 */
   function openEndpoint(endpoint: Endpoint): void {
@@ -1042,6 +1215,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     load,
     refresh,
     switchProject,
+    openProjects,
+    closeProjectTab,
     openEndpoint,
     openNewEndpoint,
     focusTitleSignal,
