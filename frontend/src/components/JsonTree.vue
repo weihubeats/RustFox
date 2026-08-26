@@ -4,7 +4,7 @@
  *
  * - 扁平行渲染：每行带行号 + 缩进 + 折叠箭头，容器节点（对象/数组）可折叠/展开；
  * - 语法着色：键 / 字符串 / 数字 / 布尔 / null / 标点；
- * - 默认展开前 expandDepth 层，更深自动折叠（大响应体友好）；
+ * - 默认全展开（expandDepth 很大），超大响应由 maxLines 渲染上限兜底；
  * - 长字符串截断展示，悬浮显示全文；
  * - 查找（Find in Response）：`query` + `activeMatch` 驱动，高亮全部匹配、
  *   当前匹配加亮并滚动到可视区；搜索时强制展开所有节点以保证匹配完整；
@@ -44,7 +44,7 @@ const props = withDefaults(
     /** 渲染行数上限：展开全部 / 查找强制展开时，避免一次渲染数万行 DOM 冻结页面。 */
     maxLines?: number
   }>(),
-  { expandDepth: 3, query: '', activeMatch: 0, maxLines: 10_000 },
+  { expandDepth: 99, query: '', activeMatch: 0, maxLines: 10_000 },
 )
 
 const emit = defineEmits<{ 'match-count': [number] }>()

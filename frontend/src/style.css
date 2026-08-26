@@ -9,19 +9,19 @@
 
 :root {
   color-scheme: dark;
-  /* ---- 色板（深色基准：Vercel 风格 #0c0c0d） ---- */
-  --bg-app: #0c0c0d;
-  --bg-panel: #121214;
-  --bg-card: #161618;
-  --bg-elevated: #1b1b1e;
-  --bg-code: #101012;
-  --bg-hover: rgba(255, 255, 255, 0.06);
-  --bg-active: rgba(255, 255, 255, 0.1);
-  --border: #232326;
-  --border-strong: #2f2f34;
-  --text-1: #e7e7ea;
-  --text-2: #9a9aa3;
-  --text-3: #62626b;
+  /* ---- 色板（深色基准：GitHub Dark 灰蓝系，比纯黑亮一档） ---- */
+  --bg-app: #16171b;
+  --bg-panel: #1c1e23;
+  --bg-card: #212329;
+  --bg-elevated: #26282f;
+  --bg-code: #1a1c21;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(255, 255, 255, 0.12);
+  --border: #2c2f36;
+  --border-strong: #3a3e47;
+  --text-1: #e9eaee;
+  --text-2: #a7a8b3;
+  --text-3: #71737f;
   --accent: #7c69f5;
   --accent-hover: #8f7ff7;
   --success: #22c55e;
@@ -45,7 +45,7 @@
   /* ---- 语义描边 / 遮罩 ---- */
   --danger-border: rgba(239, 68, 68, 0.35);
   --info-border: rgba(59, 130, 246, 0.35);
-  --mask: rgba(8, 10, 14, 0.6);
+  --mask: rgba(10, 12, 16, 0.55);
 
   /* ---- 圆角 4/6/10 ---- */
   --radius-sm: 4px;
@@ -100,9 +100,9 @@
   --tok-gutter: #5c6370;
 
   /* ---- 截断文本溢出 Tooltip（v-tooltip-overflow，见 directives/tooltipOverflow.ts） ---- */
-  --overflow-tip-bg: rgba(23, 23, 23, 0.9);
-  --overflow-tip-border: rgba(64, 64, 64, 0.5);
-  --overflow-tip-text: #e5e5e5;
+  --overflow-tip-bg: rgba(33, 35, 41, 0.95);
+  --overflow-tip-border: rgba(74, 78, 90, 0.5);
+  --overflow-tip-text: #e9eaee;
 
   /* ---- rf-* 兼容别名（指向新令牌，旧组件自动跟随） ---- */
   --rf-bg: var(--bg-app);
