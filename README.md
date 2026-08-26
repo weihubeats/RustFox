@@ -85,6 +85,9 @@ RustFox 内置 **Agent 控制面**（应用启动时自动拉起）：本机回�
 
 ### MCP Server（推荐）
 
+> **前置**：MCP 配置需要 `rustfox-mcp` 二进制。
+> **v0.0.10 起安装包已内置**，无需额外安装；更早版本请先按 [docs/AGENT.md](docs/AGENT.md) 构建。
+
 Claude Code 等支持 MCP 的客户端，在项目 `.mcp.json` 中配置一次：
 
 ```json

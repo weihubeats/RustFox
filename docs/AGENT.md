@@ -42,23 +42,30 @@ Token 是控制面的访问凭证，首次启动应用时自动生成：
 
 ### 3.1 获取 rustfox-mcp
 
-`rustfox-mcp` 目前不随桌面安装包分发，二选一：
+**v0.0.10 起，安装包已内置 `rustfox-mcp`**，按平台取对应路径即可：
+
+| 平台 / 安装方式 | 路径 |
+| --- | --- |
+| macOS（/Applications 安装） | `/Applications/RustFox.app/Contents/MacOS/rustfox-mcp` |
+| Windows（NSIS 默认目录） | `C:\Program Files\RustFox\rustfox-mcp.exe` |
+| Linux（.deb） | `/usr/bin/rustfox-mcp`（已在 PATH，配置直接写 `rustfox-mcp`） |
+| Linux（.AppImage） | 挂载镜像内的 `rustfox-mcp` |
+| 开发模式（tauri dev） | 仓库内 `frontend/src-tauri/binaries/rustfox-mcp-<三元组>` |
+
+<details>
+<summary>旧版本（&lt; v0.0.10）或从源码构建</summary>
 
 ```bash
-# A. 从源码构建（需要 Rust 工具链）
 git clone https://github.com/weihubeats/RustFox.git
 cd RustFox && cargo build --release -p fox-mcp
 # 产物：target/release/rustfox-mcp
+sudo cp target/release/rustfox-mcp /usr/local/bin/   # 可选：放进 PATH
 ```
-
-```bash
-# B. 放到 PATH 里（macOS/Linux 示例）
-sudo cp target/release/rustfox-mcp /usr/local/bin/
-```
+</details>
 
 ### 3.2 配置客户端
 
-**Claude Code** — 项目根目录 `.mcp.json`：
+**Claude Code** — 项目根目录 `.mcp.json`（v0.0.10+ 按上表替换为安装包内路径）：
 
 ```json
 {
@@ -68,10 +75,10 @@ sudo cp target/release/rustfox-mcp /usr/local/bin/
 }
 ```
 
-若未放入 PATH，用绝对路径：
+若二进制不在 PATH，用绝对路径：
 
 ```json
-{ "command": "/path/to/RustFox/target/release/rustfox-mcp" }
+{ "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" }
 ```
 
 **Cursor** — Settings → MCP → Add Server，Command 填 `rustfox-mcp`。
@@ -137,6 +144,7 @@ curl -s http://127.0.0.1:4110/agent/curl \
 
 | 现象 | 处理 |
 | --- | --- |
+| `spawn rustfox-mcp ENOENT` | 二进制不在 PATH：v0.0.10+ 改用安装包内绝对路径（见 §3.1），或按旧版方式构建后放入 PATH |
 | `rustfox-mcp` 报「未发现运行中的控制面」 | 先启动 RustFox 桌面应用；确认端口 4110~4129 未被防火墙拦本机回环 |
 | 401 UNAUTHORIZED | token 文件与应用不一致（如混用了 dev/正式版目录）；删掉 `agent-token` 后重启应用重新配 |
 | 多项目时报 VALIDATION | 让 Agent 先调 `list_projects`，带上 projectId 重试 |
