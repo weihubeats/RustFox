@@ -431,6 +431,9 @@ const requestBodyHeight = ref(REQUEST_DEFAULT)
 const splitterDragging = ref(false)
 const requestBodyCollapsed = computed(() => requestBodyHeight.value <= REQUEST_MIN)
 
+/** 尚未产生响应（也没发送失败）时：请求区占满剩余高度，隐藏分割条与响应占位。 */
+const hasResponse = computed(() => !!response.value || !!sendError.value)
+
 let splitStartY = 0
 let splitStartHeight = 0
 let splitDragging = false
@@ -698,8 +701,8 @@ onUnmounted(() => {
 
     <div
       class="config-box"
-      :class="{ collapsed: requestBodyCollapsed }"
-      :style="{ height: `${requestBodyHeight}px` }"
+      :class="{ collapsed: requestBodyCollapsed, grow: !hasResponse }"
+      :style="hasResponse ? { height: `${requestBodyHeight}px` } : undefined"
     >
       <Tabs v-model="activeTab" :tabs="configTabs" size="sm" />
       <ParamsPanel v-if="activeTab === 'params'" :draft="draft" />
@@ -710,38 +713,41 @@ onUnmounted(() => {
       <CodePanel v-else :draft="draft" :url="requestUrl" />
     </div>
 
-    <div
-      class="rp-splitter"
-      :class="{ dragging: splitterDragging }"
-      title="拖拽调整请求区高度（双击折叠 / 展开）"
-      @mousedown="onSplitterDown"
-      @dblclick="toggleRequestBody"
-    >
-      <button
-        class="rp-splitter-btn"
-        type="button"
-        :title="requestBodyCollapsed ? '展开请求区' : '折叠请求区'"
-        @mousedown.stop
-        @dblclick.stop
-        @click="toggleRequestBody"
+    <template v-if="hasResponse">
+      <div
+        class="rp-splitter"
+        :class="{ dragging: splitterDragging }"
+        title="拖拽调整请求区高度（双击折叠 / 展开）"
+        @mousedown="onSplitterDown"
+        @dblclick="toggleRequestBody"
       >
-        <Icon :name="requestBodyCollapsed ? 'chevron-up' : 'chevron-down'" :size="11" />
-      </button>
-    </div>
-
-    <div class="response-zone">
-      <ResponsePanel v-if="response" :response="response" @save-example="saveExample" />
-      <div v-else-if="sendError" class="send-error" role="alert">
-        <span>发送失败：{{ sendError }}</span>
+        <button
+          class="rp-splitter-btn"
+          type="button"
+          :title="requestBodyCollapsed ? '展开请求区' : '折叠请求区'"
+          @mousedown.stop
+          @dblclick.stop
+          @click="toggleRequestBody"
+        >
+          <Icon :name="requestBodyCollapsed ? 'chevron-up' : 'chevron-down'" :size="11" />
+        </button>
       </div>
-      <EmptyState
-        v-else
-        class="response-empty"
-        icon="send"
-        title="尚未发送请求"
-        description="点击发送按钮或按 Cmd + Enter (Ctrl + Enter) 获取响应结果"
-      />
-    </div>
+
+      <div class="response-zone">
+        <ResponsePanel v-if="response" :response="response" @save-example="saveExample" />
+        <div v-else-if="sendError" class="send-error" role="alert">
+          <span>发送失败：{{ sendError }}</span>
+        </div>
+        <EmptyState
+          v-else
+          class="response-empty"
+          icon="send"
+          title="尚未发送请求"
+          description="点击发送按钮或按 Cmd + Enter (Ctrl + Enter) 获取响应结果"
+        />
+      </div>
+    </template>
+    <p v-else class="response-hint">发送请求后，响应将显示在这里</p>
     <div v-if="activeExamples.length" class="examples">
       <h3 class="section-title">响应示例 ({{ activeExamples.length }})</h3>
       <div v-for="ex in activeExamples" :key="ex.id" class="example-row">
@@ -1186,6 +1192,21 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* 无响应阶段：请求区占满剩余高度（body 大内容少滚动），响应仅留一行提示 */
+.config-box.grow {
+  flex: 1 1 auto;
+}
+
+.response-hint {
+  margin: 0;
+  padding: 10px 4px;
+  border-top: 1px dashed var(--border);
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+  user-select: none;
 }
 
 /* ---- 请求区 / 响应区分割条（Single Border Architecture：唯一分隔线）----
