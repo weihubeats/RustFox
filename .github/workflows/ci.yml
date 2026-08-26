@@ -89,6 +89,9 @@ jobs:
       - name: npm ci
         working-directory: frontend
         run: npm ci
+      # tauri-build 在编译期校验 bundle.externalBin 文件存在，须先预置侧载二进制
+      - name: Ensure rustfox-mcp sidecar (bundle.externalBin)
+        run: bash scripts/ensure-mcp-bin.sh
       - name: Lint (eslint)
         working-directory: frontend
         run: npm run lint
