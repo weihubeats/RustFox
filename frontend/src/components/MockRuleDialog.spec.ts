@@ -1,0 +1,36 @@
+/**
+ * MockRuleDialog 单测：挂载后必须渲染出 Modal 弹层。
+ * 回归背景：曾漏 import Modal，Vue 解析失败导致「打开 Mock 管理」看似无反应。
+ */
+import { describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import MockRuleDialog from './MockRuleDialog.vue'
+
+vi.mock('../stores/workspace', () => ({
+  useWorkspaceStore: () => ({
+    project: { id: 'p-1', name: 'P' },
+  }),
+}))
+
+vi.mock('../composables/useFoxApi', () => ({
+  useFoxApi: () => ({
+    listMockRules: vi.fn().mockResolvedValue([]),
+    saveMockRule: vi.fn(),
+    deleteMockRule: vi.fn(),
+  }),
+}))
+
+vi.mock('../composables/useToast', () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+}))
+
+describe('MockRuleDialog', () => {
+  it('应渲染 Modal 弹层（标题含规则计数）', async () => {
+    mount(MockRuleDialog)
+    await flushPromises()
+    // Modal Teleport 到 body，需查 document 而非 wrapper
+    const mask = document.body.querySelector('.m-mask')
+    expect(mask, 'Modal 遮罩应渲染到 body').not.toBeNull()
+    expect(mask?.textContent).toContain('Mock 规则')
+  })
+})

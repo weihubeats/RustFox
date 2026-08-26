@@ -11,6 +11,7 @@ import CustomSelect from './ui/CustomSelect.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
+import Modal from './ui/Modal.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 import type { MockRule } from '../types/foxApi'
 
