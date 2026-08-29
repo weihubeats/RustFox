@@ -53,6 +53,7 @@ import type { TabItem } from './ui/Tabs.vue'
 import type {
   ExecuteResponse,
   HttpMethod,
+  RequestSpec,
   ResponseExample,
   TestCaseCategory,
 } from '../types/foxApi'
@@ -143,12 +144,41 @@ watch(
   { immediate: true },
 )
 
-/** 手动切换 Method：POST 系 → Body（空体初始化 `{}` + application/json，有体则保持）；其余 → Params。 */
+/**
+ * 手动切换 Method：POST 系 → Body（空体初始化 `{}` + application/json，有体则保持）；其余 → Params。
+ * 仅在【同一接口内】method 变化时应用：打开 / 切换接口时 draft 从 null → 有值
+ * 或 id 变化，method 必然「变」一次——那是一次载入而非用户编辑，回写
+ * applyMethodDefaults 的副作用（body 初始化 / Content-Type / active_tab）
+ * 会让刚打开的接口立刻被判定为「有改动」（isDirty 误报）。
+ *
+ * 往返还原：首次切换时记录切换前的 request 快照；切回记录的原方法时
+ * 整体还原快照——否则 applyMethodDefaults 的副作用不可逆，用户
+ * 「GET→POST→GET」后草稿仍与保存态不同，持续显示「有改动」。
+ */
+let methodRevert: { from: string; snapshot: RequestSpec } | null = null
+
 watch(
-  () => draft.value?.method,
-  (m) => {
+  () => [draft.value?.id, draft.value?.method] as const,
+  ([id, m], prev) => {
     if (!m || !draft.value) return
+    if (id !== prev?.[0]) {
+      methodRevert = null
+      return
+    }
     const d = draft.value
+    if (methodRevert && m === methodRevert.from) {
+      // 切回上次的方法：整体还原切换前的 request（撤销默认初始化副作用）
+      d.request = methodRevert.snapshot
+      const restored = d.request.active_tab
+      smartTab.value = (restored && VALID_TABS.includes(restored as ConfigTabKey)
+        ? (restored as ConfigTabKey)
+        : methodNeedsBody(m)
+          ? 'body'
+          : 'params')
+      methodRevert = null
+      return
+    }
+    methodRevert ??= { from: prev?.[1] ?? m, snapshot: JSON.parse(JSON.stringify(d.request)) as RequestSpec }
     const tab = applyMethodDefaults(d.request, m)
     d.request.active_tab = tab
     smartTab.value = tab
