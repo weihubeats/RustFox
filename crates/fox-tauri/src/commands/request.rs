@@ -48,10 +48,12 @@ pub async fn execute_request(
     state: State<'_, AppState>,
     args: ExecuteRequestArgs,
 ) -> CommandResult<ExecuteResponse> {
-    // 1. 加载变量（环境 > 项目），渲染 URL 与请求规格。
+    // 1. 加载变量（环境 > 项目 > 全局），渲染 URL 与请求规格；再注入全局参数。
     let vars = state.variables_for(args.environment_id).await?;
     let url = fox_core::resolve_variables(&args.url, &vars);
-    let spec = render_spec(&args.spec, &vars);
+    let mut spec = render_spec(&args.spec, &vars);
+    let global_params = repo::get_global_params(&state.db).await?;
+    apply_global_params(&mut spec, &global_params, &vars);
 
     // 2. 参数校验：URL 必填、必须是 http/https。
     if url.trim().is_empty() {
@@ -309,9 +311,104 @@ fn render_kv(items: &[KeyValue], vars: &VariableMap) -> Vec<KeyValue> {
         .collect()
 }
 
+/// 全局参数注入：将启用的全局参数并入请求规格（query → params，header → headers）。
+///
+/// 规则：请求自身已存在的同名键优先（全局参数只做补缺，不覆盖显式配置）。
+/// key 大小写不敏感比较（Header 常见 `x-request-id` / `X-Request-Id` 混写）。
+pub(crate) fn apply_global_params(
+    spec: &mut RequestSpec,
+    params: &[fox_core::model::GlobalParam],
+    vars: &VariableMap,
+) {
+    use fox_core::model::GlobalParamLocation;
+
+    for gp in params.iter().filter(|p| p.enabled) {
+        if gp.key.trim().is_empty() {
+            continue;
+        }
+        let key_lower = gp.key.trim().to_ascii_lowercase();
+        let value = fox_core::resolve_variables(&gp.value, vars);
+        match gp.location {
+            GlobalParamLocation::Query => {
+                let exists = spec
+                    .params
+                    .iter()
+                    .any(|kv| kv.enabled && kv.key.trim().to_ascii_lowercase() == key_lower);
+                if !exists {
+                    let mut kv = KeyValue::new(gp.key.trim(), value);
+                    kv.description = "全局参数".into();
+                    spec.params.push(kv);
+                }
+            }
+            GlobalParamLocation::Header => {
+                let exists = spec
+                    .headers
+                    .iter()
+                    .any(|kv| kv.enabled && kv.key.trim().to_ascii_lowercase() == key_lower);
+                if !exists {
+                    let mut kv = KeyValue::new(gp.key.trim(), value);
+                    kv.description = "全局参数".into();
+                    spec.headers.push(kv);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use fox_core::model::GlobalParamLocation;
+
+    #[test]
+    fn global_params_inject_query_and_header_fill_gaps() {
+        use fox_core::model::GlobalParam;
+
+        let mut spec = RequestSpec {
+            params: vec![KeyValue::new("keep", "1")],
+            headers: vec![],
+            ..Default::default()
+        };
+        let params = vec![
+            GlobalParam {
+                key: "debug".into(),
+                value: "1".into(),
+                enabled: true,
+                location: GlobalParamLocation::Query,
+            },
+            // 已存在的同名（大小写不敏感）不覆盖
+            GlobalParam {
+                key: "KEEP".into(),
+                value: "override".into(),
+                enabled: true,
+                location: GlobalParamLocation::Query,
+            },
+            GlobalParam {
+                key: "X-Request-Id".into(),
+                value: "{{rid}}".into(),
+                enabled: true,
+                location: GlobalParamLocation::Header,
+            },
+            // 禁用不注入
+            GlobalParam {
+                key: "off".into(),
+                value: "x".into(),
+                enabled: false,
+                location: GlobalParamLocation::Header,
+            },
+        ];
+        let mut vars = HashMap::new();
+        vars.insert("rid".to_string(), "trace-9".to_string());
+        apply_global_params(&mut spec, &params, &vars);
+
+        assert_eq!(spec.params.len(), 2, "注入 debug；KEEP 已有同名不覆盖");
+        assert!(spec.params.iter().any(|kv| kv.key == "debug" && kv.value == "1"));
+        assert_eq!(spec.params[0].value, "1", "请求显式值优先");
+        assert_eq!(spec.headers.len(), 1);
+        assert_eq!(spec.headers[0].key, "X-Request-Id");
+        assert_eq!(spec.headers[0].value, "trace-9", "全局参数值支持 {{变量}} 解析");
+    }
 
     /// 历史摘要必须包含完整请求规格（前端「恢复到编辑器」的数据源），
     /// 且认证字段被置空（凭据不落历史库）。

@@ -108,9 +108,10 @@ impl AppState {
         Ok(Some(environment))
     }
 
-    /// 设置激活项目（`None` 表示清空）。项目切换后，属于其他项目的环境自动失效。
+    /// 设置激活项目（`None` 表示清空）。
     /// 持久化到 settings 表，重启后由 `restore_active` 恢复。
     ///
+    /// 环境为全局维度，切换项目不改变激活环境。
     /// 数据库查询全部在锁外完成：写锁若跨 await，会阻塞所有并发读
     /// （每次发请求的 `variables_for` 都要读激活上下文）。
     pub async fn set_active_project(&self, project_id: Option<Uuid>) -> CommandResult<()> {
@@ -119,29 +120,11 @@ impl AppState {
             None => None,
         };
 
-        // 短读锁快照环境归属信息，查库在锁外进行
-        let (cur_env_id, cached_env_project) = {
-            let read = self.active.read().await;
-            (read.environment_id, read.environment.as_ref().map(|e| e.project_id))
-        };
-        let env_project = match (cached_env_project, cur_env_id) {
-            (Some(pid), _) => Some(pid),
-            (None, Some(id)) => repo::get_environment(&self.db, id).await.ok().map(|e| e.project_id),
-            (None, None) => None,
-        };
-
         let mut write = self.active.write().await;
         write.project_id = project_id;
         write.project = project;
-        let mut env_id = write.environment_id;
-        if env_project != project_id {
-            write.environment_id = None;
-            write.environment = None;
-            env_id = None;
-        }
         drop(write);
         repo::set_setting(&self.db, KEY_ACTIVE_PROJECT, &setting_value(project_id)).await?;
-        repo::set_setting(&self.db, KEY_ACTIVE_ENVIRONMENT, &setting_value(env_id)).await?;
         Ok(())
     }
 
@@ -165,7 +148,8 @@ impl AppState {
         Ok(())
     }
 
-    /// 启动时恢复持久化的激活项目 / 环境（校验存在性与归属，无效则丢弃）。
+    /// 启动时恢复持久化的激活项目 / 环境（校验存在性，无效则丢弃）。
+    /// 环境为全局维度，不校验项目归属。
     pub async fn restore_active(&self) -> CommandResult<()> {
         let project_id = load_setting_uuid(&self.db, KEY_ACTIVE_PROJECT).await;
         let project_ok = match project_id {
@@ -173,12 +157,9 @@ impl AppState {
             None => false,
         };
         let environment_id = load_setting_uuid(&self.db, KEY_ACTIVE_ENVIRONMENT).await;
-        let env_ok = match (project_id, environment_id) {
-            (Some(pid), Some(eid)) => match repo::get_environment(&self.db, eid).await {
-                Ok(env) => env.project_id == pid,
-                Err(_) => false,
-            },
-            _ => false,
+        let env_ok = match environment_id {
+            Some(id) => repo::get_environment(&self.db, id).await.is_ok(),
+            None => false,
         };
         let mut write = self.active.write().await;
         write.project_id = project_id.filter(|_| project_ok);
@@ -188,7 +169,11 @@ impl AppState {
         Ok(())
     }
 
-    /// 合并变量表：运行时（空）> 环境 > 项目。
+    /// 合并变量表：运行时（空）> 环境 > 项目 > 全局。
+    ///
+    /// 环境侧取「结构化变量（enabled、本地值优先）」扁平表；此外当环境中存在
+    /// 默认模块时，注入 `base_url = 默认模块前置 URL`（未显式定义 base_url 变量时），
+    /// 使请求引擎 `{{base_url}}` 拼接在旧语义下继续可用。
     pub async fn variables_for(&self, environment_id: Option<Uuid>) -> CommandResult<VariableMap> {
         let project = self.active_project().await?;
         let environment = match environment_id {
@@ -196,12 +181,31 @@ impl AppState {
             Some(id) => Some(repo::get_environment(&self.db, id).await?),
             None => self.active_environment().await?,
         };
+        let global_vars: VariableMap = repo::get_global_variables(&self.db)
+            .await?
+            .into_iter()
+            .filter(|v| v.enabled)
+            .map(|v| {
+                let value = v.effective_value().to_string();
+                (v.key, value)
+            })
+            .collect();
         let project_vars = project.map(|p| p.variables).unwrap_or_default();
-        let environment_vars = environment.map(|e| e.variables).unwrap_or_default();
+        let mut environment_vars: VariableMap = environment
+            .as_ref()
+            .map(|e| e.effective_variables())
+            .unwrap_or_default();
+        if !environment_vars.contains_key("base_url") {
+            if let Some(base) = environment.as_ref().and_then(|e| e.base_url(None)) {
+                environment_vars.insert("base_url".into(), base.to_string());
+            }
+        }
+        // 项目 > 全局；再叠环境（环境 > 项目）。
+        let project_over_global = fox_core::merge_variables(&project_vars, &global_vars, &HashMap::new());
         Ok(fox_core::merge_variables(
             &HashMap::new(),
             &environment_vars,
-            &project_vars,
+            &project_over_global,
         ))
     }
 }
@@ -235,9 +239,9 @@ mod tests {
             &db,
             &Environment {
                 id: env_id,
-                project_id: project.id,
                 name: "dev".into(),
-                variables: Default::default(),
+                modules: Vec::new(),
+                variables: Vec::new(),
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
             },
@@ -285,7 +289,7 @@ mod tests {
             );
         }
 
-        // 环境不属于当前项目时应被丢弃。
+        // 环境为全局维度：切换 / 新增其他项目，激活环境保持有效。
         let other_project_id = Uuid::new_v4();
         repo::save_project(
             &db,
@@ -300,46 +304,25 @@ mod tests {
         )
         .await
         .expect("落库其他项目");
-        let other_env_id = Uuid::new_v4();
-        repo::save_environment(
-            &db,
-            &Environment {
-                id: other_env_id,
-                project_id: other_project_id,
-                name: "other".into(),
-                variables: Default::default(),
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-            },
-        )
-        .await
-        .expect("落库其他环境");
-        repo::set_setting(&db, KEY_ACTIVE_PROJECT, &setting_value(Some(project.id)))
-            .await
-            .expect("写项目");
-        repo::set_setting(
-            &db,
-            KEY_ACTIVE_ENVIRONMENT,
-            &setting_value(Some(other_env_id)),
-        )
-        .await
-        .expect("写环境");
-        let again = AppState::new(db.clone());
-        again.restore_active().await.expect("恢复");
-        let read = again.active.read().await;
-        assert_eq!(read.project_id, Some(project.id));
-        assert_eq!(read.environment_id, None, "跨项目环境应被丢弃");
-        drop(read);
 
-        // 切换到其他项目 → 环境应清空并持久化 null。
+        // 切换其他项目 → 全局环境不应被清空。
         restarted
             .set_active_project(Some(other_project_id))
             .await
             .expect("切换项目");
         {
             let read = restarted.active.read().await;
-            assert_eq!(read.environment_id, None, "跨项目环境应清空");
+            assert_eq!(read.project_id, Some(other_project_id));
+            assert_eq!(read.environment_id, Some(env_id), "全局环境跨项目保持");
         }
+
+        // 重启恢复：环境 id 有效即恢复，不受项目切换影响。
+        let again = AppState::new(db.clone());
+        again.restore_active().await.expect("恢复");
+        let read = again.active.read().await;
+        assert_eq!(read.project_id, Some(other_project_id));
+        assert_eq!(read.environment_id, Some(env_id), "全局环境重启后恢复");
+        drop(read);
 
         db.close().await;
         let _ = std::fs::remove_file(&path);

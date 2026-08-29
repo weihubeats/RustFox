@@ -8,8 +8,9 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use fox_core::model::{Endpoint, HttpMethod, RequestSpec};
+use fox_storage::repository as repo;
 
-use crate::commands::request::render_spec;
+use crate::commands::request::{apply_global_params, render_spec};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
@@ -29,7 +30,9 @@ pub async fn test_endpoint(
 ) -> CommandResult<fox_test::runner::EndpointResult> {
     let vars = state.variables_for(args.environment_id).await?;
     let url = fox_core::resolve_variables(&args.url, &vars);
-    let spec = render_spec(&args.endpoint.request, &vars);
+    let mut spec = render_spec(&args.endpoint.request, &vars);
+    let global_params = repo::get_global_params(&state.db).await?;
+    apply_global_params(&mut spec, &global_params, &vars);
     let mut runtime = std::collections::HashMap::new();
     let (result, _) = fox_test::runner::run_endpoint(
         &args.endpoint,
@@ -70,7 +73,9 @@ pub async fn load_test(
     let total = args.total.unwrap_or(200).clamp(1, 100_000);
     let vars = state.variables_for(args.environment_id).await?;
     let url = fox_core::resolve_variables(&args.url, &vars);
-    let spec = render_spec(&args.spec, &vars);
+    let mut spec = render_spec(&args.spec, &vars);
+    let global_params = repo::get_global_params(&state.db).await?;
+    apply_global_params(&mut spec, &global_params, &vars);
     let cfg = fox_test::load::LoadConfig { concurrency, total };
     // 进度节流：高并发短请求下逐请求 emit 会产生每秒数千次 IPC，
     // 按 100ms 时间窗合并；终态（done == total）必发一次保证收尾准确。

@@ -30,11 +30,13 @@ import type {
   Endpoint,
   EndpointResult,
   Environment,
+  EnvironmentVariable,
   ExecuteRequestArgs,
   ExecuteResponse,
   ExportFormat,
   ExportedDoc,
   Folder,
+  GlobalParam,
   HttpMethod,
   ImportResult,
   KeyValue,
@@ -180,8 +182,7 @@ export function useFoxApi() {
     run(() => call<CurlParsed>('parse_curl_command', { command }))
 
   // ---------- 环境 ----------
-  const listEnvironments = (projectId: string) =>
-    run(() => call<Environment[]>('list_environments', { projectId }))
+  const listEnvironments = () => run(() => call<Environment[]>('list_environments'))
 
   const saveEnvironment = (environment: Environment) =>
     run(() => call<Environment>('save_environment', { environment }))
@@ -198,6 +199,18 @@ export function useFoxApi() {
 
   const deleteEnvironment = (environmentId: string) =>
     run(() => call<void>('delete_environment', { environmentId }))
+
+  // ---------- 全局变量 ----------
+  const getGlobalVariables = () => run(() => call<EnvironmentVariable[]>('get_global_variables'))
+
+  const saveGlobalVariables = (variables: EnvironmentVariable[]) =>
+    run(() => call<void>('save_global_variables', { variables }))
+
+  // ---------- 全局参数 ----------
+  const getGlobalParams = () => run(() => call<GlobalParam[]>('get_global_params'))
+
+  const saveGlobalParams = (params: GlobalParam[]) =>
+    run(() => call<void>('save_global_params', { params }))
 
   // ---------- 请求执行 ----------
   const executeRequest = (args: ExecuteRequestArgs) =>
@@ -377,6 +390,10 @@ export function useFoxApi() {
     setActiveEnvironment,
     getActiveEnvironment,
     deleteEnvironment,
+    getGlobalVariables,
+    saveGlobalVariables,
+    getGlobalParams,
+    saveGlobalParams,
     executeRequest,
     cancelRequest,
     listExamples,

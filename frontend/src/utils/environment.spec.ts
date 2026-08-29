@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest'
+import type { Environment } from '../types/foxApi'
 import {
+  defaultModule,
+  effectiveVariable,
   envBaseUrl,
   envColorClass,
+  environmentVariableMap,
+  joinBaseUrl,
+  moduleBaseUrl,
+  moduleByName,
   normalizeBaseUrl,
+  resolveRequestUrl,
   resolveVariables,
 } from './environment'
+
+function mkEnv(overrides: Partial<Environment> = {}): Environment {
+  return {
+    id: 'e1',
+    name: '测试环境',
+    modules: [],
+    variables: [],
+    created_at: '',
+    updated_at: '',
+    ...overrides,
+  }
+}
+
+const multiModuleEnv = mkEnv({
+  modules: [
+    { id: 'm-pay', module_name: '支付', base_url: 'https://pay.example.com', is_default: true },
+    { id: 'm-acq', module_name: '收单', base_url: 'https://acq.example.com', is_default: false },
+    { id: 'm-api', module_name: 'api', base_url: 'http://dev-test01.redotpay.inet:8092', is_default: false },
+  ],
+})
 
 describe('envColorClass', () => {
   it('按名称启发式归类（中英文大小写不敏感）', () => {
@@ -18,12 +46,90 @@ describe('envColorClass', () => {
   })
 })
 
-describe('envBaseUrl', () => {
-  it('取 base_url 变量，空环境返回空串', () => {
-    expect(
-      envBaseUrl({ variables: { base_url: ' https://x.com/ ' } } as never),
-    ).toBe('https://x.com/')
+describe('defaultModule / moduleByName', () => {
+  it('优先取 is_default，无标记取第一个', () => {
+    expect(defaultModule(multiModuleEnv)?.module_name).toBe('支付')
+    const noFlag = mkEnv({
+      modules: [
+        { id: 'a', module_name: 'A', base_url: 'https://a.com', is_default: false },
+        { id: 'b', module_name: 'B', base_url: 'https://b.com', is_default: false },
+      ],
+    })
+    expect(defaultModule(noFlag)?.module_name).toBe('A')
+    expect(defaultModule(null)).toBeUndefined()
+  })
+
+  it('按 id 或 名称命中；无效键回退默认；空键取默认', () => {
+    expect(moduleByName(multiModuleEnv, 'm-acq')?.module_name).toBe('收单')
+    expect(moduleByName(multiModuleEnv, 'api')?.module_name).toBe('api')
+    expect(moduleByName(multiModuleEnv, '')?.module_name).toBe('支付')
+    expect(moduleByName(multiModuleEnv, '不存在')?.module_name).toBe('支付')
+  })
+})
+
+describe('envBaseUrl / moduleBaseUrl', () => {
+  it('取默认模块基址', () => {
+    expect(envBaseUrl(multiModuleEnv)).toBe('https://pay.example.com')
+    expect(moduleBaseUrl(multiModuleEnv, '收单')).toBe('https://acq.example.com')
+    expect(moduleBaseUrl(multiModuleEnv)).toBe('https://pay.example.com')
     expect(envBaseUrl(null)).toBe('')
+    expect(envBaseUrl(mkEnv())).toBe('')
+  })
+
+  it('无模块时回退 base_url 为名的已启用变量', () => {
+    const env = mkEnv({
+      variables: [
+        { key: 'base_url', remote_value: ' https://x.com/ ', local_value: '', enabled: true, description: null },
+      ],
+    })
+    expect(envBaseUrl(env)).toBe('https://x.com/')
+  })
+
+  it('禁用变量不参与回退', () => {
+    const env = mkEnv({
+      variables: [
+        { key: 'base_url', remote_value: 'https://x.com', local_value: '', enabled: false, description: null },
+      ],
+    })
+    expect(envBaseUrl(env)).toBe('')
+  })
+})
+
+describe('effectiveVariable / environmentVariableMap', () => {
+  it('本地值优先，其次远程值', () => {
+    expect(effectiveVariable({ remote_value: 'r', local_value: 'l' })).toBe('l')
+    expect(effectiveVariable({ remote_value: ' r ', local_value: '  ' })).toBe('r')
+    expect(effectiveVariable({ remote_value: '', local_value: '' })).toBe('')
+  })
+
+  it('扁平注入表：enabled 才注入、本地优先、禁用跳过', () => {
+    const env = mkEnv({
+      modules: [
+        { id: 'm1', module_name: '支付', base_url: 'https://pay.example.com', is_default: true },
+      ],
+      variables: [
+        { key: 'token', remote_value: 'abc', local_value: 'LOCAL', enabled: true, description: null },
+        { key: 'skipped', remote_value: 'x', local_value: '', enabled: false, description: null },
+        { key: 'junk', remote_value: 'y', local_value: '', enabled: false, description: null },
+      ],
+    })
+    const map = environmentVariableMap(env)
+    expect(map.token).toBe('LOCAL')
+    expect(map.skipped).toBeUndefined()
+    // 默认模块基址自动注入 base_url
+    expect(map.base_url).toBe('https://pay.example.com')
+  })
+
+  it('已显式定义 base_url 变量时不覆盖为默认模块', () => {
+    const env = mkEnv({
+      modules: [
+        { id: 'm1', module_name: '支付', base_url: 'https://pay.example.com', is_default: true },
+      ],
+      variables: [
+        { key: 'base_url', remote_value: 'https://override.example.com', local_value: '', enabled: true, description: null },
+      ],
+    })
+    expect(environmentVariableMap(env).base_url).toBe('https://override.example.com')
   })
 })
 
@@ -35,13 +141,87 @@ describe('normalizeBaseUrl', () => {
   })
 })
 
+describe('joinBaseUrl', () => {
+  it('相对路径拼基址、去双斜杠、完整 URL 直用', () => {
+    expect(joinBaseUrl('https://x.com', '/users')).toBe('https://x.com/users')
+    expect(joinBaseUrl('https://x.com/', 'users')).toBe('https://x.com/users')
+    expect(joinBaseUrl('', '/users')).toBe('/users')
+    expect(joinBaseUrl('https://x.com/', 'https://full.example.com/a')).toBe('https://full.example.com/a')
+  })
+})
+
+describe('resolveRequestUrl（请求拼接核心）', () => {
+  it('显式模块命中：最终 URL = 模块基址 + 相对路径', () => {
+    const r = resolveRequestUrl(multiModuleEnv, '收单', '/orders')
+    expect(r).toMatchObject({ url: 'https://acq.example.com/orders', moduleName: '收单', fellBack: false })
+  })
+
+  it('按模块名命中（含端口示例）', () => {
+    const r = resolveRequestUrl(multiModuleEnv, 'api', '/health')
+    expect(r.url).toBe('http://dev-test01.redotpay.inet:8092/health')
+  })
+
+  it('未指定模块：降级默认模块', () => {
+    const r = resolveRequestUrl(multiModuleEnv, null, '/users')
+    expect(r).toMatchObject({ url: 'https://pay.example.com/users', moduleName: '支付', fellBack: false })
+    const r2 = resolveRequestUrl(multiModuleEnv, '', '/users')
+    expect(r2.url).toBe('https://pay.example.com/users')
+  })
+
+  it('无效模块键：回退默认模块并标记 fellBack', () => {
+    const r = resolveRequestUrl(multiModuleEnv, '不存在', '/x')
+    expect(r).toMatchObject({ url: 'https://pay.example.com/x', moduleName: '支付', fellBack: true })
+  })
+
+  it('完整 URL 路径直用，不按模块拼接', () => {
+    const r = resolveRequestUrl(multiModuleEnv, '支付', 'https://full.example.com/a',)
+    expect(r.url).toBe('https://full.example.com/a')
+    expect(r.moduleName).toBe('')
+  })
+
+  it('无模块环境：无基址仅返回路径', () => {
+    const r = resolveRequestUrl(mkEnv(), '支付', '/users')
+    expect(r).toMatchObject({ url: '/users', moduleName: '', fellBack: false })
+  })
+
+  it('基址中的 {{变量}} 以环境变量表解析', () => {
+    const env = mkEnv({
+      modules: [
+        { id: 'm1', module_name: 'api', base_url: '{{host}}', is_default: true },
+      ],
+    })
+    const withHost = mkEnv({
+      modules: [
+        { id: 'm1', module_name: 'api', base_url: '{{host}}', is_default: true },
+      ],
+      variables: [
+        { key: 'host', remote_value: 'https://dev.example.com', local_value: '', enabled: true, description: null },
+      ],
+    })
+    expect(resolveRequestUrl(env, null, '/ping').url).toBe('{{host}}/ping')
+    const r = resolveRequestUrl(withHost, null, '/ping')
+    expect(r.url).toBe('https://dev.example.com/ping')
+  })
+
+  it('调用方变量参与基址解析（extraVars）', () => {
+    const env = mkEnv({
+      modules: [{ id: 'm1', module_name: 'api', base_url: '{{host}}', is_default: true }],
+    })
+    const r = resolveRequestUrl(env, null, '/ping', { host: 'https://extra.example.com' })
+    expect(r.url).toBe('https://extra.example.com/ping')
+  })
+
+  it('路径以斜杠开头不产生双斜杠', () => {
+    const r = resolveRequestUrl(multiModuleEnv, '收单', '/')
+    expect(r.url).toBe('https://acq.example.com/')
+  })
+})
+
 describe('resolveVariables', () => {
   const vars = { base: '{{host}}/api', host: 'https://x.com', empty: '' }
 
   it('递归解析已知变量', () => {
-    expect(resolveVariables('{{base}}/posts', vars)).toBe(
-      'https://x.com/api/posts',
-    )
+    expect(resolveVariables('{{base}}/posts', vars)).toBe('https://x.com/api/posts')
   })
 
   it('未知或空值变量原样保留', () => {

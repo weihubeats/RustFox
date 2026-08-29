@@ -3,13 +3,20 @@
  * EnvironmentQuickView：当前环境变量速览弹层（👁️）。
  * - 深色浮层，跟随 EnvironmentBar 定位（空间不足时向上翻转）；
  * - 只读表格 + 值列行内快速编辑（blur / Enter 自动保存）；
+ * - 基础 URL 行编辑默认模块基址（多模块环境的其余模块请到「管理环境」维护）；
  * - 底部：「＋ 添加变量」快捷行 +「管理环境」入口。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
-import { envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
+import {
+  effectiveVariable,
+  envBaseUrl,
+  envColorClass,
+  normalizeBaseUrl,
+} from '../utils/environment'
 import Icon from './ui/Icon.vue'
+import type { EnvironmentVariable } from '../types/foxApi'
 
 const props = defineProps<{ anchor: HTMLElement | null }>()
 const emit = defineEmits<{ close: []; manage: [] }>()
@@ -34,16 +41,16 @@ const popupEl = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, up: false })
 
 function toRows(environment: typeof env.value): Row[] {
-  return Object.entries(environment?.variables ?? {})
-    .filter(([key]) => key !== 'base_url')
-    .map(([key, value]) => ({ key, value }))
+  return (environment?.variables ?? [])
+    .filter((v) => v.key !== 'base_url')
+    .map((v) => ({ key: v.key, value: effectiveVariable(v) }))
 }
 
 watch(
   () => env.value?.id,
   () => {
     rows.value = toRows(env.value)
-    baseUrlValue.value = env.value?.variables?.base_url ?? ''
+    baseUrlValue.value = envBaseUrl(env.value)
     dirty.value = false
   },
   { immediate: true },
@@ -78,21 +85,45 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-async function save(): Promise<void> {
-  if (!env.value || busy.value) return
-  const variables: Record<string, string> = {}
-  const normalizedBase = normalizeBaseUrl(baseUrlValue.value)
-  if (normalizedBase) variables.base_url = normalizedBase
+function buildVariables(): EnvironmentVariable[] {
+  const next: EnvironmentVariable[] = []
   for (const row of rows.value) {
     const key = row.key.trim()
     if (!key || key.startsWith('{{') || key.startsWith('$')) continue
-    variables[key] = row.value
+    const prev = env.value?.variables.find((v) => v.key === key)
+    // 保留远程值，本地值为本次编辑值（快速编辑即本地覆盖）。
+    next.push({
+      key,
+      remote_value: prev?.remote_value ?? '',
+      local_value: row.value,
+      enabled: true,
+      description: prev?.description ?? null,
+    })
+  }
+  return next
+}
+
+async function save(): Promise<void> {
+  if (!env.value || busy.value) return
+  const modules = [...env.value.modules]
+  const normalizedBase = normalizeBaseUrl(baseUrlValue.value)
+  if (modules.length === 0) {
+    if (normalizedBase) {
+      modules.push({ id: crypto.randomUUID(), module_name: '默认', base_url: normalizedBase, is_default: true })
+    }
+  } else {
+    const idx = modules.findIndex((m) => m.is_default)
+    const target = idx !== -1 ? idx : 0
+    modules[target] = { ...modules[target], base_url: normalizedBase }
   }
   busy.value = true
   try {
-    const saved = await store.updateEnvironment({ ...env.value, variables }, { silent: true })
+    const saved = await store.updateEnvironment(
+      { ...env.value, modules, variables: buildVariables() },
+      { silent: true },
+    )
     rows.value = toRows(saved)
-    baseUrlValue.value = saved.variables?.base_url ?? ''
+    baseUrlValue.value = envBaseUrl(saved)
     dirty.value = false
   } catch (err) {
     toast.error('保存环境失败', { message: err instanceof Error ? err.message : String(err) })
@@ -158,7 +189,7 @@ onBeforeUnmount(() => {
           class="qv-input qv-base-input"
           spellcheck="false"
           :disabled="busy"
-          placeholder="基础 URL，如 https://api.example.com"
+          placeholder="默认模块 Base URL，如 https://api.example.com"
           @input="onEdit"
           @blur="save"
           @keydown.enter="(e) => (e.target as HTMLInputElement).blur()"
@@ -168,7 +199,7 @@ onBeforeUnmount(() => {
       <div v-if="rows.length" class="qv-table">
         <div class="qv-row qv-row-head">
           <span class="qv-key">变量名</span>
-          <span class="qv-value">值</span>
+          <span class="qv-value">值（本地覆盖）</span>
         </div>
         <div v-for="(row, i) in rows" :key="i" class="qv-row">
           <input

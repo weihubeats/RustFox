@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-save-global-params"
+description = "Enables the save_global_params command without any pre-configured scope."
+commands.allow = ["save_global_params"]
+
+[[permission]]
+identifier = "deny-save-global-params"
+description = "Denies the save_global_params command without any pre-configured scope."
+commands.deny = ["save_global_params"]

@@ -26,6 +26,10 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-set-active-environment`
 - `allow-get-active-environment`
 - `allow-delete-environment`
+- `allow-get-global-variables`
+- `allow-save-global-variables`
+- `allow-get-global-params`
+- `allow-save-global-params`
 - `allow-execute-request`
 - `allow-cancel-request`
 - `allow-list-examples`
@@ -40,6 +44,9 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-mock-start`
 - `allow-mock-stop`
 - `allow-mock-status`
+- `allow-agent-start`
+- `allow-agent-stop`
+- `allow-agent-status`
 - `allow-backup-export`
 - `allow-backup-restore`
 - `allow-import-document`
@@ -699,6 +706,58 @@ Denies the get_endpoint command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-get-global-params`
+
+</td>
+<td>
+
+Enables the get_global_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-get-global-params`
+
+</td>
+<td>
+
+Denies the get_global_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-get-global-variables`
+
+</td>
+<td>
+
+Enables the get_global_variables command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-get-global-variables`
+
+</td>
+<td>
+
+Denies the get_global_variables command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-get-http-proxy`
 
 </td>
@@ -1264,6 +1323,58 @@ Enables the save_folder command without any pre-configured scope.
 <td>
 
 Denies the save_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-save-global-params`
+
+</td>
+<td>
+
+Enables the save_global_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-save-global-params`
+
+</td>
+<td>
+
+Denies the save_global_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-save-global-variables`
+
+</td>
+<td>
+
+Enables the save_global_variables command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-save-global-variables`
+
+</td>
+<td>
+
+Denies the save_global_variables command without any pre-configured scope.
 
 </td>
 </tr>

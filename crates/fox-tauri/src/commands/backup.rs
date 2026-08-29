@@ -17,7 +17,7 @@ pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> Comm
     let project = repo::get_project(&state.db, project_id).await?;
     let folders = repo::list_folders(&state.db, project_id).await?;
     let endpoints = repo::list_endpoints(&state.db, project_id).await?;
-    let environments = repo::list_environments(&state.db, project_id).await?;
+    let environments = repo::list_environments(&state.db).await?;
     let mock_rules = repo::list_mock_rules(&state.db, project_id).await?;
 
     let mut response_examples = Vec::new();

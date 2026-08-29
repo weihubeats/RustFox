@@ -85,13 +85,23 @@ RustFox 内置 **Agent 控制面**（应用启动时自动拉起）：本机回�
 
 ### MCP Server（推荐）
 
-> **前置**：MCP 配置需要 `rustfox-mcp` 二进制。
+> **前置**：MCP 配置需要 `rustfox-mcp` 二进制。v0.0.10+ 安装包不在 PATH，必须填安装包内绝对路径（macOS 安装包：`/Applications/RustFox.app/Contents/MacOS/rustfox-mcp`）。
 > **v0.0.10 起安装包已内置**，无需额外安装；更早版本请先按 [docs/AGENT.md](docs/AGENT.md) 构建。
 
 Claude Code 等支持 MCP 的客户端，在项目 `.mcp.json` 中配置一次：
 
 ```json
-{ "mcpServers": { "rustfox": { "command": "rustfox-mcp" } } }
+{ "mcpServers": { "rustfox": { "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" } } }
+```
+
+> 仅当二进制已加入 PATH 时才可写裸 `rustfox-mcp`（如 Linux .deb 安装、或 `cargo build --release -p fox-mcp` 后放入 `/usr/local/bin`）。
+
+配好后直接让 AI 把接口存进 RustFox（贴 cURL 或贴代码都行）：
+
+```
+把这个接口保存到 RustFox：
+@PostMapping("/orders")
+public Result<Long> createOrder(@RequestBody CreateOrderReq req) { ... }
 ```
 
 之后对话里说「把这个 curl 存到 RustFox」即可。提供 4 个工具：

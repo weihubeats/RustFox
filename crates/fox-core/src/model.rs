@@ -459,15 +459,161 @@ pub struct Endpoint {
     pub updated_at: DateTime<Utc>,
 }
 
-/// 环境。
+/// 模块 / 服务的前置 URL 配置（环境内一个可命中目标）。
+///
+/// 微服务场景下同一环境（如「测试环境」）内，支付 / 收单 / 渠道等服务各自
+/// 拥有独立基址；请求未显式绑定模块时回退到 `is_default` 模块。
+///
+/// 全局环境下模块与项目联动：`project_id` 为 `Some` 的模块对应一个项目
+/// （module_name 随项目名自动同步），`None` 为手工维护的临时模块。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleUrlConfig {
+    pub id: Uuid,
+    /// 关联的项目（模块自动同步项目时绑定；临时模块为 `None`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    /// 模块名（项目模块随项目名同步；临时模块可手工命名）。
+    pub module_name: String,
+    /// 前置 URL，如 `http://dev-test01.redotpay.inet:8092`（可包含 `{{变量}}`）。
+    pub base_url: String,
+    /// 是否为默认模块（未显式指定模块时使用）。
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+/// 环境变量（支持远程 / 本地双值：本地值优先覆盖远程值）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentVariable {
+    pub key: String,
+    /// 远程 / 公共值。
+    pub remote_value: String,
+    /// 本地私有覆盖值（非空时优先于 remote_value）。
+    #[serde(default)]
+    pub local_value: String,
+    /// 是否参与注入（关闭后该变量不进入请求变量表）。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// 全局参数注入位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GlobalParamLocation {
+    /// 拼入每个请求的 URL 查询参数。
+    #[default]
+    Query,
+    /// 注入每个请求的请求头。
+    Header,
+}
+
+/// 全局参数（注入制）：每个请求自动附加的 key/value。
+///
+/// 与「全局变量」的区别：
+/// - 全局变量是「引用制」——请求里写 `{{name}}` 才按名替换；
+/// - 全局参数是「注入制」——定义后每个请求自动并入 query / header，无需手动写。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobalParam {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub location: GlobalParamLocation,
+}
+
+/// 环境（全局维度）。
+///
+/// 环境跨项目共享；每个环境按「服务 / 模块」维护各自的 Base URL `modules`
+/// （项目模块自动同步全部项目），同时持有一组结构化环境变量 `variables`
+/// （本地值覆盖远程值）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Environment {
     pub id: Uuid,
-    pub project_id: Uuid,
     pub name: String,
-    pub variables: HashMap<String, String>,
+    /// 多模块前置 URL 列表。
+    #[serde(default)]
+    pub modules: Vec<ModuleUrlConfig>,
+    /// 结构化环境变量列表。
+    #[serde(default)]
+    pub variables: Vec<EnvironmentVariable>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for ModuleUrlConfig {
+    fn default() -> Self {
+        ModuleUrlConfig {
+            id: Uuid::new_v4(),
+            project_id: None,
+            module_name: String::new(),
+            base_url: String::new(),
+            is_default: false,
+        }
+    }
+}
+
+impl EnvironmentVariable {
+    /// 生效值：本地覆盖值非空时取本地，否则取远程 / 公共值。
+    pub fn effective_value(&self) -> &str {
+        let local = self.local_value.trim();
+        if !local.is_empty() {
+            local
+        } else {
+            self.remote_value.trim()
+        }
+    }
+
+    pub fn is_effective(&self) -> bool {
+        self.enabled && !self.effective_value().is_empty()
+    }
+}
+
+impl Environment {
+    /// 默认模块：优先 `is_default`，否则取第一个（兼容无标记模块的旧数据）。
+    pub fn default_module(&self) -> Option<&ModuleUrlConfig> {
+        self.modules
+            .iter()
+            .find(|m| m.is_default)
+            .or_else(|| self.modules.first())
+    }
+
+    /// 按模块 id 或模块名查找模块。
+    pub fn module(&self, key: &str) -> Option<&ModuleUrlConfig> {
+        let n = key.trim();
+        if n.is_empty() {
+            return self.default_module();
+        }
+        self.modules
+            .iter()
+            .find(|m| m.id.to_string() == n || m.module_name == n)
+    }
+
+    /// 生效环境变量扁平表（仅 enabled；本地值优先）。
+    pub fn effective_variables(&self) -> HashMap<String, String> {
+        self.variables
+            .iter()
+            .filter(|v| v.is_effective())
+            .map(|v| (v.key.trim().to_string(), v.effective_value().to_string()))
+            .collect()
+    }
+
+    /// 当前环境实际采用的基址：显式模块 > 默认模块；无可用模块返回 `None`。
+    ///
+    /// `module_key` 为 `None` 或空时表示「未指定模块 → 默认模块」。
+    pub fn base_url(&self, module_key: Option<&str>) -> Option<&str> {
+        let module = match module_key {
+            Some(key) => self.module(key)?,
+            None => self.default_module()?,
+        };
+        let base = module.base_url.trim();
+        if base.is_empty() {
+            None
+        } else {
+            Some(base)
+        }
+    }
 }
 
 /// 响应示例。

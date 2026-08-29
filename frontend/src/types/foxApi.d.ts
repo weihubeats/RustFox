@@ -192,12 +192,51 @@ export interface Endpoint {
   updated_at: string
 }
 
-/** 环境（Rust `Environment`）。 */
+/** 模块 / 服务的前置 URL 配置（环境内一个可命中目标，Rust `ModuleUrlConfig`）。 */
+export interface ModuleUrlConfig {
+  id: string
+  /** 关联的项目 id：模块自动同步项目时绑定；手工临时模块为 null。 */
+  project_id?: string | null
+  /** 模块名，如「支付」「收单」「api」（项目模块随项目名自动刷新）。 */
+  module_name: string
+  /** 前置 URL，如 `http://dev-test01.redotpay.inet:8092`（可含 `{{变量}}`）。 */
+  base_url: string
+  /** 是否为默认模块（请求未显式绑定模块时使用）。 */
+  is_default: boolean
+}
+
+/** 环境变量（Rust `EnvironmentVariable`）：本地值优先覆盖远程值。 */
+export interface EnvironmentVariable {
+  key: string
+  /** 远程 / 公共值。 */
+  remote_value: string
+  /** 本地私有覆盖值（非空时优先于 remote_value）。 */
+  local_value: string
+  /** 是否参与注入。 */
+  enabled: boolean
+  description?: string | null
+}
+
+/** 全局参数注入位置（Rust `GlobalParamLocation`）。 */
+export type GlobalParamLocation = 'query' | 'header'
+
+/** 全局参数（Rust `GlobalParam`）：每个请求自动注入的 key/value，无需手动写 {{}}。 */
+export interface GlobalParam {
+  key: string
+  value: string
+  enabled: boolean
+  /** 注入位置：query = URL 查询参数；header = 请求头。 */
+  location: GlobalParamLocation
+}
+
+/** 环境（Rust `Environment`，全局维度，跨项目共享）。 */
 export interface Environment {
   id: string
-  project_id: string
   name: string
-  variables: Record<string, string>
+  /** 多模块前置 URL 列表（项目模块自动同步全部项目）。 */
+  modules: ModuleUrlConfig[]
+  /** 结构化环境变量列表。 */
+  variables: EnvironmentVariable[]
   created_at: string
   updated_at: string
 }

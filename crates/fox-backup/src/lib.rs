@@ -32,8 +32,8 @@ pub struct BackupFile {
 
 /// 备份格式标识。
 pub const FORMAT: &str = "rustfox-project-backup";
-/// 当前 schema 版本。
-pub const SCHEMA_VERSION: u32 = 1;
+/// 当前 schema 版本（v2：环境多模块 modules + 结构化变量数组）。
+pub const SCHEMA_VERSION: u32 = 2;
 
 impl BackupFile {
     pub fn serialize(&self) -> Result<String, AppError> {
@@ -41,7 +41,17 @@ impl BackupFile {
     }
 
     pub fn parse(text: &str) -> Result<BackupFile, AppError> {
-        let file: BackupFile = serde_json::from_str(text)
+        let mut value: serde_json::Value = serde_json::from_str(text)
+            .map_err(|e| AppError::Validation(format!("备份文件解析失败：{e}")))?;
+        let version = value
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        if (1..=SCHEMA_VERSION as u64).contains(&version) && version < SCHEMA_VERSION as u64 {
+            upgrade_v1(&mut value);
+            value["schema_version"] = serde_json::json!(SCHEMA_VERSION);
+        }
+        let file: BackupFile = serde_json::from_value(value)
             .map_err(|e| AppError::Validation(format!("备份文件解析失败：{e}")))?;
         if file.format != FORMAT {
             return Err(fox_core::validation("不是有效的 RustFox 备份文件"));
@@ -53,6 +63,72 @@ impl BackupFile {
             )));
         }
         Ok(file)
+    }
+}
+
+/// v1 → v2：环境变量从 `{key:value}` map 升级为结构化数组。
+///
+/// - `base_url` 键抽出为「默认」模块（modules 空时写入）；
+/// - 其余键转为 `EnvironmentVariable { remote_value = value, enabled: true }`。
+fn upgrade_v1(value: &mut serde_json::Value) {
+    let Some(envs) = value
+        .get_mut("environments")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for env in envs {
+        let object = match env.as_object_mut() {
+            Some(o) => o,
+            None => continue,
+        };
+        // 已是结构化数组则无需升级。
+        if object
+            .get("variables")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+        {
+            continue;
+        }
+        let Some(vars_obj) = object.get_mut("variables").and_then(|v| v.as_object_mut()) else {
+            continue;
+        };
+        let mut list: Vec<serde_json::Value> = Vec::new();
+        let mut base_url: Option<String> = None;
+        for (k, v) in vars_obj.iter() {
+            if k == "base_url" {
+                base_url = Some(
+                    v.as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| v.to_string()),
+                );
+                continue;
+            }
+            if k.trim().is_empty() || k.starts_with("{{") || k.starts_with('$') {
+                continue;
+            }
+            list.push(serde_json::json!({
+                "key": k,
+                "remote_value": v.as_str().map(String::from).unwrap_or_else(|| v.to_string()),
+                "local_value": "",
+                "enabled": true,
+                "description": null,
+            }));
+        }
+        if let Some(base) = base_url {
+            object.insert(
+                "modules".into(),
+                serde_json::json!([{
+                    "id": Uuid::new_v4().to_string(),
+                    "module_name": "默认",
+                    "base_url": base,
+                    "is_default": true,
+                }]),
+            );
+        } else {
+            object.insert("modules".into(), serde_json::json!([]));
+        }
+        object.insert("variables".into(), serde_json::Value::Array(list));
     }
 }
 
@@ -126,7 +202,6 @@ pub fn restore_backup(file: &BackupFile) -> Restored {
     for e in &file.environments {
         environments.push(Environment {
             id: Uuid::new_v4(),
-            project_id: new_project_id,
             ..e.clone()
         });
     }
@@ -176,7 +251,10 @@ pub fn restore_backup(file: &BackupFile) -> Restored {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fox_core::model::{BodySpec, EndpointStatus, HttpMethod, KeyValue, RequestSpec};
+    use fox_core::model::{
+        BodySpec, EndpointStatus, EnvironmentVariable, HttpMethod, KeyValue, ModuleUrlConfig,
+        RequestSpec,
+    };
     fn sample_data() -> BackupFile {
         let project = Project {
             id: Uuid::new_v4(),
@@ -216,9 +294,21 @@ mod tests {
         };
         let env = Environment {
             id: Uuid::new_v4(),
-            project_id: project.id,
             name: "测试".into(),
-            variables: HashMap::from([("token".into(), "t1".into())]),
+            modules: vec![ModuleUrlConfig {
+                id: Uuid::new_v4(),
+                project_id: None,
+                module_name: "默认".into(),
+                base_url: "https://backup.example.com".into(),
+                is_default: true,
+            }],
+            variables: vec![EnvironmentVariable {
+                key: "token".into(),
+                remote_value: "t1".into(),
+                local_value: String::new(),
+                enabled: true,
+                description: None,
+            }],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -296,6 +386,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_v1_backup_upgrades_env_variables() {
+        // 构造 v2 备份 → 还原为 v1 形状（map 变量、无 modules）。
+        let data = sample_data();
+        let mut v1 = serde_json::json!(data);
+        v1["schema_version"] = serde_json::json!(1);
+        let env0 = &mut v1["environments"][0];
+        env0.as_object_mut().unwrap().remove("modules");
+        env0["variables"] = serde_json::json!({
+            "base_url": "https://legacy.example.com",
+            "token": "t1",
+        });
+        let parsed = BackupFile::parse(&v1.to_string()).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        let env = &parsed.environments[0];
+        // base_url → 默认模块
+        assert_eq!(env.modules.len(), 1);
+        assert!(env.modules[0].is_default);
+        assert_eq!(env.modules[0].base_url, "https://legacy.example.com");
+        // 其余键 → 结构化变量
+        assert_eq!(env.variables.len(), 1);
+        assert_eq!(env.variables[0].key, "token");
+        assert_eq!(env.variables[0].remote_value, "t1");
+        assert!(env.variables[0].enabled);
+    }
+
+    #[test]
     fn restore_remaps_all_ids_consistently() {
         let data = sample_data();
         let restored = restore_backup(&data);
@@ -317,7 +433,9 @@ mod tests {
         // MockRule 与 ResponseExample 引用新的 endpoint id
         assert_eq!(restored.mock_rules[0].endpoint_id, Some(ep.id));
         assert_eq!(restored.response_examples[0].endpoint_id, ep.id);
-        assert_eq!(restored.environments[0].project_id, restored.project.id);
+        // 环境为全局维度：恢复后保留模块配置（与项目无归属关系）。
+        assert_eq!(restored.environments[0].modules.len(), 1);
+        assert!(restored.environments[0].modules[0].is_default);
         // 请求用例：引用新 endpoint id、请求快照保持、名称一致
         let req_ex = &restored.request_examples[0];
         assert_eq!(req_ex.endpoint_id, ep.id);

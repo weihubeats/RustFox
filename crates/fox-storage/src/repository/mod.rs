@@ -3,6 +3,8 @@
 mod endpoints;
 mod environments;
 mod folders;
+mod global_params;
+mod global_variables;
 mod history;
 mod mock_rules;
 mod projects;
@@ -17,6 +19,8 @@ mod ws_messages;
 pub use endpoints::*;
 pub use environments::*;
 pub use folders::*;
+pub use global_params::*;
+pub use global_variables::*;
 pub use history::*;
 pub use mock_rules::*;
 pub use projects::*;

@@ -15,14 +15,17 @@ import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { planCrossGroupMove, planSameGroupMove, wouldCreateCycle } from './treeOps'
 import { splitUrl } from '../utils/url'
+import { envBaseUrl } from '../utils/environment'
 import { applyCaseToRequest, restoreBody, snapshotRequest } from '../utils/testCases'
 import type {
   AuthSpec,
   CurlParsed,
   Endpoint,
   Environment,
+  EnvironmentVariable,
   ExecuteResponse,
   Folder,
+  GlobalParam,
   HttpMethod,
   KeyValue,
   OAuth2Token,
@@ -71,25 +74,36 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const environments = ref<Environment[]>([])
   const activeEnvId = ref<string | null>(null)
 
+  /** 全局变量（跨项目共享，优先级最低的 {{变量}} 兜底表）。 */
+  const globalVariables = ref<EnvironmentVariable[]>([])
+
+  /** 全局参数（每个请求自动注入的 query / header）。 */
+  const globalParams = ref<GlobalParam[]>([])
+
   /** 会话级 Base URL（仅本次会话，不落库）；cURL 导入时自动预填为 URL 的 origin。 */
   const sessionBaseUrl = ref('http://localhost')
 
-  /** 地址栏域名前缀（唯一真实数据源）：选中环境声明 `base_url` 变量时优先，否则回退会话 Base URL。 */
+  /** 地址栏域名前缀（唯一真实数据源）：选中环境声明默认模块 base_url 或 base_url 变量时优先，否则回退会话 Base URL。 */
   const urlDomain = computed(() => {
     const env = environments.value.find((e) => e.id === activeEnvId.value)
-    const v = env?.variables?.base_url
-    if (v && v.trim()) return '{{base_url}}'
+    const base = envBaseUrl(env)
+    if (base) return '{{base_url}}'
     return sessionBaseUrl.value || ''
   })
 
-  /** 把当前选中环境的 base_url 变量更新为 url（地址栏粘贴完整 URL 时同步环境）。 */
+  /** 把当前选中环境的默认模块 base_url 更新为 url（地址栏粘贴完整 URL 时同步环境）。 */
   async function setEnvironmentBaseUrl(url: string): Promise<void> {
     const env = environments.value.find((e) => e.id === activeEnvId.value)
     if (!env) return
-    const updated: Environment = {
-      ...env,
-      variables: { ...env.variables, base_url: url },
+    const modules = [...env.modules]
+    if (modules.length === 0) {
+      modules.push({ id: crypto.randomUUID(), module_name: '默认', base_url: url, is_default: true })
+    } else {
+      const idx = modules.findIndex((m) => m.is_default)
+      const target = idx !== -1 ? idx : 0
+      modules[target] = { ...modules[target], base_url: url }
     }
+    const updated: Environment = { ...env, modules }
     try {
       const saved = await api.saveEnvironment(updated)
       const idx = environments.value.findIndex((e) => e.id === env.id)
@@ -845,15 +859,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toast.info(`已复制：${dup.name}`)
   }
 
-  /** 加载环境列表 + 当前激活环境。 */
+  /** 加载环境列表（全局）+ 当前激活环境 + 全局变量 + 全局参数。 */
   async function loadEnvironments(): Promise<void> {
-    if (!project.value) return
-    const [envs, active] = await Promise.all([
-      api.listEnvironments(project.value.id),
+    const [envs, active, global, params] = await Promise.all([
+      api.listEnvironments(),
       api.getActiveEnvironment(),
+      api.getGlobalVariables(),
+      api.getGlobalParams(),
     ])
     environments.value = envs
     activeEnvId.value = active?.id ?? null
+    globalVariables.value = global
+    globalParams.value = params
+  }
+
+  /** 保存全局变量并同步本地副本。 */
+  async function saveGlobalVariables(variables: EnvironmentVariable[]): Promise<void> {
+    await api.saveGlobalVariables(variables)
+    globalVariables.value = variables
+  }
+
+  /** 保存全局参数并同步本地副本。 */
+  async function saveGlobalParams(params: GlobalParam[]): Promise<void> {
+    await api.saveGlobalParams(params)
+    globalParams.value = params
   }
 
   /** 切换激活环境（null = 不使用环境）；环境须属于当前项目（后端校验）。 */
@@ -862,15 +891,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeEnvId.value = env?.id ?? null
   }
 
-  /** 新建环境（仅名称，变量编辑后续阶段接入）。 */
+  /** 新建环境（全局维度；模块随项目自动同步）。 */
   async function createEnvironment(name: string): Promise<void> {
-    if (!project.value) return
     const now = new Date().toISOString()
     const env = await api.saveEnvironment({
       id: crypto.randomUUID(),
-      project_id: project.value.id,
       name,
-      variables: {},
+      modules: [],
+      variables: [],
       created_at: now,
       updated_at: now,
     })
@@ -1201,6 +1229,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     endpoints,
     environments,
     activeEnvId,
+    globalVariables,
+    globalParams,
     sessionBaseUrl,
     urlDomain,
     setEnvironmentBaseUrl,
@@ -1238,6 +1268,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createEnvironment,
     updateEnvironment,
     deleteEnvironment,
+    saveGlobalVariables,
+    saveGlobalParams,
     examples,
     loadExamples,
     saveAsExample,

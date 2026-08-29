@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-save-global-variables"
+description = "Enables the save_global_variables command without any pre-configured scope."
+commands.allow = ["save_global_variables"]
+
+[[permission]]
+identifier = "deny-save-global-variables"
+description = "Denies the save_global_variables command without any pre-configured scope."
+commands.deny = ["save_global_variables"]

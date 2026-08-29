@@ -12,7 +12,14 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
-import { resolveVariables } from '../utils/environment'
+import {
+  envBaseUrl,
+  environmentVariableMap,
+  moduleBaseUrl,
+  resolveRequestUrl,
+  resolveVariables,
+  variableListToMap,
+} from '../utils/environment'
 import {
   applyMethodDefaults,
   envBadgeLabel as envBadgeLabelOf,
@@ -172,18 +179,54 @@ const folderName = computed(() => {
 /** 路径是否为完整绝对 URL（此时不显示前缀 chip，地址栏直接展示全文）。 */
 const isAbsPath = computed(() => (draft.value ? isAbsolutePath(draft.value.path) : false))
 
-/** 激活环境名（chip 色点）。 */
-const activeEnvName = computed(
-  () => store.environments.find((e) => e.id === store.activeEnvId)?.name ?? '',
+/** 激活环境（chip 色点）。 */
+const activeEnv = computed(
+  () => store.environments.find((e) => e.id === store.activeEnvId) ?? null,
+)
+const activeEnvName = computed(() => activeEnv.value?.name ?? '')
+
+/**
+ * 当前标签页绑定的模块（id，空 = 默认模块）。按 endpointId 持久化到 localStorage，
+ * 刷新 / 重开标签后保持「该接口归属哪个服务」的记忆。
+ */
+const moduleId = ref<string | null>(null)
+
+watch(
+  () => draft.value?.id,
+  (id) => {
+    if (!id) {
+      moduleId.value = null
+      return
+    }
+    moduleId.value = localStorage.getItem(`rustfox:module:${id}`)
+  },
+  { immediate: true },
 )
 
-/** 地址栏前缀 chip 文案：环境 base_url 变量的「解析后」实际值或会话 Base URL。 */
+function setModule(id: string): void {
+  moduleId.value = id || null
+  if (draft.value?.id) {
+    if (id) localStorage.setItem(`rustfox:module:${draft.value.id}`, id)
+    else localStorage.removeItem(`rustfox:module:${draft.value.id}`)
+  }
+}
+
+/** 环境变量 + 项目变量 + 全局变量合并表（chips / 预览解析用；优先级 环境 > 项目 > 全局）。 */
+const envVars = computed(() => ({
+  ...variableListToMap(store.globalVariables),
+  ...(store.project?.variables ?? {}),
+  ...environmentVariableMap(activeEnv.value),
+}))
+
+/** 地址栏前缀 chip 文案：绑定的模块基址 > 环境 base_url 变量的「解析后」实际值或会话 Base URL。 */
 const resolvedDomain = computed(() => {
+  if (moduleId.value && activeEnv.value) {
+    const b = moduleBaseUrl(activeEnv.value, moduleId.value)
+    if (b) return resolveVariables(b, envVars.value)
+  }
   const src = urlDomain.value
   if (!src) return ''
-  const env = store.environments.find((e) => e.id === store.activeEnvId)
-  const vars = { ...(store.project?.variables ?? {}), ...(env?.variables ?? {}) }
-  return resolveVariables(src, vars)
+  return resolveVariables(src, envVars.value)
 })
 
 /** chip 变量引用未解析（环境未定义该变量）。 */
@@ -278,11 +321,15 @@ const urlPath = computed({
   },
 })
 
-/** 请求地址（与 send / 代码生成 / 压测共用）；变量由后端按环境注入。 */
+/** 请求地址（与 send / 代码生成 / 压测共用）；多模块按绑定模块基址拼接，变量由 resolveRequestUrl 解析。 */
 function buildUrl(): string {
   const d = draft.value
   if (!d) return ''
   if (isAbsolutePath(d.path)) return d.path
+  // 有环境（默认模块或显式绑定模块基址）时按多模块规则解析。
+  if (activeEnv.value && (moduleId.value || envBaseUrl(activeEnv.value))) {
+    return resolveRequestUrl(activeEnv.value, moduleId.value, d.path, envVars.value).url
+  }
   const path = d.path.startsWith('/') ? d.path : `/${d.path}`
   return `${store.urlDomain}${path}`
 }
@@ -642,6 +689,23 @@ onUnmounted(() => {
             <span class="env-badge-text">{{ envBadgeLabel }}</span>
             <Icon name="chevron-down" :size="11" class="env-badge-chevron" />
           </button>
+        </Tooltip>
+        <Tooltip
+          v-if="activeEnv && activeEnv.modules.length > 0 && !isAbsPath"
+          :content="'选择该请求归属的服务模块；未绑定（默认）时使用默认模块基址'"
+          placement="bottom"
+        >
+          <CustomSelect
+            class="mod-select"
+            pop-class="mod-pop"
+            :model-value="moduleId ?? ''"
+            :options="[
+              { value: '', label: '默认模块' },
+              ...activeEnv.modules.map((m) => ({ value: m.id, label: m.module_name })),
+            ]"
+            size="sm"
+            @change="setModule(String($event))"
+          />
         </Tooltip>
         <div class="url-input-wrap">
           <input
@@ -1036,6 +1100,27 @@ onUnmounted(() => {
 /* 会话级 Base URL（未使用环境变量）：中性文字 */
 .env-badge.session {
   color: var(--text-2);
+}
+
+/* ---- 模块绑定选择器（多模块环境下显示） ---- */
+.mod-select {
+  flex-shrink: 0;
+}
+.mod-select :deep(.cs-trigger) {
+  height: 30px;
+  border-color: var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  color: var(--text-2);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+.mod-select :deep(.cs-trigger:hover:not(:disabled)) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+:global(.mod-pop .cs-pop) {
+  min-width: 150px;
 }
 .env-badge.session:hover {
   color: var(--text-1);

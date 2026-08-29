@@ -65,23 +65,25 @@ sudo cp target/release/rustfox-mcp /usr/local/bin/   # 可选：放进 PATH
 
 ### 3.2 配置客户端
 
-**Claude Code** — 项目根目录 `.mcp.json`（v0.0.10+ 按上表替换为安装包内路径）：
+v0.0.10+ 安装包的二进制**不在 PATH**，推荐直接填 §3.1 表中绝对路径（macOS 安装包常见坑：裸 `rustfox-mcp` 报 `spawn ... ENOENT`）。仅在已加入 PATH 时才能写裸命令。
+
+**Claude Code** — 项目根目录 `.mcp.json`：
 
 ```json
 {
   "mcpServers": {
-    "rustfox": { "command": "rustfox-mcp" }
+    "rustfox": { "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" }
   }
 }
 ```
 
-若二进制不在 PATH，用绝对路径：
+开发模式（tauri dev）或已在 PATH，则可写：
 
 ```json
-{ "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" }
+{ "command": "rustfox-mcp" }
 ```
 
-**Cursor** — Settings → MCP → Add Server，Command 填 `rustfox-mcp`。
+**Cursor** — Settings → MCP → Add Server，Command 填绝对路径 `/Applications/RustFox.app/Contents/MacOS/rustfox-mcp`（macOS）或对应平台路径。
 
 配置后重启客户端 / 重载会话，工具列表出现 4 个工具即成功：
 
@@ -108,6 +110,38 @@ sudo cp target/release/rustfox-mcp /usr/local/bin/   # 可选：放进 PATH
 - URL 拆解为 base_url + 路径 + query 参数（与手动 cURL 导入一致），接口状态为「设计中」草稿；
 - 项目变量 `base_url` 缺失时自动写入本次 URL 的 origin；
 - **已有不同 base_url 时不覆盖**，响应带 `warning` 字段，Agent 会转达。
+
+### 3.4 使用示例
+
+**① 已有 cURL，一句话入库**（Claude Code / Cursor 通用）：
+
+```
+把这个 curl 存到 RustFox：
+curl -X POST https://api.example.com/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":1,"amount":99}'
+```
+
+**② Java 代码里直接让 AI 存接口**：贴出 Controller 代码（或 Cursor 选中方法），AI 自动构造 cURL 并调用 `save_curl`：
+
+```
+把下面这个接口保存到 RustFox：
+@PostMapping("/orders")
+public Result<Long> createOrder(@RequestBody CreateOrderReq req) {
+    return orderService.create(req);
+}
+```
+
+用中文汇报结果：POST /orders 已保存，base_url 推导为 ...，接口名缺省为 orders。
+
+**③ 指定项目 / 文件夹**：先 `list_projects` 拿到 `projectId`，再导入到目标项目：
+
+```
+list_projects 里找 projectId，然后 save_curl：
+curl -X POST http://127.0.0.1:8080/api/users -d '{"name":"foo"}' name="创建用户" projectId=<projectId>
+```
+
+多项目库时若漏填 `projectId`，`save_curl` 会报错并列出候选，照抄 `projectId` 重试即可。
 
 ## 4. 方式二：直接 HTTP
 
