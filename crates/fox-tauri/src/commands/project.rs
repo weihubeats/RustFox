@@ -17,8 +17,11 @@ pub async fn get_projects(state: State<'_, AppState>) -> CommandResult<Vec<Proje
 }
 
 /// 项目仪表板统计（单条 IPC 替代逐项目 list_endpoints 的 N+1 加载）。
+///
+/// 字段保持 snake_case：前端 foxApi.d.ts / ProjectList.vue 按蛇形读取
+/// （与 fox-core 模型一致）；曾因 camelCase 重命名导致仪表板统计读到
+/// undefined，接口数全部显示为 0。
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectStat {
     pub project_id: Uuid,
     pub endpoint_count: i64,
@@ -95,4 +98,26 @@ pub async fn set_active_project(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_active_project(state: State<'_, AppState>) -> CommandResult<Option<Project>> {
     state.active_project().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// IPC 契约回归：ProjectStat 按 snake_case 序列化，与前端 foxApi.d.ts
+    /// 的 ProjectStat 接口字段一致（曾因 camelCase 重命名导致统计全为 0）。
+    #[test]
+    fn project_stat_serializes_snake_case() {
+        let stat = ProjectStat {
+            project_id: Uuid::new_v4(),
+            endpoint_count: 7,
+            latest_method: Some("GET".into()),
+            latest_path: Some("/pets".into()),
+        };
+        let json = serde_json::to_value(&stat).unwrap();
+        for key in ["project_id", "endpoint_count", "latest_method", "latest_path"] {
+            assert!(json.get(key).is_some(), "缺少字段 {key}");
+        }
+        assert!(json.get("projectId").is_none(), "不得输出 camelCase 字段");
+    }
 }

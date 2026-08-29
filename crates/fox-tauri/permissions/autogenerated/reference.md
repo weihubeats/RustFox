@@ -12,6 +12,7 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-delete-project`
 - `allow-set-active-project`
 - `allow-get-active-project`
+- `allow-list-project-stats`
 - `allow-list-endpoints`
 - `allow-get-endpoint`
 - `allow-save-endpoint`
@@ -50,6 +51,7 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-backup-export`
 - `allow-backup-restore`
 - `allow-import-document`
+- `allow-read-text-file`
 - `allow-export-openapi`
 - `allow-export-docs`
 - `allow-save-text-file`
@@ -966,6 +968,32 @@ Denies the list_mock_rules command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-list-project-stats`
+
+</td>
+<td>
+
+Enables the list_project_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-list-project-stats`
+
+</td>
+<td>
+
+Denies the list_project_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-list-request-examples`
 
 </td>
@@ -1219,6 +1247,32 @@ Enables the parse_curl_command command without any pre-configured scope.
 <td>
 
 Denies the parse_curl_command command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-read-text-file`
+
+</td>
+<td>
+
+Enables the read_text_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-read-text-file`
+
+</td>
+<td>
+
+Denies the read_text_file command without any pre-configured scope.
 
 </td>
 </tr>

@@ -32,6 +32,21 @@ pub fn database_path() -> PathBuf {
     data_dir().join("rustfox.db")
 }
 
+/// 开发构建（debug）启动前删除数据库文件（含 WAL / SHM）：迁移重建后由
+/// `seed::seed_dev_data` 写入一致的测试数据集，`npm run tauri dev`
+/// 每次重启都从干净数据开始。release 构建为空操作，不影响正式数据。
+pub fn reset_dev_database() {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let path = database_path();
+    for suffix in ["", "-wal", "-shm"] {
+        let mut p = path.clone().into_os_string();
+        p.push(suffix);
+        let _ = std::fs::remove_file(&p);
+    }
+}
+
 /// 建立连接并执行迁移。
 pub async fn init_db(path: &Path) -> Result<SqlitePool> {
     if let Some(parent) = path.parent() {

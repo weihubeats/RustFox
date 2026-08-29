@@ -96,6 +96,9 @@ pub mod plugin {
             .setup(
                 |app: &tauri::AppHandle, _api: tauri::plugin::PluginApi<tauri::Wry, ()>| {
                     init_tracing();
+                    // 开发构建（tauri dev / debug）：先删库文件，迁移重建后写入种子
+                    // 测试数据，保证每次重启都是一致的测试数据集；release 为空操作。
+                    fox_storage::db::reset_dev_database();
                     // 初始化数据库（建目录 + 迁移）。阻塞主线程代价低（本地 SQLite）。
                     let db = match tauri::async_runtime::block_on(fox_storage::db::init_db(
                         &fox_storage::db::database_path(),
@@ -116,6 +119,13 @@ pub mod plugin {
                             return Err(CommandError::from(e).into());
                         }
                     };
+                    // 开发构建：写入种子数据（需在 restore_active 之前，激活项指向种子数据）
+                    #[cfg(debug_assertions)]
+                    if let Err(e) =
+                        tauri::async_runtime::block_on(fox_storage::seed::seed_dev_data(&db))
+                    {
+                        tracing::warn!("开发种子数据写入失败（不影响应用使用）：{e}");
+                    }
                     // 恢复持久化的代理设置（失败静默保持直连）
                     tauri::async_runtime::block_on(commands::settings::apply_saved_proxy(&db));
                     // 恢复持久化的激活项目 / 环境（settings 表，含归属校验）
@@ -180,6 +190,7 @@ pub mod plugin {
                 commands::backup_export,
                 commands::backup_restore,
                 commands::import_document,
+                commands::read_text_file,
                 commands::export_openapi,
                 commands::export_docs,
                 commands::save_text_file,

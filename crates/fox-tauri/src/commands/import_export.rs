@@ -34,6 +34,23 @@ pub async fn import_document(
     Ok(ImportResult { format, endpoints })
 }
 
+/// 读取本地文本文件内容（仪表板拖拽导入用：Tauri 文件拖放只提供路径）。
+/// 上限 2MB；非 UTF-8 内容报 VALIDATION，提示改用粘贴导入。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn read_text_file(path: String) -> CommandResult<String> {
+    const MAX_LEN: u64 = 2 * 1024 * 1024;
+    let bytes = std::fs::read(&path).map_err(|e| {
+        CommandError::with_code("IO", format!("无法读取文件 {path}：{e}"))
+    })?;
+    if bytes.len() as u64 > MAX_LEN {
+        return Err(CommandError::validation(
+            "文件超过 2MB，请改用粘贴文本导入",
+        ));
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| CommandError::validation("文件不是有效的 UTF-8 文本，请改用粘贴导入"))
+}
+
 /// 导出项目接口为 OpenAPI 3.0 JSON 文本（含响应示例）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn export_openapi(state: State<'_, AppState>, project_id: Uuid) -> CommandResult<String> {

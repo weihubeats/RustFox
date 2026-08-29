@@ -11,9 +11,8 @@ use fox_agent::server::AgentState;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
-/// Agent 服务状态信息。
+/// Agent 服务状态信息（字段 snake_case，与 IPC 响应命名惯例一致）。
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentStatusInfo {
     pub running: bool,
     /// 监听地址（未运行时为 `None`）。
@@ -85,4 +84,24 @@ pub async fn agent_status(state: State<'_, AppState>) -> CommandResult<AgentStat
         address: guard.as_ref().map(|s| s.address()),
         token_path: fox_agent::token::token_path(&fox_storage::db::data_dir()).display().to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// IPC 契约回归：AgentStatusInfo 按 snake_case 序列化
+    /// （token_path 不得变成 tokenPath，与全仓响应命名惯例一致）。
+    #[test]
+    fn agent_status_serializes_snake_case() {
+        let info = AgentStatusInfo {
+            running: false,
+            address: None,
+            token_path: "/tmp/agent-token".into(),
+        };
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("token_path").is_some(), "缺少字段 token_path");
+        assert!(json.get("tokenPath").is_none(), "不得输出 camelCase 字段");
+        assert_eq!(json.get("running"), Some(&serde_json::Value::Bool(false)));
+    }
 }
