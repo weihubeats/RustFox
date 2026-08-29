@@ -4,6 +4,7 @@
  * - escapeHtml / highlightJSON / highlightGraphQL 从 GraphQLView.vue 提取为共享实现；
  * - 输出 HTML 片段，配合调用方作用域内的 .hl-* 颜色类（.hl-s/.hl-k/.hl-n/.hl-b/.hl-c/.hl-v/.hl-p）。
  */
+import type { CodeLang } from '../types/foxApi'
 
 /** HTML 转义（所有高亮输出必须先转义再包 span）。 */
 export function escapeHtml(s: string): string {
@@ -94,5 +95,210 @@ export function highlightJSONText(code: string, query: string): string {
     from = idx + query.length
   }
   out += highlightJSON(code.slice(from))
+  return out
+}
+
+/* ==========================================================================
+ * 代码生成高亮（cURL / JavaScript / Java / Go / Rust …）
+ * 与 JSON/GraphQL 同思路：单遍正则分词 + 先转义再包 span；
+ * 分类依据匹配文本本身（首字符 / 关键字表），因此只需一个捕获组。
+ * ========================================================================== */
+
+interface CodeLangSpec {
+  /** 关键字（区分大小写）。 */
+  keywords: ReadonlySet<string>
+  /** 字面量 true/false/null/nil/None…（hl-b）。 */
+  literals: ReadonlySet<string>
+  /** 行注释起始（`//` 或 `#`）。 */
+  lineComment: ReadonlySet<string>
+  /** 支持 /* 块注释。 */
+  blockComment: boolean
+  /** 字符串字面量模式（按序尝试，命中即整段 hl-s）。 */
+  strings: readonly string[]
+  /** 支持 @Annotation（Java / PHP）。 */
+  annotation: boolean
+  /** 支持 #[…] 属性（Rust / PHP8，hl-v，优先于 # 行注释）。 */
+  hashAttr: boolean
+  /** 支持 $var（shell / PHP，hl-v）。 */
+  shellVar: boolean
+  /** 支持 -x / --flag（shell，hl-v）。 */
+  flags: boolean
+  /** 支持 ident! 宏调用（Rust，hl-v）。 */
+  macro: boolean
+  /** 标识符首字符集扩展（如 $）。 */
+  identHead: string
+}
+
+const w = (s: string): ReadonlySet<string> => new Set(s.split(' '))
+
+const CODE_LANG_SPECS: Record<CodeLang, CodeLangSpec> = {
+  curl: {
+    keywords: w('curl echo if then elif else fi while for do done in exit'),
+    literals: w('true false'),
+    lineComment: w('#'),
+    blockComment: false,
+    strings: ['"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: false,
+    hashAttr: false,
+    shellVar: true,
+    flags: true,
+    macro: false,
+    identHead: '',
+  },
+  js: {
+    keywords: w(
+      'const let var function return async await if else for while do switch case break continue new class extends super import from export default try catch finally throw typeof instanceof of in delete yield static get set this void',
+    ),
+    literals: w('true false null undefined NaN'),
+    lineComment: w('//'),
+    blockComment: true,
+    strings: ['`(?:[^`\\\\]|\\\\.)*`', '"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: false,
+    hashAttr: false,
+    shellVar: false,
+    flags: false,
+    macro: false,
+    identHead: '',
+  },
+  java: {
+    keywords: w(
+      'public private protected static final void int long double float boolean char byte short class interface enum record extends implements import package new return if else for while do switch case break continue try catch finally throws throw this super abstract synchronized volatile transient instanceof default assert var sealed permits yield native strictfp',
+    ),
+    literals: w('true false null'),
+    lineComment: w('//'),
+    blockComment: true,
+    strings: ['"""[\\s\\S]*?"""', '"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: true,
+    hashAttr: false,
+    shellVar: false,
+    flags: false,
+    macro: false,
+    identHead: '',
+  },
+  go: {
+    keywords: w(
+      'func package import var const type struct interface map chan go defer select switch case default if else for range return break continue fallthrough goto',
+    ),
+    literals: w('true false nil iota'),
+    lineComment: w('//'),
+    blockComment: true,
+    strings: ['`(?:[^`])*`', '"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: false,
+    hashAttr: false,
+    shellVar: false,
+    flags: false,
+    macro: false,
+    identHead: '',
+  },
+  rust: {
+    keywords: w(
+      'fn let mut pub struct enum impl trait match if else for while loop return use mod crate self super as dyn move ref where type in break continue extern unsafe async await const static',
+    ),
+    literals: w('true false None Some Ok Err'),
+    lineComment: w('//'),
+    blockComment: true,
+    strings: ['"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: false,
+    hashAttr: true,
+    shellVar: false,
+    flags: false,
+    macro: true,
+    identHead: '',
+  },
+  python: {
+    keywords: w(
+      'import from def return class if elif else for while in not and or with as try except finally raise pass lambda global nonlocal assert del yield match case',
+    ),
+    literals: w('True False None'),
+    lineComment: w('#'),
+    blockComment: false,
+    strings: ['"""[\\s\\S]*?"""', "'''[\\s\\S]*?'''", '"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: false,
+    hashAttr: false,
+    shellVar: false,
+    flags: false,
+    macro: false,
+    identHead: '',
+  },
+  php: {
+    keywords: w(
+      'function return public private protected static class extends implements interface namespace use new echo print if else elseif foreach for while switch case break continue try catch finally throw instanceof array list isset unset require include as',
+    ),
+    literals: w('true false null TRUE FALSE NULL'),
+    lineComment: w('// #'),
+    blockComment: true,
+    strings: ['"(?:[^"\\\\\\n]|\\\\.)*"', "'(?:[^'\\\\\\n]|\\\\.)*'"],
+    annotation: true,
+    hashAttr: true,
+    shellVar: true,
+    flags: false,
+    macro: false,
+    identHead: '',
+  },
+}
+
+/** 每语言编译一次分词正则（单捕获组，分类在 wrap 时按文本判定）。 */
+const CODE_RE_CACHE = new Map<CodeLang, RegExp>()
+
+function codeLangRe(lang: CodeLang): RegExp {
+  const cached = CODE_RE_CACHE.get(lang)
+  if (cached) return cached
+  const spec = CODE_LANG_SPECS[lang]
+  const parts: string[] = []
+  if (spec.blockComment) parts.push('/\\*[\\s\\S]*?\\*/')
+  const lineStarts = [...spec.lineComment].join('|')
+  if (lineStarts) parts.push(`(?:${lineStarts})[^\\n]*`)
+  if (spec.strings.length) parts.push(`(?:${spec.strings.join('|')})`)
+  if (spec.annotation) parts.push('@[A-Za-z_][A-Za-z0-9_]*')
+  if (spec.hashAttr) parts.push('#!?\\[[^\\n]*')
+  if (spec.shellVar) parts.push('\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?')
+  if (spec.flags) parts.push('-{1,2}[A-Za-z][A-Za-z0-9_-]*')
+  const bang = spec.macro ? '!?(?!=)' : ''
+  parts.push(`[A-Za-z_${spec.identHead}][A-Za-z0-9_${spec.identHead}]*${bang}`)
+  parts.push('\\b\\d[A-Za-z0-9_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?')
+  parts.push(`[{}()\\[\\];,.:<>=+\\-*/%!?&|^~@$#]`)
+  const re = new RegExp(parts.join('|'), 'g')
+  CODE_RE_CACHE.set(lang, re)
+  return re
+}
+
+const spanOf = (cls: string, text: string): string => `<span class="${cls}">${escapeHtml(text)}</span>`
+
+/** 按匹配文本归类着色（见 codeLangRe 的分组约定）。 */
+function classifyCodeToken(text: string, spec: CodeLangSpec): string {
+  const c = text[0]
+  if (text.startsWith('/*') || text.startsWith('//')) return spanOf('hl-c', text)
+  if (c === '#') {
+    if (spec.hashAttr && (text.startsWith('#[') || text.startsWith('#!['))) return spanOf('hl-v', text)
+    return spanOf('hl-c', text)
+  }
+  if (c === '"' || c === "'" || c === '`') return spanOf('hl-s', text)
+  if (c === '@' || c === '$') return spanOf('hl-v', text)
+  if (/^-{1,2}[A-Za-z]/.test(text)) return spanOf('hl-v', text)
+  if (c >= '0' && c <= '9') return spanOf('hl-n', text)
+  if (/[A-Za-z_]/.test(c)) {
+    if (spec.macro && text.endsWith('!')) return spanOf('hl-v', text)
+    const word = text.endsWith('!') ? text.slice(0, -1) : text
+    if (spec.literals.has(word)) return spanOf('hl-b', text)
+    if (spec.keywords.has(word)) return spanOf('hl-k', text)
+    return escapeHtml(text)
+  }
+  return spanOf('hl-p', text)
+}
+
+/** 代码生成面板高亮：lang 为后端 CodeLang，未知语言原样转义返回。 */
+export function highlightCode(lang: CodeLang, code: string): string {
+  const spec = CODE_LANG_SPECS[lang]
+  if (!spec) return escapeHtml(code)
+  const re = codeLangRe(lang)
+  re.lastIndex = 0
+  let out = ''
+  let last = 0
+  for (const m of code.matchAll(re)) {
+    out += escapeHtml(code.slice(last, m.index))
+    out += classifyCodeToken(m[0], spec)
+    last = m.index! + m[0].length
+  }
+  out += escapeHtml(code.slice(last))
   return out
 }

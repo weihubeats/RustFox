@@ -15,6 +15,8 @@ import Sortable from 'sortablejs'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useWorkspaceStore } from '../stores/workspace'
+import type { UnlistenFn } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
@@ -27,6 +29,7 @@ import ProjectRenameModal from '../components/projectlist/ProjectRenameModal.vue
 import ProjectDeleteModal from '../components/projectlist/ProjectDeleteModal.vue'
 import ScratchRequestModal from '../components/projectlist/ScratchRequestModal.vue'
 import { timeAgo } from '../components/projectlist/projectMeta'
+import { aggregateProjectStats, totalEndpointCount } from '../utils/projectStats'
 import { useWindowDrag } from '../composables/useWindowDrag'
 import logo from '../assets/rustfox-logo.png'
 import type { HttpMethod, Project } from '../types/foxApi'
@@ -47,7 +50,28 @@ const search = ref('')
 // ---------- 摘要 ----------
 const totalProjects = computed(() => projects.value.length)
 
-const totalApis = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0))
+const totalApis = computed(() => totalEndpointCount(counts.value))
+
+/** 按时段问候（Hero 欢迎语）。 */
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 5) return '夜深了'
+  if (h < 11) return '早上好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
+
+/** 最近活动条目的 Method Badge（GraphQL 端点单独识别为粉色 GQL）。 */
+function badgeOf(projectId: string): { text: string; cls: string } {
+  const ep = latestEndpoints.value[projectId]
+  if (!ep) return { text: 'NEW', cls: 'new' }
+  if (/graphql/i.test(ep.path)) return { text: 'GQL', cls: 'gql' }
+  const cls = ['get', 'post', 'put', 'delete', 'patch'].includes(ep.method.toLowerCase())
+    ? ep.method.toLowerCase()
+    : 'other'
+  return { text: ep.method === 'DELETE' ? 'DEL' : ep.method, cls }
+}
 
 const recentProjects = computed(() =>
   [...projects.value].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 3),
@@ -157,18 +181,11 @@ function isActive(p: Project): boolean {
 
 // ---------- 数据 ----------
 async function loadCounts(): Promise<void> {
-  // 单条统计 IPC（后端聚合），替代逐项目拉全量接口的 N+1 加载
+  // 单条统计 IPC（后端聚合），替代逐项目拉全量接口的 N+1 加载；
+  // 字段校验与聚合在 aggregateProjectStats（snake_case 契约，畸形条目跳过）
   try {
     const stats = await api.listProjectStats()
-    const nextCounts: Record<string, number> = {}
-    const nextLatest: Record<string, { method: HttpMethod; path: string } | null> = {}
-    for (const s of stats) {
-      nextCounts[s.project_id] = s.endpoint_count
-      nextLatest[s.project_id] =
-        s.latest_method && s.latest_path
-          ? { method: s.latest_method as HttpMethod, path: s.latest_path }
-          : null
-    }
+    const { counts: nextCounts, latest: nextLatest } = aggregateProjectStats(stats)
     counts.value = nextCounts
     latestEndpoints.value = nextLatest
   } catch {
@@ -218,12 +235,69 @@ async function enter(project: Project): Promise<void> {
 // ---------- 快速请求 / 导入 ----------
 const showScratch = ref(false)
 const showImport = ref(false)
+/** 拖拽导入的预填文档内容（Dropzone 读入文件后带内容打开 ImportDialog）。 */
+const droppedText = ref('')
 
 /** 仪表板导入成功（新项目已创建并激活）：加入本地列表。 */
 function onImported(project: Project): void {
   projects.value.push(project)
   counts.value[project.id] = 0
 }
+
+// ---------- 拖拽导入（Dropzone） ----------
+// Tauri 拦截了 HTML5 drop 事件（dragDropEnabled），文件拖放只提供物理坐标 +
+// 路径：监听 webview 拖拽事件，命中 Dropzone 区域时读取文件内容走导入弹窗。
+const dropEl = ref<HTMLElement | null>(null)
+const dropActive = ref(false)
+let unlistenDrop: UnlistenFn | null = null
+
+function inDropZone(px: number, py: number): boolean {
+  const rect = dropEl.value?.getBoundingClientRect()
+  if (!rect) return false
+  // 事件坐标是物理像素，rect 是 CSS 像素
+  const dpr = window.devicePixelRatio || 1
+  const x = px / dpr
+  const y = py / dpr
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
+async function importDroppedFile(path?: string): Promise<void> {
+  if (!path) {
+    toast.error('拖拽导入失败', { message: '未取到文件路径' })
+    return
+  }
+  try {
+    droppedText.value = await api.readTextFile(path)
+    showImport.value = true
+  } catch (e) {
+    toast.error('读取文件失败', { message: e instanceof Error ? e.message : String(e), duration: 5000 })
+  }
+}
+
+onMounted(async () => {
+  if (!('__TAURI_INTERNALS__' in window)) return
+  try {
+    unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload
+      if (payload.type === 'enter' || payload.type === 'over') {
+        dropActive.value = inDropZone(payload.position.x, payload.position.y)
+      } else if (payload.type === 'drop') {
+        const inside = inDropZone(payload.position.x, payload.position.y)
+        dropActive.value = false
+        if (inside) void importDroppedFile(payload.paths[0])
+      } else {
+        dropActive.value = false
+      }
+    })
+  } catch {
+    // 拖拽事件不可用（如纯浏览器 dev）时静默降级为仅点击导入
+  }
+})
+
+onBeforeUnmount(() => {
+  unlistenDrop?.()
+  unlistenDrop = null
+})
 
 // ---------- 卡片菜单：重命名 / 复制 / 删除 ----------
 const menuOpenId = ref<string | null>(null)
@@ -313,7 +387,7 @@ useWindowDrag(topBarEl)
     </header>
 
     <div class="dash-body">
-      <DashboardNav @settings="showSettings = true" />
+      <DashboardNav />
 
       <main class="dash-main">
         <div v-if="loadError" class="rf-inline-error" role="alert">
@@ -325,68 +399,75 @@ useWindowDrag(topBarEl)
 
         <template v-else>
           <section class="summary-grid">
-            <!-- 卡片 1：数据统计 -->
+            <!-- 卡片 1：Hero 欢迎语 + 渐变大数字统计 -->
             <div class="stat-card">
-              <span class="stat-icon"><Icon name="gauge" :size="16" /></span>
-              <div class="stat-body stat-pair">
-                <div class="stat-block">
-                  <span class="stat-value num">{{ totalProjects }}</span>
-                  <span class="stat-label"><Icon name="folder" :size="12" /> 总项目数</span>
+              <span class="stat-icon tint-indigo"><Icon name="gauge" :size="17" /></span>
+              <div class="stat-body">
+                <div class="hero-greet">
+                  <p class="hero-title">{{ greeting }}，欢迎回来</p>
+                  <p class="hero-sub">管理你的 API 项目与接口资产</p>
                 </div>
-                <span class="stat-pair-divider"></span>
-                <div class="stat-block">
-                  <span class="stat-value num">{{ totalApis }}</span>
-                  <span class="stat-label"><Icon name="plug" :size="12" /> 总接口数</span>
+                <div class="hero-stats">
+                  <div class="hero-stat">
+                    <span class="hero-value num">{{ totalProjects }}</span>
+                    <span class="hero-label"><Icon name="folder" :size="12" /> 总项目数</span>
+                  </div>
+                  <span class="hero-divider" aria-hidden="true"></span>
+                  <div class="hero-stat">
+                    <span class="hero-value num">{{ totalApis }}</span>
+                    <span class="hero-label"><Icon name="plug" :size="12" /> 总接口数</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- 卡片 2：最近项目 / 活动 -->
+            <!-- 卡片 2：最近活动（时间线条目 + Method Badge） -->
             <div class="stat-card">
-              <span class="stat-icon"><Icon name="clock" :size="16" /></span>
+              <span class="stat-icon tint-violet"><Icon name="clock" :size="16" /></span>
               <div class="stat-body">
                 <span class="stat-label">最近活动</span>
-                <div v-if="recentProjects.length" class="stat-recent">
+                <div v-if="recentProjects.length" class="timeline">
                   <button
                     v-for="p in recentProjects"
                     :key="p.id"
-                    class="recent-item"
+                    class="tl-item"
                     type="button"
                     @click="enter(p)"
                   >
-                    <span class="recent-line">
-                      <span class="recent-name">{{ p.name }}</span>
-                      <span class="recent-time">{{ timeAgo(p.updated_at) }}</span>
-                    </span>
-                    <span v-if="latestEndpoints[p.id]" class="recent-ep mono">
-                      {{ latestEndpoints[p.id]!.method }}
-                      {{ latestEndpoints[p.id]!.path }}
+                    <span class="tl-badge" :class="badgeOf(p.id).cls">{{ badgeOf(p.id).text }}</span>
+                    <span class="tl-main">
+                      <span class="tl-line">
+                        <span class="tl-name">{{ p.name }}</span>
+                        <span class="tl-time">{{ timeAgo(p.updated_at) }}</span>
+                      </span>
+                      <span v-if="latestEndpoints[p.id]" class="tl-path mono">
+                        {{ latestEndpoints[p.id]!.method }} {{ latestEndpoints[p.id]!.path }}
+                      </span>
                     </span>
                   </button>
                 </div>
-                <span v-else class="stat-sub">暂无项目</span>
+                <span v-else class="stat-sub">暂无活动</span>
               </div>
             </div>
 
-            <!-- 卡片 3：快速开始 & 导入 -->
+            <!-- 卡片 3：快速开始（主 CTA 光晕按钮 + 次要导入） -->
             <div class="stat-card">
-              <span class="stat-icon"><Icon name="zap" :size="16" /></span>
+              <span class="stat-icon tint-amber"><Icon name="zap" :size="16" /></span>
               <div class="stat-body">
                 <span class="stat-label">快速开始</span>
                 <div class="quick-row">
-                  <button class="quick-btn" type="button" title="发送临时不保存的请求" @click="showScratch = true">
-                    ⚡ 快速请求
+                  <button class="quick-btn primary" type="button" title="发送临时不保存的请求" @click="showScratch = true">
+                    <Icon name="send" :size="12" /> 快速请求
                   </button>
                   <button
                     class="quick-btn ghost"
                     type="button"
                     title="从 Postman / Swagger / OpenAPI 导入为新项目"
-                    @click="showImport = true"
+                    @click="droppedText = ''; showImport = true"
                   >
-                    📥 导入项目
+                    <Icon name="download" :size="12" /> 导入项目
                   </button>
                 </div>
-                <p class="quick-hint">Postman / Swagger / OpenAPI 一键导入为新项目</p>
               </div>
             </div>
           </section>
@@ -431,20 +512,29 @@ useWindowDrag(topBarEl)
             <p class="rf-hint">加载中…</p>
           </div>
 
-          <!-- 底部虚线卡片：轻量创建 / 导入入口（有项目时显示在网格下方） -->
+          <!-- 底部 Dropzone：拖入文档直接导入，或点击按钮创建 / 选择文件 -->
           <div
             v-if="filtered.length && !loading"
+            ref="dropEl"
             class="add-card"
+            :class="{ 'drop-active': dropActive }"
             role="group"
             aria-label="快捷创建或导入项目"
           >
-            <span class="add-icon"><Icon name="folder-plus" :size="20" /></span>
-            <p class="add-text">快捷创建或导入项目 (Postman / Swagger)</p>
+            <span class="add-icon">
+              <Icon :name="dropActive ? 'download' : 'folder-plus'" :size="20" />
+            </span>
+            <p class="add-text">
+              <template v-if="dropActive">松开鼠标，导入拖入的文档文件</template>
+              <template v-else>
+                拖入 Postman / Swagger / OpenAPI 文件即可导入，或
+              </template>
+            </p>
             <div class="add-actions">
               <button class="add-btn" type="button" @click="showCreate = true">
                 <Icon name="plus" :size="13" /> 新建项目
               </button>
-              <button class="add-btn" type="button" @click="showImport = true">
+              <button class="add-btn" type="button" @click="droppedText = ''; showImport = true">
                 <Icon name="download" :size="13" /> 导入外部文档
               </button>
             </div>
@@ -472,8 +562,15 @@ useWindowDrag(topBarEl)
 
     <ScratchRequestModal v-model:open="showScratch" />
 
-    <!-- 仪表板导入：创建新项目承接（区别于工作区内导入到当前项目） -->
-    <ImportDialog v-if="showImport" mode="new-project" @imported="onImported" @close="showImport = false" />
+    <!-- 仪表板导入：创建新项目承接（区别于工作区内导入到当前项目）；
+         拖拽导入时带文件内容直接打开并自动解析 -->
+    <ImportDialog
+      v-if="showImport"
+      mode="new-project"
+      :initial-text="droppedText"
+      @imported="onImported"
+      @close="showImport = false"
+    />
 
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
   </div>
@@ -572,6 +669,7 @@ useWindowDrag(topBarEl)
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 28px 32px;
   display: flex;
   flex-direction: column;
@@ -593,31 +691,57 @@ useWindowDrag(topBarEl)
 
 .stat-card {
   display: flex;
+  align-items: center;
   gap: 14px;
-  padding: 18px 20px;
+  padding: 18px 22px;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
+  /* 半透明深底 + 1px 微光边框：比纯 var(--border) 更有层次 */
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 55%),
+    var(--bg-panel);
   box-shadow: var(--shadow);
   transition:
     border-color var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 .stat-card:hover {
-  border-color: var(--border-strong);
+  border-color: rgba(255, 255, 255, 0.12);
   transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+html[data-theme='light'] .stat-card {
+  border-color: var(--border);
 }
 
+/* 图标底座：圆角方块 + 分色微光（indigo / violet / amber 三档） */
 .stat-icon {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--accent-tint);
   color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.stat-icon.tint-indigo {
+  background: rgba(99, 102, 241, 0.13);
+  color: #818cf8;
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.22);
+}
+.stat-icon.tint-violet {
+  background: rgba(167, 139, 250, 0.12);
+  color: #a78bfa;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.2);
+}
+.stat-icon.tint-amber {
+  background: rgba(245, 158, 11, 0.11);
+  color: #fbbf24;
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
 }
 
 .stat-body {
@@ -628,24 +752,76 @@ useWindowDrag(topBarEl)
   flex: 1;
 }
 
-/* 卡片 1：双指标并排 */
-.stat-pair {
-  flex-direction: row;
-  align-items: center;
-  gap: 22px;
-}
-
-.stat-block {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+/* ---- Hero 欢迎语 + 渐变大数字 ---- */
+.hero-greet {
   min-width: 0;
 }
 
-.stat-pair-divider {
+.hero-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+  letter-spacing: 0.01em;
+}
+
+.hero-sub {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.hero-stat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.hero-divider {
   width: 1px;
   align-self: stretch;
   background: var(--border);
+}
+
+/* 渐变数字：白 → 灰的纵向渐变文字（暗色主题下的「高级感」核心） */
+.hero-value {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.4));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+html[data-theme='light'] .hero-value {
+  background: linear-gradient(180deg, var(--text-1) 30%, var(--text-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-2);
 }
 
 .stat-label {
@@ -656,75 +832,120 @@ useWindowDrag(topBarEl)
   color: var(--text-2);
 }
 
-.stat-value {
-  font-family: var(--font-mono);
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-html[data-theme='light'] .stat-value {
-  color: var(--text-1);
-}
-
 .stat-sub {
   font-size: 11.5px;
   color: var(--text-3);
 }
 
-.stat-recent {
+/* ---- 最近活动：时间线 + Method Badge ---- */
+.timeline {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   margin-top: 6px;
 }
 
-/* 最近活动条目：项目名 + 时间，第二行最近编辑的接口 */
-.recent-item {
+.tl-item {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
   border: none;
   background: none;
-  padding: 5px 8px;
   border-radius: var(--radius);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
   transition: background var(--dur) var(--ease);
 }
-.recent-item:hover {
-  background: rgba(38, 38, 38, 0.5);
+.tl-item + .tl-item {
+  border-top: 1px dashed var(--border);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
-html[data-theme='light'] .recent-item:hover {
+.tl-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+html[data-theme='light'] .tl-item:hover {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.recent-line {
+/* Method Badge：与 TabBar 的 method-tag 同配色体系 */
+.tl-badge {
+  flex-shrink: 0;
+  width: 42px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  letter-spacing: 0.03em;
+  color: var(--rf-text-muted);
+  background: var(--bg-hover);
+}
+.tl-badge.get {
+  color: var(--rf-success);
+  background: var(--success-tint);
+}
+.tl-badge.post {
+  color: var(--rf-warning);
+  background: var(--warning-tint);
+}
+.tl-badge.put {
+  color: var(--rf-info);
+  background: var(--info-tint);
+}
+.tl-badge.delete {
+  color: var(--rf-danger);
+  background: var(--danger-tint);
+}
+.tl-badge.patch {
+  color: var(--patch);
+  background: var(--accent-tint);
+}
+.tl-badge.gql {
+  color: #f472b6;
+  background: rgba(236, 72, 153, 0.13);
+}
+.tl-badge.new {
+  color: var(--text-3);
+  background: var(--bg-hover);
+}
+
+.tl-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tl-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.recent-name {
+.tl-name {
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.recent-time {
+.tl-time {
   font-size: 11px;
   color: var(--text-3);
   flex-shrink: 0;
 }
 
-.recent-ep {
+.tl-path {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -737,28 +958,15 @@ html[data-theme='light'] .recent-item:hover {
   margin-top: 8px;
 }
 
-/* 单行轻量提示 */
-.quick-hint {
-  margin: 8px 0 0;
-  font-size: 11px;
-  color: #737373;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .quick-btn {
   flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--accent-tint);
   border-radius: var(--radius);
-  background: var(--accent-tint);
-  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
   font-family: inherit;
@@ -767,19 +975,34 @@ html[data-theme='light'] .recent-item:hover {
   transition:
     background var(--dur) var(--ease),
     border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
     transform var(--dur) var(--ease);
-}
-.quick-btn:hover {
-  background: rgba(168, 85, 247, 0.22);
-  border-color: var(--accent);
 }
 .quick-btn:active {
   transform: translateY(1px);
 }
+
+/* 主 CTA：violet 渐变 + 霓虹光晕（页面唯一的高饱和焦点） */
+.quick-btn.primary {
+  border: 1px solid rgba(139, 92, 246, 0.55);
+  background: linear-gradient(135deg, rgba(124, 105, 245, 0.95), rgba(99, 102, 241, 0.95));
+  color: #fff;
+  box-shadow:
+    0 4px 18px rgba(124, 105, 245, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.quick-btn.primary:hover {
+  border-color: rgba(139, 92, 246, 0.85);
+  background: linear-gradient(135deg, var(--accent-hover), rgba(109, 118, 245, 0.98));
+  box-shadow:
+    0 6px 26px rgba(124, 105, 245, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
 /* 次要动作（导入）：中性描边样式 */
 .quick-btn.ghost {
-  background: none;
-  border-color: var(--border-strong);
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.02);
   color: var(--text-2);
 }
 .quick-btn.ghost:hover {
@@ -788,30 +1011,38 @@ html[data-theme='light'] .recent-item:hover {
   color: var(--accent);
 }
 
-/* ---------- 底部虚线卡片：创建 / 导入 ---------- */
+/* ---------- 底部 Dropzone：拖入导入 + 点击创建 ---------- */
 .add-card {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  margin-top: 4px;
-  border: 2px dashed var(--border-strong);
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
   background: transparent;
-  text-align: center;
-  cursor: default;
   transition:
     border-color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .add-card:hover {
   border-color: rgba(168, 85, 247, 0.4);
   background: rgba(124, 58, 237, 0.05);
 }
+/* 拖拽悬停：实线主色框 + 光晕 + 轻微上浮，明确「可以放了」 */
+.add-card.drop-active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow:
+    0 0 0 4px rgba(124, 105, 245, 0.12),
+    0 8px 30px rgba(124, 105, 245, 0.18);
+  transform: translateY(-1px);
+}
 
 .add-icon {
+  display: inline-flex;
   color: var(--text-3);
   transition: color var(--dur) var(--ease);
 }
@@ -821,8 +1052,13 @@ html[data-theme='light'] .recent-item:hover {
 
 .add-text {
   margin: 0;
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: color var(--dur) var(--ease);
 }
 .add-card:hover .add-text {
@@ -832,7 +1068,7 @@ html[data-theme='light'] .recent-item:hover {
 .add-actions {
   display: flex;
   gap: 10px;
-  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .add-btn {
@@ -932,25 +1168,13 @@ html[data-theme='light'] .recent-item:hover {
 }
 
 /* ---------- 项目卡片网格（卡片自身样式见 ProjectCard） ---------- */
+/* auto-fill + minmax(300px,1fr)：按容器宽度自适应列数；
+   轨道下限用固定 300px 而非 auto，避免卡片内 nowrap 长描述把轨道
+   撑出容器（曾导致横向滚动条、卡片被切出屏幕）。 */
 .card-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
-}
-@media (min-width: 768px) {
-  .card-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (min-width: 1024px) {
-  .card-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-@media (min-width: 1280px) {
-  .card-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
 }
 
 /* ---------- 拖拽排序 ---------- */

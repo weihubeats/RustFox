@@ -2,20 +2,18 @@
 /**
  * DashboardNav：仪表板左侧导航。
  *
- * - 仅保留已实现入口：仪表板 / API 项目（主页面）/ 设置；
- * - 集合、API 文档等未实现模块暂不展示；设置项 emit('settings') 打开设置弹窗。
+ * - 仅保留已实现入口：仪表板 / API 项目（主页面）；
+ * - 设置入口在顶栏右上角（齿轮按钮），导航不再重复；
+ * - 集合、API 文档等未实现模块暂不展示。
  */
 import { useRouter } from 'vue-router'
 import Icon from '../ui/Icon.vue'
 
 const router = useRouter()
 
-const emit = defineEmits<{ settings: [] }>()
-
 const NAV_ITEMS = [
   { key: 'dashboard', label: '仪表板', icon: 'gauge' as const, route: '/projects' },
   { key: 'projects', label: 'API 项目', icon: 'folder' as const, route: '/projects' },
-  { key: 'settings', label: '设置', icon: 'settings' as const, route: '', settings: true },
 ]
 
 function navActive(item: (typeof NAV_ITEMS)[number]): boolean {
@@ -23,10 +21,6 @@ function navActive(item: (typeof NAV_ITEMS)[number]): boolean {
 }
 
 function onNav(item: (typeof NAV_ITEMS)[number]): void {
-  if (item.settings) {
-    emit('settings')
-    return
-  }
   router.push(item.route)
 }
 </script>

@@ -3,9 +3,10 @@
  * ProjectTabs：顶栏多项目标签条（工作区 / 项目首页共用）。
  * - 点击标签：切换项目并进入工作区（首页点击同样跳转）；
  * - × 关闭标签（快照丢弃；关闭当前项目时 store 自动切相邻标签）；
- * - ⋯ 菜单：未打开的项目（点击打开并切换）+ 新建项目（emit 给宿主）+ 项目列表。
+ * - ⋯ 菜单：未打开的项目（点击打开并切换）+ 新建项目（emit 给宿主）+ 项目列表；
+ *   projectActions 时追加当前项目的重命名 / 删除（工作区顶栏用，替代原侧栏头部 ⋯）。
  */
-import { ref } from 'vue'
+import { ref, withDefaults } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -13,7 +14,13 @@ import { useToast } from '../composables/useToast'
 import Icon from './ui/Icon.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
 
-const emit = defineEmits<{ 'new-project': [] }>()
+const props = withDefaults(defineProps<{ projectActions?: boolean }>(), { projectActions: false })
+
+const emit = defineEmits<{
+  'new-project': []
+  'rename-project': []
+  'delete-project': []
+}>()
 
 const store = useWorkspaceStore()
 const api = useFoxApi()
@@ -44,6 +51,14 @@ async function openMore(): Promise<void> {
     { key: 'new-project', label: '新建项目', icon: 'plus', iconAccent: true, dividerBefore: true },
     { key: 'go-projects', label: '项目列表', icon: 'folder' },
   )
+  // 工作区模式：当前项目的重命名 / 删除收纲到此处（项目名称旁的 ⋯）
+  if (props.projectActions && store.project) {
+    const name = store.project.name
+    items.push(
+      { key: 'rename-project', label: `重命名「${name}」`, icon: 'pencil', dividerBefore: true },
+      { key: 'delete-project', label: '删除项目', icon: 'trash', danger: true, confirm: `删除项目「${name}」？` },
+    )
+  }
   menuRef.value?.openAt(moreBtn.value, items, 'left')
 }
 
@@ -51,6 +66,7 @@ function onSelect(item: MenuItem): void {
   if (item.key.startsWith('switch-project:')) void switchTo(item.key.slice('switch-project:'.length))
   else if (item.key === 'new-project') emit('new-project')
   else if (item.key === 'go-projects') router.push('/projects')
+  else if (item.key === 'rename-project') emit('rename-project')
 }
 
 async function switchTo(projectId: string): Promise<void> {
@@ -98,7 +114,7 @@ function onClose(projectId: string): void {
       <Icon name="more-horizontal" :size="14" />
     </button>
   </div>
-  <Menu ref="menuRef" @select="onSelect" />
+  <Menu ref="menuRef" @select="onSelect" @confirm="emit('delete-project')" />
 </template>
 
 <style scoped>

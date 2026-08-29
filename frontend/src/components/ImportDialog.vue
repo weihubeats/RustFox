@@ -6,7 +6,7 @@
  * - mode="workspace"（默认）：导入到当前激活项目（工作区内使用）；
  * - mode="new-project"：先创建新项目并激活，再写入接口（仪表板「导入项目」）。
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
@@ -17,6 +17,8 @@ const props = withDefaults(
   defineProps<{
     /** workspace：写入当前激活项目；new-project：创建新项目承接导入。 */
     mode?: 'workspace' | 'new-project'
+    /** 预填文档文本（拖拽导入：Dropzone 读入文件后带内容打开本弹窗）。 */
+    initialText?: string
   }>(),
   { mode: 'workspace' },
 )
@@ -64,6 +66,14 @@ async function parse(): Promise<void> {
     busy.value = false
   }
 }
+
+// 拖拽导入入口：带预填内容打开时立即解析
+onMounted(() => {
+  if (props.initialText) {
+    text.value = props.initialText
+    void parse()
+  }
+})
 
 async function confirm(): Promise<void> {
   if (!result.value) return

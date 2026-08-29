@@ -23,9 +23,12 @@ function mountPanel(draft: Endpoint) {
   return mount(BodyPanel, { props: { draft } })
 }
 
-/** 格式化按钮已改为纯图标（title 提示），按 title 定位。 */
-function formatBtnOf(wrapper: ReturnType<typeof mountPanel>) {
-  return wrapper.findAll('button').find((b) => b.attributes('title') === '格式化 JSON')
+/** 美化 / 压缩按钮已是纯图标（title 提示），按 title 定位。 */
+function prettyBtnOf(wrapper: ReturnType<typeof mountPanel>) {
+  return wrapper.findAll('button').find((b) => b.attributes('title') === '美化（格式化 JSON）')
+}
+function compactBtnOf(wrapper: ReturnType<typeof mountPanel>) {
+  return wrapper.findAll('button').find((b) => b.attributes('title') === '压缩 JSON')
 }
 
 describe('BodyPanel：raw JSON 编辑与格式化', () => {
@@ -34,7 +37,7 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     const wrapper = mountPanel(draft)
 
     // raw + JSON 子类型 → 渲染 JsonEditor（工具条含「格式化」按钮）
-    const formatBtn = formatBtnOf(wrapper)
+    const formatBtn = prettyBtnOf(wrapper)
     expect(formatBtn).toBeDefined()
     expect(wrapper.findComponent({ name: 'JsonEditor' }).exists()).toBe(true)
 
@@ -49,13 +52,26 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     )
   })
 
-  it('紧凑模式格式化同样使用最新内容', async () => {
+  it('「美化」使用编辑后的最新内容', async () => {
     const draft = jsonDraft('{ "a": 1 }')
     const wrapper = mountPanel(draft)
     const ta = wrapper.find('textarea')
     await ta.setValue('{ "b": 2, "c": 3 }')
-    await formatBtnOf(wrapper)!.trigger('click')
+    await prettyBtnOf(wrapper)!.trigger('click')
     expect(rawOf(draft)).toBe('{\n  "b": 2,\n  "c": 3\n}')
+  })
+
+  it('「压缩」按钮输出紧凑 JSON；顶部工具栏显示校验状态', async () => {
+    const draft = jsonDraft('{ "a": 1 }')
+    const wrapper = mountPanel(draft)
+    const ta = wrapper.find('textarea')
+    await ta.setValue('{ "b": 2, "c": 3 }')
+    await compactBtnOf(wrapper)!.trigger('click')
+    expect(rawOf(draft)).toBe('{"b":2,"c":3}')
+
+    // 顶部工具栏状态 Tag：有效（非悬浮层）
+    expect(wrapper.find('.hl-float').exists()).toBe(false)
+    expect(wrapper.find('.je-status').text()).toContain('JSON 有效')
   })
 
   it('回归：格式化保留重复键（多个 "body" 键不丢失）', async () => {
@@ -63,7 +79,7 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
       '{"title":"测试标题","body":"测试内容","body":"测试内容","body":"测试内容","body":"测试内容","userId":1}',
     )
     const wrapper = mountPanel(draft)
-    await formatBtnOf(wrapper)!.trigger('click')
+    await prettyBtnOf(wrapper)!.trigger('click')
     expect(rawOf(draft)).toBe(`{
   "title": "测试标题",
   "body": "测试内容",
@@ -82,7 +98,7 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     // 直接改 DOM 值、不派发 input 事件（模拟真实浏览器中事件丢失/延迟的失同步），
     // 此时 props.modelValue 仍是旧值 {"a":1}
     ta.element.value = '{"name":"alice","age":18}'
-    await formatBtnOf(wrapper)!.trigger('click')
+    await prettyBtnOf(wrapper)!.trigger('click')
 
     expect(rawOf(draft)).toBe(
       JSON.stringify({ name: 'alice', age: 18 }, null, 2),

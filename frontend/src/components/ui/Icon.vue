@@ -9,6 +9,8 @@ export type IconName =
   | 'chevron-up'
   | 'chevron-right'
   | 'chevrons-up-down'
+  | 'minimize-2'
+  | 'chevrons-down-up'
   | 'plus'
   | 'x'
   | 'check'
@@ -54,6 +56,8 @@ const ICONS: Record<IconName, string> = {
   'chevron-up': '<path d="m18 15-6-6-6 6"/>',
   'chevron-right': '<path d="m9 18 6-6-6-6"/>',
   'chevrons-up-down': '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  'minimize-2': '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/>',
+  'chevrons-down-up': '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',

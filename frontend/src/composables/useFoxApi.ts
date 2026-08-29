@@ -142,6 +142,9 @@ export function useFoxApi() {
   /** 项目仪表板统计：单条 IPC 返回全部项目的接口数 + 最近更新接口（替代 N+1）。 */
   const listProjectStats = () => run(() => call<ProjectStat[]>('list_project_stats'))
 
+  /** 读取本地文本文件（拖拽导入：Tauri 拖放只给路径，内容用此命令读取）。 */
+  const readTextFile = (path: string) => run(() => call<string>('read_text_file', { path }))
+
   const deleteProject = (projectId: string) =>
     run(() => call<void>('delete_project', { projectId }))
 
@@ -373,6 +376,7 @@ export function useFoxApi() {
     saveProject,
     updateProjectsOrder,
     listProjectStats,
+    readTextFile,
     deleteProject,
     setActiveProject,
     getActiveProject,

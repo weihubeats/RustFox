@@ -22,6 +22,7 @@ import Modal from '../components/ui/Modal.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import TabBar from '../components/TabBar.vue'
 import Tabs, { type TabItem } from '../components/ui/Tabs.vue'
+import Tooltip from '../components/ui/Tooltip.vue'
 import EndpointEditor from '../components/EndpointEditor.vue'
 import CurlImportDialog from '../components/CurlImportDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
@@ -269,30 +270,24 @@ async function confirmDeleteProject(): Promise<void> {
   }
 }
 
-// ---------- 「⋯」更多菜单（仅项目操作；导入在顶栏「文档」，导航在顶栏标签条） ----------
-const MORE_ITEMS: MenuItem[] = [
-  { key: 'rename-project', label: '重命名项目', icon: 'pencil' },
-  {
-    key: 'delete-project',
-    label: '删除项目',
-    icon: 'trash',
-    danger: true,
-    dividerBefore: true,
-    confirm: `删除项目「${''}」？`,
-  },
-]
-
-function openSidebarMore(event: MouseEvent): void {
-  if (!store.project) return
-  const el = event.currentTarget as HTMLElement
-  const items = MORE_ITEMS.map((m) =>
-    m.key === 'delete-project' ? { ...m, confirm: `删除项目「${store.project?.name}」？` } : m,
-  )
-  menuRef.value?.openAt(el, items, 'left')
-}
-
 function createFolderAtRoot(): void {
   treeRef.value?.startEdit('create-folder', { parentId: null })
+}
+
+// ---------- 侧栏目录工具栏：「+ 新建」下拉 + 全部展开 / 折叠 ----------
+const addBtn = ref<HTMLElement | null>(null)
+const expandTick = ref(0)
+const collapseTick = ref(0)
+
+const CREATE_ITEMS: MenuItem[] = [
+  { key: 'new-request', label: '新建 API 请求', icon: 'file-plus', iconAccent: true, shortcut: '⌘N' },
+  { key: 'new-folder', label: '新建文件夹', icon: 'folder-plus' },
+  { key: 'import-curl', label: '导入 cURL', icon: 'terminal', dividerBefore: true },
+  { key: 'import-doc', label: '导入接口 (Postman / Swagger)', icon: 'upload' },
+]
+
+function openCreateMenu(): void {
+  if (addBtn.value) menuRef.value?.openAt(addBtn.value, CREATE_ITEMS, 'right')
 }
 
 const DOCS_ITEMS: MenuItem[] = [
@@ -328,14 +323,13 @@ function onMockSelect(item: MenuItem): void {
 }
 
 function onMenuSelect(item: MenuItem): void {
-  if (item.key === 'rename-project') openRenameProject()
-  else if (item.key === 'new-project') openCreateProject()
+  if (item.key === 'new-project') openCreateProject()
   else if (item.key === 'import' || item.key === 'export') onDocsSelect(item)
+  else if (item.key === 'new-request') store.openNewEndpoint(null)
+  else if (item.key === 'new-folder') createFolderAtRoot()
+  else if (item.key === 'import-curl') openCurlImport(null)
+  else if (item.key === 'import-doc') showDocImport.value = true
   else onMockSelect(item)
-}
-
-function onMenuConfirm(item: MenuItem): void {
-  if (item.key === 'delete-project') void confirmDeleteProject()
 }
 
 /** Agent 控制面事件载荷（fox-agent::server::AgentEvent，字段 snake_case）。 */
@@ -396,16 +390,12 @@ onBeforeUnmount(() => {
       <span class="tb-divider" aria-hidden="true"></span>
 
       <div class="tb-region tb-projects">
-        <ProjectTabs @new-project="openCreateProject" />
-      </div>
-      <span class="tb-divider" aria-hidden="true"></span>
-
-      <div class="tb-region tb-middle">
-        <span class="mock-status" :class="{ on: mockAddress }">
-          <span class="mock-dot"></span>
-          {{ mockAddress ? 'Mock 运行中' : 'Mock 未运行' }}
-          <span v-if="mockAddress" class="mock-addr">{{ mockAddress }}</span>
-        </span>
+        <ProjectTabs
+          project-actions
+          @new-project="openCreateProject"
+          @rename-project="openRenameProject"
+          @delete-project="confirmDeleteProject"
+        />
       </div>
       <span class="tb-divider" aria-hidden="true"></span>
 
@@ -431,51 +421,48 @@ onBeforeUnmount(() => {
 
     <div class="workspace-body">
       <aside class="rf-sidebar" :style="{ width: `${sidebarWidth}px` }">
-        <div class="sidebar-head">
-          <div class="sidebar-actions">
-            <IconButton
-              v-if="sidebarTab === 'collections'"
-              name="folder-plus"
-              :size="16"
-              title="新建文件夹"
-              @click="createFolderAtRoot"
-            />
-            <IconButton
-              v-if="sidebarTab === 'collections'"
-              name="terminal"
-              :size="16"
-              title="导入 cURL"
-              @click="openCurlImport(null)"
-            />
-            <IconButton
-              name="more-horizontal"
-              :size="16"
-              title="更多操作（重命名 / 删除项目）"
-              @click="openSidebarMore"
-            />
-          </div>
-        </div>
         <Tabs v-model="sidebarTab" :tabs="sidebarTabs" size="sm" class="sidebar-tabs" />
         <div v-show="sidebarTab === 'collections'" class="sidebar-collections">
-          <div class="sidebar-search">
-            <Icon name="search" :size="13" class="ss-icon" />
-            <input
-              v-model="apiSearchInput"
-              class="ss-input"
-              type="text"
-              placeholder="搜索接口名称或路径..."
-              spellcheck="false"
-            />
-            <button
-              v-if="apiSearchInput"
-              class="ss-clear"
-              type="button"
-              title="清除搜索"
-              aria-label="清除搜索"
-              @click="clearApiSearch"
-            >
-              <Icon name="x" :size="12" />
-            </button>
+          <div class="sidebar-toolbar">
+            <div class="sidebar-search">
+              <Icon name="search" :size="13" class="ss-icon" />
+              <input
+                v-model="apiSearchInput"
+                class="ss-input"
+                type="text"
+                placeholder="搜索接口名称或路径..."
+                spellcheck="false"
+              />
+              <button
+                v-if="apiSearchInput"
+                class="ss-clear"
+                type="button"
+                title="清除搜索"
+                aria-label="清除搜索"
+                @click="clearApiSearch"
+              >
+                <Icon name="x" :size="12" />
+              </button>
+            </div>
+            <div class="sidebar-tools">
+              <Tooltip content="新建（⌘N）">
+                <button
+                  ref="addBtn"
+                  class="tool-add"
+                  type="button"
+                  aria-label="新建接口 / 文件夹 / 导入"
+                  @click="openCreateMenu"
+                >
+                  <Icon name="plus" :size="14" />
+                </button>
+              </Tooltip>
+              <Tooltip content="全部折叠">
+                <IconButton name="chevrons-down-up" :size="14" @click="collapseTick++" />
+              </Tooltip>
+              <Tooltip content="全部展开">
+                <IconButton name="chevrons-up-down" :size="14" @click="expandTick++" />
+              </Tooltip>
+            </div>
           </div>
           <div v-if="store.loadError" class="rf-inline-error" role="alert">
             <span class="rf-inline-error-text">加载失败：{{ store.loadError }}</span>
@@ -484,7 +471,14 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <div v-else class="tree-wrap">
-            <EndpointTree ref="treeRef" :folder-id="null" :search="apiSearch" @import-curl="openCurlImport" />
+            <EndpointTree
+              ref="treeRef"
+              :folder-id="null"
+              :search="apiSearch"
+              :expand-tick="expandTick"
+              :collapse-tick="collapseTick"
+              @import-curl="openCurlImport"
+            />
           </div>
         </div>
         <HistoryPanel v-if="sidebarTab === 'history'" class="sidebar-history" />
@@ -509,7 +503,7 @@ onBeforeUnmount(() => {
       </main>
     </div>
 
-    <Menu ref="menuRef" @select="onMenuSelect" @confirm="onMenuConfirm" />
+    <Menu ref="menuRef" @select="onMenuSelect" />
 
     <Modal v-model:open="showCreateProject" title="新建项目" width="420px" @close="showCreateProject = false">
       <div class="form-field">
@@ -625,10 +619,7 @@ onBeforeUnmount(() => {
 .tb-projects {
   flex: 1 1 auto;
   gap: 6px;
-}
-
-.tb-middle {
-  justify-content: center;
+  overflow: hidden;
 }
 
 .tb-right {
@@ -682,41 +673,13 @@ onBeforeUnmount(() => {
   background: var(--bg-active);
 }
 
-/* ---- 状态指示（中区） ---- */
-.mock-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--rf-text-muted);
-  white-space: nowrap;
-}
-
-.mock-addr {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--rf-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
-}
-
+/* ---- Mock 状态圆点（按钮内指示） ---- */
 .mock-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--rf-text-muted);
-}
-
-.mock-status.on {
-  color: var(--rf-success);
-}
-
-.mock-status.on .mock-dot {
-  background: var(--rf-success);
-  box-shadow: 0 0 0 3px var(--rf-success-tint);
 }
 
 .mock-dot.on {
@@ -747,25 +710,6 @@ onBeforeUnmount(() => {
   background: var(--accent);
 }
 
-/* ---- 统一头部栏：h-10、下边框、左=侧栏页签上下文 / 右=动作图标组 ---- */
-.sidebar-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  height: 40px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  flex-shrink: 0;
-}
-
-.sidebar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
 .rf-heading {
   margin: 0;
   font-size: 14px;
@@ -775,7 +719,56 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-/* 接口搜索栏：h-7、bg-white/5、rounded、px-2.5、text-xs、text-gray-300 */
+/* ---- 目录工具栏：搜索框占满 + 右侧「+ 新建」主按钮 / 折叠展开 ---- */
+.sidebar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+
+.sidebar-toolbar .sidebar-search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.sidebar-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* 主操作「+」：violet 微光方块，页面侧栏唯一强调按钮 */
+.tool-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  border-radius: 7px;
+  background: rgba(124, 105, 245, 0.16);
+  color: #a78bfa;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.tool-add:hover {
+  border-color: rgba(139, 92, 246, 0.85);
+  background: rgba(124, 105, 245, 0.28);
+  color: #c4b5fd;
+  box-shadow: 0 2px 12px rgba(124, 105, 245, 0.35);
+}
+.tool-add:active {
+  transform: translateY(1px);
+}
+
+/* ---- 接口搜索栏：h-7、bg-white/5、rounded、px-2.5、text-xs、text-gray-300 */
 .sidebar-search {
   display: flex;
   align-items: center;

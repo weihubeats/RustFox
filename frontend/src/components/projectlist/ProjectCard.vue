@@ -46,7 +46,10 @@ const emit = defineEmits<{
     <div class="proj-main">
       <div class="proj-title-row">
         <span class="proj-title" v-tooltip-overflow="project.name">{{ project.name }}</span>
-        <span class="proj-status" :class="{ active }">{{ active ? 'Active' : 'Draft' }}</span>
+        <span class="proj-status" :class="{ active }">
+          <span class="status-dot" aria-hidden="true"></span>
+          {{ active ? 'Active' : 'Draft' }}
+        </span>
       </div>
       <p class="proj-desc" :class="{ empty: !project.description }">
         {{ project.description || '暂无项目描述...' }}
@@ -88,10 +91,15 @@ const emit = defineEmits<{
   display: flex;
   gap: 14px;
   padding: 16px;
+  /* 网格子项：允许收缩到轨道宽，长描述走 ellipsis 而不是撑爆网格 */
+  min-width: 0;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow);
+  /* 半透明深底（#18181b 质感）+ 1px 微光描边，与面板底色拉开层次 */
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 60%),
+    rgba(255, 255, 255, 0.018);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   transition:
     border-color var(--dur) var(--ease),
@@ -101,11 +109,23 @@ const emit = defineEmits<{
 }
 .proj-card:hover {
   border-color: rgba(168, 85, 247, 0.5);
-  background: rgba(255, 255, 255, 0.03);
+  background:
+    linear-gradient(180deg, rgba(168, 85, 247, 0.05), rgba(255, 255, 255, 0) 60%),
+    rgba(255, 255, 255, 0.028);
   transform: translateY(-2px);
   box-shadow:
-    var(--shadow-lg),
-    0 8px 30px rgba(124, 58, 237, 0.05);
+    0 14px 34px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(168, 85, 247, 0.08),
+    0 4px 18px rgba(124, 58, 237, 0.1);
+}
+html[data-theme='light'] .proj-card {
+  border-color: var(--border);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow);
+}
+html[data-theme='light'] .proj-card:hover {
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
 }
 
 .proj-avatar {
@@ -115,10 +135,16 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  font-size: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* 内高光 + 投影：玻璃方块质感，替代纯平色块 */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  font-size: 15px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   user-select: none;
 }
 
@@ -179,20 +205,28 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 
-/* 状态 Tag：Draft 琥珀 / Active 绿，带同色描边；窄 padding 避免挤压右上角 ⋯ 菜单 */
+/* 状态 Pill：小圆点 + 弱化文字（Active 绿点 / Draft 中性灰点） */
 .proj-status {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  background: rgba(245, 158, 11, 0.1);
-  color: #fbbf24;
+  background: rgba(161, 161, 170, 0.09);
+  color: #a1a1aa;
+}
+.proj-status .status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 4px currentColor;
 }
 .proj-status.active {
-  border-color: rgba(34, 197, 94, 0.2);
-  background: rgba(34, 197, 94, 0.1);
+  background: rgba(52, 211, 153, 0.09);
   color: #34d399;
 }
 
@@ -216,7 +250,7 @@ const emit = defineEmits<{
   gap: 12px;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(38, 38, 38, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .proj-metrics {

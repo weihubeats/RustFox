@@ -115,13 +115,13 @@ function colorClass(name: string): string {
   flex-shrink: 0;
 }
 
-/* ---- 统一 32px 边线相连组控：[下拉 | 👁️] ---- */
+/* ---- 统一 32px Pill 组控：[下拉 | 👁️] ---- */
 .eb-group {
   display: inline-flex;
   align-items: center;
   height: 32px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--bg-hover);
   overflow: hidden;
   transition:
@@ -142,11 +142,17 @@ function colorClass(name: string): string {
 }
 .eb-select :deep(.cs-trigger) {
   height: 32px;
+  gap: 8px;
   border: none;
   background: transparent;
   border-radius: 0;
   font-family: var(--font-ui);
   font-weight: 500;
+}
+/* 下拉箭头弱化：更小、更低透明度（点击区仍是整行） */
+.eb-select :deep(.cs-caret) {
+  opacity: 0.6;
+  transform: scale(0.85);
 }
 .eb-select :deep(.cs-trigger:hover:not(:disabled)) {
   background: var(--bg-hover);
@@ -176,28 +182,31 @@ function colorClass(name: string): string {
   background: transparent;
 }
 
-/* ---- 环境色点（映射 utils/environment.ts 的 envColorClass） ---- */
+/* ---- 环境色点（映射 utils/environment.ts 的 envColorClass） ----
+   6px 小点 + currentColor 同色柔光，低调指示而非视觉主角 */
 .edot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--text-3);
+  background: currentColor;
+  color: var(--text-3);
+  box-shadow: 0 0 6px color-mix(in srgb, currentColor 45%, transparent);
 }
 .ed-dev {
-  background: var(--success);
+  color: var(--success);
 }
 .ed-test {
-  background: var(--info);
+  color: var(--info);
 }
 .ed-staging {
-  background: var(--warning);
+  color: var(--warning);
 }
 .ed-prod {
-  background: #f97316;
+  color: #f97316;
 }
 .ed-global {
-  background: var(--accent);
+  color: var(--accent);
 }
 
 /* ---- 触发区展示：仅 状态点 + 环境名 ---- */

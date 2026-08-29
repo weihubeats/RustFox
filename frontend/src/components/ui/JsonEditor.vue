@@ -3,15 +3,16 @@
  * JsonEditor：JSON 编辑区（暗色代码编辑器风格）。
  * - 覆盖层方案：透明 textarea 叠加在高亮 <pre> 上（零依赖，滚动同步）；
  * - 左侧行号栏：随内容垂直平移、细边框与正文分隔；
- * - 右上角浮动半透明工具条：校验状态 + JSON 格式下拉（美化/紧凑）+ 格式化按钮；
+ * - 顶部工具栏（非悬浮）：左侧校验状态 Tag，右侧 美化 / 压缩 / 复制 按钮；
+ *   编辑区内没有任何绝对定位浮层遮挡代码。
  * - 深色底色 #121318，聚焦时 1px 紫色光晕（原 3px 重描边移除）。
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
+import { copyText } from '../../utils/clipboard'
 import { highlightJSON } from '../../utils/highlight'
 import { compactJson, prettyJson } from '../../utils/jsonFormat'
 import { JsonFormatError } from '../../utils/jsonFormat'
-import CustomSelect from './CustomSelect.vue'
 import Icon from './Icon.vue'
 
 const props = withDefaults(
@@ -65,13 +66,17 @@ const status = computed<'empty' | 'ok' | 'invalid' | 'large'>(() => {
   }
 })
 
-// ---------- 格式类型 ----------
-type JsonFormatMode = 'pretty' | 'compact'
-const formatMode = ref<JsonFormatMode>('pretty')
-const FORMAT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'pretty', label: 'JSON' },
-  { value: 'compact', label: 'JSON 紧凑' },
-]
+/** 工具栏状态 Tag 文案与图标（empty 时不渲染）。 */
+const statusText = computed(
+  () =>
+    ({ ok: 'JSON 有效', invalid: '语法错误', large: '内容过大，高亮已停用' })[
+      status.value as 'ok' | 'invalid' | 'large'
+    ] ?? '',
+)
+const statusIcon = computed(() => (status.value === 'ok' ? 'check' : 'x'))
+
+/** 是否有内容可格式化 / 复制（textarea 实时值为权威，见 format 注释）。 */
+const hasContent = computed(() => (taRef.value?.value ?? props.modelValue).trim().length > 0)
 
 function onInput(e: Event): void {
   emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
@@ -98,7 +103,7 @@ watch(
   },
 )
 
-function format(): void {
+function format(mode: 'pretty' | 'compact'): void {
   // 以 textarea 的实时 DOM 值为权威来源：真实浏览器里 input 事件可能丢失或
   // 延迟（拖拽写入、自动填充、受控回写竞态），导致 props.modelValue 落后于
   // 用户实际编辑的内容——此时若按 props 格式化会把编辑器回退成旧数据。
@@ -106,14 +111,14 @@ function format(): void {
   if (!t) return
   try {
     // 无损格式化：保留重复键、键顺序与数字原文（parse/stringify 往返会丢重复键）。
-    const out = formatMode.value === 'compact' ? compactJson(t) : prettyJson(t)
+    const out = mode === 'compact' ? compactJson(t) : prettyJson(t)
     if (out !== props.modelValue) {
       emit('update:modelValue', out)
     } else if (taRef.value && taRef.value.value !== out) {
       // 模型已一致但 DOM 残留未同步的值：直接纠正 DOM。
       taRef.value.value = out
     }
-    toast.success('已格式化')
+    toast.success(mode === 'compact' ? '已压缩' : '已美化')
     void nextTick(() => {
       // 双保险：emit 回写后强制对齐 DOM（WebKit 偶发不回写受控 value）。
       if (taRef.value && taRef.value.value !== props.modelValue) {
@@ -125,10 +130,62 @@ function format(): void {
     toast.error(err instanceof JsonFormatError ? `JSON 无效：${err.message}` : 'JSON 无效，无法格式化')
   }
 }
+
+async function copyJson(): Promise<void> {
+  const t = taRef.value?.value ?? props.modelValue
+  if (!t.trim()) return
+  const ok = await copyText(t)
+  if (ok) toast.success('JSON 已复制')
+  else toast.error('复制失败，请手动选择文本')
+}
 </script>
 
 <template>
   <div class="json-editor">
+    <!-- 顶部工具栏：状态 Tag + 快捷操作（替代原悬浮层，不遮挡代码） -->
+    <div class="je-toolbar">
+      <span
+        v-if="status !== 'empty'"
+        class="je-status"
+        :class="status"
+        :title="
+          status === 'invalid'
+            ? 'JSON 语法错误，请检查后重试'
+            : status === 'large'
+              ? '内容超过 200k 字符，语法高亮与校验已停用'
+              : 'JSON 语法有效'
+        "
+      >
+        <Icon v-if="status === 'ok' || status === 'invalid'" :name="statusIcon" :size="11" />
+        <span v-else class="je-dot" aria-hidden="true"></span>
+        {{ statusText }}
+      </span>
+      <span v-else class="je-toolbar-spacer" aria-hidden="true"></span>
+      <div class="je-actions">
+        <button
+          class="je-btn"
+          type="button"
+          title="美化（格式化 JSON）"
+          :disabled="!hasContent"
+          @click="format('pretty')"
+        >
+          <Icon name="zap" :size="12" />
+        </button>
+        <button
+          class="je-btn"
+          type="button"
+          title="压缩 JSON"
+          :disabled="!hasContent"
+          @click="format('compact')"
+        >
+          <Icon name="minimize-2" :size="12" />
+        </button>
+        <button class="je-btn" type="button" title="复制 JSON" :disabled="!hasContent" @click="copyJson">
+          <Icon name="copy" :size="12" />
+        </button>
+      </div>
+    </div>
+
     <div class="hl-wrap" :style="{ minHeight: `${minHeight}px` }">
       <div
         v-if="!isLargeDoc"
@@ -163,29 +220,6 @@ function format(): void {
         @change="onInput"
         @scroll="syncScroll"
       ></textarea>
-
-      <div class="hl-float">
-        <span
-          v-if="status !== 'empty'"
-          class="hl-status"
-          :class="{ invalid: status === 'invalid', large: status === 'large' }"
-          :title="
-            status === 'invalid' ? 'JSON 无效' : status === 'large' ? '内容过大，高亮已停用' : 'JSON 有效'
-          "
-        >
-          <span class="hl-dot"></span>{{ status === 'invalid' ? '无效' : status === 'large' ? '内容过大' : '有效' }}
-        </span>
-        <CustomSelect
-          :model-value="formatMode"
-          :options="FORMAT_OPTIONS"
-          size="sm"
-          class="hl-mode"
-          @update:model-value="formatMode = String($event) as JsonFormatMode"
-        />
-        <button class="hl-btn" type="button" title="格式化 JSON" @click="format">
-          <Icon name="zap" :size="12" />
-        </button>
-      </div>
     </div>
   </div>
 </template>
@@ -292,81 +326,78 @@ function format(): void {
   color: var(--tok-gutter);
 }
 
-/* ---- 右上角浮动工具条 ---- */
-.hl-float {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
+/* ---- 顶部工具栏（替代原右下悬浮层，不遮挡代码区） ---- */
+.je-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  background: rgba(18, 19, 24, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  gap: 8px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
-.hl-status {
+.je-toolbar-spacer {
+  flex: 1;
+}
+
+/* 校验状态 Tag：淡绿 / 淡红 / 中性灰，低调不抢焦点 */
+.je-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
   font-size: 11px;
-  color: #86efac;
+  line-height: 1.4;
   white-space: nowrap;
+  color: #6ee7a0;
+  background: rgba(52, 211, 153, 0.08);
 }
-.hl-dot {
+.je-status.invalid {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+}
+.je-status.large {
+  color: var(--text-3);
+  background: var(--bg-hover);
+}
+.je-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
 }
-.hl-status.invalid {
-  color: #f87171;
+
+.je-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
-.hl-status.large {
-  color: rgba(215, 219, 227, 0.45);
-}
-
-.hl-mode :deep(.cs-trigger) {
-  height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: none;
-  color: #d7dbe3;
-  font-size: 11.5px;
-}
-.hl-mode :deep(.cs-trigger:hover) {
-  background: rgba(255, 255, 255, 0.12);
-}
-.hl-mode :deep(.cs-caret) {
-  color: rgba(215, 219, 227, 0.6);
-}
-
-.hl-btn {
+.je-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #d7dbe3;
-  font-size: 11.5px;
-  font-family: inherit;
+  background: transparent;
+  color: var(--text-2);
   cursor: pointer;
-  transition: background var(--dur) var(--ease);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.hl-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+.je-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.je-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* ---- 统一 JSON 语法着色（--tok-*，与响应 Body 共用，见 constants/editorTheme.ts） ---- */

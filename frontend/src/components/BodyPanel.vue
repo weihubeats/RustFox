@@ -13,6 +13,7 @@ import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import JsonEditor from './ui/JsonEditor.vue'
+import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import SegmentedControl, { type SegmentOption } from './ui/SegmentedControl.vue'
 import { RAW_SUBTYPES, applyBodyTab, applyRawSubtype, rawSubtypeOf, tabOf } from '../utils/bodyMode'
 import type { BodyTab, RawSubtype } from '../utils/bodyMode'
@@ -73,14 +74,10 @@ const MULTIPART_TYPE_OPTIONS = [
   { value: 'file_path', label: '文件路径' },
 ]
 
-function addUrlencodedField(): void {
-  const fields = props.draft?.request.body as { fields: KeyValue[] } | undefined
-  fields?.fields.push({ key: '', value: '', enabled: true, description: '' })
-}
-
-function removeUrlencodedField(index: number): void {
-  const fields = props.draft?.request.body as { fields: unknown[] } | undefined
-  fields?.fields.splice(index, 1)
+/** urlencoded 字段表：与 Params/Headers 一致的 KeyValueTable 幽灵行（输入自动补行）。 */
+function applyUrlencoded(rows: KVRow[]): void {
+  const body = props.draft?.request.body as { fields: KeyValue[] } | undefined
+  body?.fields.splice(0, body.fields.length, ...(rows as KeyValue[]))
 }
 
 function addMultipartField(): void {
@@ -141,36 +138,48 @@ function removeMultipartField(index: number): void {
       />
     </div>
 
-    <div v-else-if="activeTab === 'x-www-form-urlencoded'" class="editor-fields">
-      <div v-for="(f, i) in urlencodedFields" :key="i" class="kv-row">
-        <input v-model="f.enabled" type="checkbox" class="kv-check" />
-        <input v-model="f.key" class="rf-input rf-input-sm kv-key" placeholder="Key" />
-        <input v-model="f.value" class="rf-input rf-input-sm kv-value" placeholder="Value" />
-        <IconButton name="x" :size="13" title="删除" @click="removeUrlencodedField(i)" />
-      </div>
-      <button class="rf-btn rf-btn-sm" type="button" @click="addUrlencodedField">
-        <Icon name="plus" :size="13" /> 添加字段
-      </button>
-    </div>
+    <KeyValueTable
+      v-else-if="activeTab === 'x-www-form-urlencoded'"
+      :model-value="urlencodedFields"
+      @update:model-value="applyUrlencoded"
+    />
 
-    <div v-else-if="activeTab === 'form-data'" class="editor-fields">
-      <div v-for="(f, i) in multipartFields" :key="i" class="kv-row">
-        <input v-model="f.enabled" type="checkbox" class="kv-check" />
-        <input v-model="f.key" class="rf-input rf-input-sm kv-key" placeholder="Key" />
+    <div v-else-if="activeTab === 'form-data'" class="mp-table">
+      <div class="mp-head">
+        <span class="mp-col mp-check"></span>
+        <span class="mp-col mp-key rf-mono">Key</span>
+        <span class="mp-col mp-type rf-mono">类型</span>
+        <span class="mp-col mp-value rf-mono">Value</span>
+        <span class="mp-col mp-actions"></span>
+      </div>
+      <div
+        v-for="(f, i) in multipartFields"
+        :key="i"
+        class="mp-row"
+        :class="{ off: f.enabled === false }"
+      >
+        <span class="mp-col mp-check">
+          <input v-model="f.enabled" type="checkbox" class="mp-check-box" />
+        </span>
+        <input v-model="f.key" class="mp-input mp-col mp-key" placeholder="Key" spellcheck="false" />
         <CustomSelect
           v-model="f.value_type"
           :options="MULTIPART_TYPE_OPTIONS"
           size="sm"
-          class="mp-type"
+          class="mp-type-select"
         />
         <input
           v-model="f.value"
-          class="rf-input rf-input-sm kv-value"
+          class="mp-input mp-col mp-value"
           :placeholder="f.value_type === 'file_path' ? '/path/to/file' : 'Value'"
+          spellcheck="false"
+          @keydown.enter.prevent="addMultipartField"
         />
-        <IconButton name="x" :size="13" title="删除" @click="removeMultipartField(i)" />
+        <span class="mp-col mp-actions">
+          <IconButton name="trash" :size="13" tone="danger" title="删除" @click="removeMultipartField(i)" />
+        </span>
       </div>
-      <button class="rf-btn rf-btn-sm" type="button" @click="addMultipartField">
+      <button class="mp-add" type="button" @click="addMultipartField">
         <Icon name="plus" :size="13" /> 添加字段
       </button>
     </div>
@@ -248,35 +257,129 @@ function removeMultipartField(index: number): void {
   min-height: 0;
 }
 
-.editor-fields {
+/* ---- form-data 字段表：与 KeyValueTable 同视觉语言（表头 + 行分隔 + 悬停高亮） ---- */
+.mp-table {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  flex: 1;
-  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-card);
 }
 
-.kv-row {
+.mp-head,
+.mp-row {
   display: flex;
-  gap: 6px;
   align-items: center;
 }
 
-.kv-check {
-  accent-color: var(--accent);
+.mp-head {
+  height: 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
 
-.kv-key {
-  width: 220px;
+.mp-row {
+  min-height: 32px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.mp-row:last-of-type {
+  border-bottom: none;
+}
+.mp-row:hover {
+  background: var(--bg-hover);
+}
+.mp-row.off .mp-input {
+  opacity: 0.45;
 }
 
-.kv-value {
-  flex: 1;
+.mp-col {
+  flex-shrink: 0;
 }
-
+.mp-check {
+  width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mp-key {
+  width: 34%;
+  min-width: 120px;
+}
 .mp-type {
   width: 110px;
+}
+.mp-value {
+  flex: 1;
+  min-width: 0;
+}
+.mp-actions {
+  width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.mp-row:hover .mp-actions,
+.mp-row:focus-within .mp-actions {
+  opacity: 1;
+}
+
+.mp-check-box {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.mp-type-select {
+  width: 96px;
   flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.mp-input {
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+  outline: none;
+  padding: 0 8px;
+  min-width: 0;
+}
+.mp-input::placeholder {
+  color: var(--text-3);
+}
+.mp-input:focus {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 添加行：轻量虚线整行按钮（hover 提亮为主色），替代笨重的实心通栏按钮 */
+.mp-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border: none;
+  border-top: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.mp-add:hover {
+  color: var(--accent);
+  background: var(--accent-tint);
 }
 
 .binary-box {

@@ -6,7 +6,7 @@
  * - 打开即生成，切换语言 / 接口 / URL 变化时自动重新生成；
  * - 右上角一键复制（Tauri 原生剪贴板降级链）。
  */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import Tabs from '../ui/Tabs.vue'
 import type { TabItem } from '../ui/Tabs.vue'
@@ -14,6 +14,7 @@ import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
 import { dedupeJsonKeys } from '../../utils/jsonFormat'
+import { highlightCode } from '../../utils/highlight'
 import type { BodySpec, CodeLang, Endpoint } from '../../types/foxApi'
 
 const props = defineProps<{
@@ -44,6 +45,9 @@ const langTabs: TabItem[] = LANG_TABS.map((l) => ({ key: l.value, label: l.label
 const lang = ref<CodeLang>('curl')
 const code = ref('')
 const generating = ref(false)
+
+/** 按当前语言着色后的 HTML（内容已经 escapeHtml，v-html 安全）。 */
+const codeHtml = computed(() => (code.value ? highlightCode(lang.value, code.value) : ''))
 
 /**
  * 生成用 Body：JSON 模式先折叠重复键（历史数据可能出现同一字段多次，
@@ -111,7 +115,7 @@ watch(
     <Tabs v-model="lang" :tabs="langTabs" size="sm" class="csp-tabs" />
     <div class="csp-body">
       <pre v-if="generating" class="csp-hint">生成中…</pre>
-      <pre v-else-if="code" class="csp-code">{{ code }}</pre>
+      <pre v-else-if="code" class="csp-code" v-html="codeHtml"></pre>
       <p v-else class="csp-hint">无法生成代码（请检查请求配置）</p>
     </div>
   </section>
@@ -153,5 +157,30 @@ watch(
 
 .csp-hint {
   color: var(--text-3);
+}
+
+/* ---- 语法高亮配色（v-html 内容无 scoped 属性，需 :deep） ---- */
+.csp-code :deep(.hl-c) {
+  color: var(--text-3);
+  font-style: italic;
+}
+.csp-code :deep(.hl-s) {
+  color: var(--success);
+}
+.csp-code :deep(.hl-k) {
+  color: var(--accent);
+  font-weight: 600;
+}
+.csp-code :deep(.hl-v) {
+  color: var(--warning);
+}
+.csp-code :deep(.hl-n) {
+  color: #c084fc;
+}
+.csp-code :deep(.hl-p) {
+  color: var(--text-2);
+}
+.csp-code :deep(.hl-b) {
+  color: var(--danger);
 }
 </style>
