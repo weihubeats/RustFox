@@ -1,5 +1,7 @@
 # AI Agent 集成指南
 
+**语言 / Language**：[简体中文](AGENT.md) · [English](en/AGENT.md)
+
 RustFox 内置 **Agent 控制面**：应用启动时自动拉起一个本机 HTTP 服务（仅 `127.0.0.1`），
 AI Agent 可以直接把 cURL 命令保存为 RustFox 接口，也可以查询项目与接口列表。
 

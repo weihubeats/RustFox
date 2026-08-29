@@ -2,6 +2,8 @@
 
 > 约 10 MB 的轻量跨平台 API 调试工具。一个安装包，开箱即用。
 
+**语言 / Language**：简体中文 · [English](README_EN.md)
+
 <!--
   示例图片：docs/imags/home.png（主页）、docs/imags/api-home.png（工作区）。
   更新截图后替换下面两行的路径即可。
@@ -68,7 +70,7 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 
 - OpenAPI 3.x / Swagger 2.0 / Postman Collection v2.1 导入导出
 - 单接口 / 全项目导出 Markdown 文档
-- 客户端代码生成：curl / Python / JavaScript / Go（自动含变量替换与认证头）
+- 客户端代码生成：cURL / JavaScript / Java / Go / Rust / Python / PHP（自动含变量替换与认证头，带语法高亮）
 
 ### 更多
 

@@ -1,5 +1,7 @@
 # RustFox 用户使用手册
 
+**语言 / Language**：[简体中文](USER_GUIDE.md) · [English](en/USER_GUIDE.md)
+
 面向最终用户。**不需要安装 Rust、不需要任何命令行知识**，下载、解压、双击即可使用。
 
 - 适用版本：RustFox 0.1.x
@@ -140,9 +142,9 @@ Tests 页「压测」区：输入并发数与总请求数（默认 10 并发 × 
 
 地址栏「生成代码」→ 选择语言：
 
-- **curl** / **Python (requests)** / **JavaScript (fetch)** / **Go (net/http)**
+- **cURL** / **JavaScript (fetch)** / **Java** / **Go (net/http)** / **Rust**（另支持 Python / PHP）
 
-生成的是**渲染后**的完整请求（含变量替换、认证头、启用中的请求头），直接复制进你的工程即用。
+生成的是**渲染后**的完整请求（含变量替换、认证头、启用中的请求头），带语法高亮，直接复制进你的工程即用。
 
 ## 8. Mock Server（本地接口模拟）
 
