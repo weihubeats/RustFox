@@ -4,7 +4,7 @@
  * 采用指针事件实现（pointerdown/move/up + elementFromPoint 命中测试），
  * 规避 WKWebView 对 HTML5 Drag & Drop（dragover/drop/dataTransfer）支持不稳的问题。
  */
-import { reactive } from 'vue'
+import { reactive, type InjectionKey, type Ref } from 'vue'
 
 export interface DndTarget {
   drop: 'folder' | 'before' | 'after' | 'root'
@@ -31,6 +31,22 @@ export function consumeSuppressClick(): boolean {
 export function setSuppressClick(v: boolean): void {
   suppressClick = v
 }
+
+/**
+ * 递归树行内编辑状态的注入键 —— 必须在模块作用域声明。
+ * <script setup> 体内的常量会随每个实例重新创建：每层子树各持有一个
+ * 不相等的 Symbol，provide/inject 永远匹配不上（此前的缺陷）。
+ */
+interface TreeEditState {
+  kind: 'create-folder' | 'rename-folder' | 'rename-endpoint'
+  id?: string
+  parentId?: string | null
+}
+
+const TREE_EDIT_STATE: InjectionKey<{
+  editing: Ref<TreeEditState | null>
+  editValue: Ref<string>
+}> = Symbol('endpoint-tree-edit')
 </script>
 
 <script setup lang="ts">
@@ -45,7 +61,7 @@ export function setSuppressClick(v: boolean): void {
  * - 根级新建文件夹由侧栏头部按钮触发（defineExpose(startEdit)）；
  * - 拖拽移动：跨实例共享载荷，dragover 显式 dropEffect=move。
  */
-import { computed, ref } from 'vue'
+import { computed, inject, provide, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { escapeHtml } from '../utils/highlight'
@@ -56,8 +72,14 @@ import type { MenuItem } from './ui/Menu.vue'
 import type { Endpoint, Folder } from '../types/foxApi'
 
 const props = withDefaults(
-  defineProps<{ folderId: string | null; search?: string }>(),
-  { search: '' },
+  defineProps<{
+    folderId: string | null
+    search?: string
+    /** 自增信号：全部展开 / 全部折叠（侧栏工具栏触发，递归层逐层透传）。 */
+    expandTick?: number
+    collapseTick?: number
+  }>(),
+  { search: '', expandTick: 0, collapseTick: 0 },
 )
 const emit = defineEmits<{ importCurl: [folderId: string | null] }>()
 
@@ -65,12 +87,20 @@ const store = useWorkspaceStore()
 const toast = useToast()
 
 const expanded = ref<Set<string>>(new Set())
-const editing = ref<{
-  kind: 'create-folder' | 'rename-folder' | 'rename-endpoint'
-  id?: string
-  parentId?: string | null
-} | null>(null)
-const editValue = ref('')
+
+/**
+ * 行内编辑（新建文件夹 / 重命名）状态在整棵递归树中共享：
+ * EndpointTree 是递归组件，每层子树是独立实例；「新建子文件夹」的输入行
+ * 渲染在目标文件夹对应的【子】实例里（folderId === parentId 的那层），
+ * 状态若只在触发菜单的父实例本地，子实例永远看不到 → 输入框不出现。
+ * 根实例 provide 模块级 TREE_EDIT_STATE，全部实例注入同一份读写。
+ */
+const inheritedEdit = inject(TREE_EDIT_STATE, null)
+const editing = inheritedEdit?.editing ?? ref<TreeEditState | null>(null)
+const editValue = inheritedEdit?.editValue ?? ref('')
+if (!inheritedEdit) {
+  provide(TREE_EDIT_STATE, { editing, editValue })
+}
 
 // ---------- 接口搜索（实时过滤） ----------
 const query = computed(() => props.search.trim().toLowerCase())
@@ -122,6 +152,35 @@ function toggleFolder(id: string): void {
   else next.add(id)
   expanded.value = next
 }
+
+// ---------- 全部展开 / 折叠（tick 信号驱动，递归子树各自响应） ----------
+function descendantFolderIds(): string[] {
+  const out: string[] = []
+  const walk = (parentId: string | null): void => {
+    for (const f of store.folders) {
+      if (f.parent_id === parentId) {
+        out.push(f.id)
+        walk(f.id)
+      }
+    }
+  }
+  walk(props.folderId)
+  return out
+}
+
+watch(
+  () => props.expandTick,
+  (t) => {
+    if (t) expanded.value = new Set(descendantFolderIds())
+  },
+)
+
+watch(
+  () => props.collapseTick,
+  (t) => {
+    if (t) expanded.value = new Set<string>()
+  },
+)
 
 // ---------- 拖拽排序 / 移动（指针事件实现，规避 WKWebView HTML5 DnD 缺陷） ----------
 let dragStart = { x: 0, y: 0 }
@@ -404,7 +463,11 @@ function onMenuSelect(item: MenuItem): void {
   const target = menuTarget.value
   if (!target) return
   if (target.kind === 'folder') {
-    if (item.key === 'subfolder') startEdit('create-folder', { parentId: target.id })
+    if (item.key === 'subfolder') {
+      // 先展开目标文件夹：输入行渲染在其子树内，折叠状态下不可见
+      expanded.value.add(target.id)
+      startEdit('create-folder', { parentId: target.id })
+    }
     else if (item.key === 'endpoint') store.openNewEndpoint(target.id)
     else if (item.key === 'import') emit('importCurl', target.id)
     else if (item.key === 'rename') startEdit('rename-folder', { id: target.id })
@@ -468,6 +531,8 @@ function onMenuConfirm(item: MenuItem): void {
         <EndpointTree
           :folder-id="f.id"
           :search="props.search"
+          :expand-tick="props.expandTick"
+          :collapse-tick="props.collapseTick"
           @import-curl="$emit('importCurl', $event)"
         />
       </div>
