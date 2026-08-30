@@ -221,13 +221,6 @@ function removeModule(index: number): void {
   dirty.value = true
 }
 
-function setDefaultModule(id: string): void {
-  const env = selected.value
-  if (!env) return
-  for (const m of env.modules) m.is_default = m.id === id
-  dirty.value = true
-}
-
 // ---------- 环境变量 ----------
 function addVariable(): void {
   const env = selected.value
@@ -465,15 +458,13 @@ async function remove(env: Environment): Promise<void> {
               <div class="em-section-head">
                 <span class="em-section-title">前置 URL（服务 / 模块）</span>
                 <span class="em-section-hint">
-                  项目模块随项目自动同步（只填基址）；请求按绑定模块匹配；未绑定的接口优先用**所在项目**的模块，
-                  项目没有模块时才落「兜底」标记的模块
+                  项目模块随项目自动同步（只填基址）；未绑定模块的接口使用**所在项目**的模块基址
                 </span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-mod">
                   <span class="em-col-mod">模块</span>
                   <span class="em-col-base">前置 URL</span>
-                  <span class="em-col-def" title="兜底模块：项目未绑定模块的请求使用">兜底</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
@@ -508,14 +499,6 @@ async function remove(env: Environment): Promise<void> {
                     placeholder="https://service.example.com（可含 {{变量}}）"
                     spellcheck="false"
                     @input="onAnyChange"
-                  />
-                  <input
-                    type="radio"
-                    class="em-col-def"
-                    name="em-default-module"
-                    :checked="m.is_default"
-                    :title="m.is_default ? '兜底模块：项目未绑定模块的请求使用' : '设为兜底默认'"
-                    @change="setDefaultModule(m.id)"
                   />
                   <IconButton
                     v-if="!m.project_id"
@@ -1130,13 +1113,6 @@ async function remove(env: Environment): Promise<void> {
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
-}
-
-.em-col-def {
-  width: 44px;
-  flex-shrink: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 /* 变量表列 */
