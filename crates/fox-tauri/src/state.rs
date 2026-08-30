@@ -201,7 +201,8 @@ impl AppState {
             }
         }
         // 项目 > 全局；再叠环境（环境 > 项目）。
-        let project_over_global = fox_core::merge_variables(&project_vars, &global_vars, &HashMap::new());
+        let project_over_global =
+            fox_core::merge_variables(&project_vars, &global_vars, &HashMap::new());
         Ok(fox_core::merge_variables(
             &HashMap::new(),
             &environment_vars,

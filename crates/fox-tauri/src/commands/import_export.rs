@@ -39,13 +39,10 @@ pub async fn import_document(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn read_text_file(path: String) -> CommandResult<String> {
     const MAX_LEN: u64 = 2 * 1024 * 1024;
-    let bytes = std::fs::read(&path).map_err(|e| {
-        CommandError::with_code("IO", format!("无法读取文件 {path}：{e}"))
-    })?;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| CommandError::with_code("IO", format!("无法读取文件 {path}：{e}")))?;
     if bytes.len() as u64 > MAX_LEN {
-        return Err(CommandError::validation(
-            "文件超过 2MB，请改用粘贴文本导入",
-        ));
+        return Err(CommandError::validation("文件超过 2MB，请改用粘贴文本导入"));
     }
     String::from_utf8(bytes)
         .map_err(|_| CommandError::validation("文件不是有效的 UTF-8 文本，请改用粘贴导入"))

@@ -30,9 +30,7 @@ pub struct ProjectStat {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn list_project_stats(
-    state: State<'_, AppState>,
-) -> CommandResult<Vec<ProjectStat>> {
+pub async fn list_project_stats(state: State<'_, AppState>) -> CommandResult<Vec<ProjectStat>> {
     let stats = repo::list_endpoint_stats(&state.db).await?;
     Ok(stats
         .into_iter()
@@ -115,7 +113,12 @@ mod tests {
             latest_path: Some("/pets".into()),
         };
         let json = serde_json::to_value(&stat).unwrap();
-        for key in ["project_id", "endpoint_count", "latest_method", "latest_path"] {
+        for key in [
+            "project_id",
+            "endpoint_count",
+            "latest_method",
+            "latest_path",
+        ] {
             assert!(json.get(key).is_some(), "缺少字段 {key}");
         }
         assert!(json.get("projectId").is_none(), "不得输出 camelCase 字段");

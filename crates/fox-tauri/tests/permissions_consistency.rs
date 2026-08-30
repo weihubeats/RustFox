@@ -45,7 +45,8 @@ fn extract_commands() -> Vec<String> {
 
 /// 从 default.toml 提取 `allow-xxx` 权限名集合。
 fn extract_allow_permissions() -> Vec<String> {
-    let toml = fs::read_to_string(crate_path("permissions/default.toml")).expect("读取 default.toml");
+    let toml =
+        fs::read_to_string(crate_path("permissions/default.toml")).expect("读取 default.toml");
     quoted_strings(&toml)
         .into_iter()
         .filter(|s| s.starts_with("allow-"))

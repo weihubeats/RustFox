@@ -358,8 +358,8 @@ pub(crate) fn apply_global_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use fox_core::model::GlobalParamLocation;
+    use std::collections::HashMap;
 
     #[test]
     fn global_params_inject_query_and_header_fill_gaps() {
@@ -403,11 +403,17 @@ mod tests {
         apply_global_params(&mut spec, &params, &vars);
 
         assert_eq!(spec.params.len(), 2, "注入 debug；KEEP 已有同名不覆盖");
-        assert!(spec.params.iter().any(|kv| kv.key == "debug" && kv.value == "1"));
+        assert!(spec
+            .params
+            .iter()
+            .any(|kv| kv.key == "debug" && kv.value == "1"));
         assert_eq!(spec.params[0].value, "1", "请求显式值优先");
         assert_eq!(spec.headers.len(), 1);
         assert_eq!(spec.headers[0].key, "X-Request-Id");
-        assert_eq!(spec.headers[0].value, "trace-9", "全局参数值支持 {{变量}} 解析");
+        assert_eq!(
+            spec.headers[0].value, "trace-9",
+            "全局参数值支持 {{变量}} 解析"
+        );
     }
 
     /// 历史摘要必须包含完整请求规格（前端「恢复到编辑器」的数据源），

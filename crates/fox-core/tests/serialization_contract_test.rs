@@ -92,130 +92,163 @@ fn endpoint() -> Endpoint {
 fn ipc_models_serialize_snake_case_keys() {
     let now = chrono::Utc::now();
 
-    check("Project", &Project {
-        id: Uuid::new_v4(),
-        name: "P".into(),
-        description: String::new(),
-        variables: HashMap::new(),
-        created_at: now,
-        updated_at: now,
-    });
+    check(
+        "Project",
+        &Project {
+            id: Uuid::new_v4(),
+            name: "P".into(),
+            description: String::new(),
+            variables: HashMap::new(),
+            created_at: now,
+            updated_at: now,
+        },
+    );
 
     check("Endpoint", &endpoint());
     check("RequestSpec", &request_spec());
 
-    check("Environment", &Environment {
-        id: Uuid::new_v4(),
-        name: "开发环境".into(),
-        modules: vec![ModuleUrlConfig {
+    check(
+        "Environment",
+        &Environment {
             id: Uuid::new_v4(),
-            project_id: Some(Uuid::new_v4()),
-            module_name: "Petstore".into(),
-            base_url: "http://127.0.0.1:4010".into(),
-            is_default: true,
-        }],
-        variables: vec![EnvironmentVariable {
-            key: "token".into(),
-            remote_value: "abc".into(),
-            local_value: String::new(),
+            name: "开发环境".into(),
+            modules: vec![ModuleUrlConfig {
+                id: Uuid::new_v4(),
+                project_id: Some(Uuid::new_v4()),
+                module_name: "Petstore".into(),
+                base_url: "http://127.0.0.1:4010".into(),
+                is_default: true,
+            }],
+            variables: vec![EnvironmentVariable {
+                key: "token".into(),
+                remote_value: "abc".into(),
+                local_value: String::new(),
+                enabled: true,
+                description: Some("示例".into()),
+            }],
+            created_at: now,
+            updated_at: now,
+        },
+    );
+
+    check(
+        "ResponseExample",
+        &ResponseExample {
+            id: Uuid::new_v4(),
+            endpoint_id: Uuid::new_v4(),
+            name: "200".into(),
+            status: 200,
+            headers: HashMap::new(),
+            body: "{}".into(),
+            content_type: "application/json".into(),
+            created_at: now,
+            updated_at: now,
+        },
+    );
+
+    check(
+        "RequestExample",
+        &RequestExample {
+            id: Uuid::new_v4(),
+            endpoint_id: Uuid::new_v4(),
+            name: "示例".into(),
+            request: request_spec(),
+            created_at: now,
+            updated_at: now,
+        },
+    );
+
+    check(
+        "TestCase",
+        &TestCase {
+            id: Uuid::new_v4(),
+            request_id: Uuid::new_v4(),
+            name: "正向用例".into(),
+            category: "正向".into(),
+            method: HttpMethod::POST,
+            url_path: "/pets".into(),
+            params: vec![kv("page", "1")],
+            headers: vec![],
+            body_type: "json".into(),
+            body_content: "{}".into(),
+            last_run_status: TestCaseStatus::Untested,
+            created_at: now,
+        },
+    );
+
+    check(
+        "MockRule",
+        &MockRule {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            endpoint_id: None,
+            name: "规则".into(),
+            method: HttpMethod::GET,
+            path: "/pets".into(),
+            match_query: vec![MockMatchItem {
+                key: "k".into(),
+                value: "v".into(),
+            }],
+            match_headers: vec![],
+            response_status: 200,
+            response_headers: HashMap::new(),
+            response_body_template: "{}".into(),
+            delay_ms: 0,
             enabled: true,
-            description: Some("示例".into()),
-        }],
-        created_at: now,
-        updated_at: now,
-    });
+            priority: 0,
+            created_at: now,
+            updated_at: now,
+        },
+    );
 
-    check("ResponseExample", &ResponseExample {
-        id: Uuid::new_v4(),
-        endpoint_id: Uuid::new_v4(),
-        name: "200".into(),
-        status: 200,
-        headers: HashMap::new(),
-        body: "{}".into(),
-        content_type: "application/json".into(),
-        created_at: now,
-        updated_at: now,
-    });
+    check(
+        "TestRun",
+        &TestRun {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            environment_id: None,
+            name: "运行".into(),
+            result_json: "{}".into(),
+            started_at: now,
+            finished_at: None,
+        },
+    );
 
-    check("RequestExample", &RequestExample {
-        id: Uuid::new_v4(),
-        endpoint_id: Uuid::new_v4(),
-        name: "示例".into(),
-        request: request_spec(),
-        created_at: now,
-        updated_at: now,
-    });
+    check(
+        "RequestHistory",
+        &RequestHistory {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            endpoint_id: None,
+            method: "GET".into(),
+            url: "http://127.0.0.1/pets".into(),
+            status: Some(200),
+            duration_ms: Some(12),
+            request_summary_json: "{}".into(),
+            response_summary_json: "{}".into(),
+            created_at: now,
+        },
+    );
 
-    check("TestCase", &TestCase {
-        id: Uuid::new_v4(),
-        request_id: Uuid::new_v4(),
-        name: "正向用例".into(),
-        category: "正向".into(),
-        method: HttpMethod::POST,
-        url_path: "/pets".into(),
-        params: vec![kv("page", "1")],
-        headers: vec![],
-        body_type: "json".into(),
-        body_content: "{}".into(),
-        last_run_status: TestCaseStatus::Untested,
-        created_at: now,
-    });
+    check(
+        "GlobalParam",
+        &GlobalParam {
+            key: "X-Client".into(),
+            value: "RustFox".into(),
+            enabled: true,
+            location: GlobalParamLocation::Header,
+        },
+    );
 
-    check("MockRule", &MockRule {
-        id: Uuid::new_v4(),
-        project_id: Uuid::new_v4(),
-        endpoint_id: None,
-        name: "规则".into(),
-        method: HttpMethod::GET,
-        path: "/pets".into(),
-        match_query: vec![MockMatchItem { key: "k".into(), value: "v".into() }],
-        match_headers: vec![],
-        response_status: 200,
-        response_headers: HashMap::new(),
-        response_body_template: "{}".into(),
-        delay_ms: 0,
-        enabled: true,
-        priority: 0,
-        created_at: now,
-        updated_at: now,
-    });
-
-    check("TestRun", &TestRun {
-        id: Uuid::new_v4(),
-        project_id: Uuid::new_v4(),
-        environment_id: None,
-        name: "运行".into(),
-        result_json: "{}".into(),
-        started_at: now,
-        finished_at: None,
-    });
-
-    check("RequestHistory", &RequestHistory {
-        id: Uuid::new_v4(),
-        project_id: Uuid::new_v4(),
-        endpoint_id: None,
-        method: "GET".into(),
-        url: "http://127.0.0.1/pets".into(),
-        status: Some(200),
-        duration_ms: Some(12),
-        request_summary_json: "{}".into(),
-        response_summary_json: "{}".into(),
-        created_at: now,
-    });
-
-    check("GlobalParam", &GlobalParam {
-        key: "X-Client".into(),
-        value: "RustFox".into(),
-        enabled: true,
-        location: GlobalParamLocation::Header,
-    });
-
-    check("OAuth2Token", &OAuth2Token {
-        access_token: "at".into(),
-        token_type: "Bearer".into(),
-        refresh_token: None,
-        expires_at: now,
-    });
+    check(
+        "OAuth2Token",
+        &OAuth2Token {
+            access_token: "at".into(),
+            token_type: "Bearer".into(),
+            refresh_token: None,
+            expires_at: now,
+        },
+    );
 
     check("GraphQLSpec", &GraphQLSpec::default());
 }

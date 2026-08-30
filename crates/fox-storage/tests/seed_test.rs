@@ -34,7 +34,9 @@ async fn seeds_full_fixture_set() {
         .iter()
         .find(|e| e.path == "/users" && e.method == fox_core::model::HttpMethod::GET)
         .expect("用户列表接口存在");
-    let examples = repo::list_response_examples(&db, list_users.id).await.unwrap();
+    let examples = repo::list_response_examples(&db, list_users.id)
+        .await
+        .unwrap();
     assert_eq!(examples.len(), 1);
     assert_eq!(examples[0].status, 200);
 
@@ -43,12 +45,18 @@ async fn seeds_full_fixture_set() {
         .iter()
         .find(|p| p.name == "小奏技术 · 开放演示")
         .expect("开放演示项目存在");
-    assert_eq!(repo::list_endpoints(&db, open_demo.id).await.unwrap().len(), 6);
+    assert_eq!(
+        repo::list_endpoints(&db, open_demo.id).await.unwrap().len(),
+        6
+    );
     let graphql = projects
         .iter()
         .find(|p| p.name == "小奏技术 · GraphQL 网关")
         .expect("GraphQL 项目存在");
-    assert_eq!(repo::list_endpoints(&db, graphql.id).await.unwrap().len(), 2);
+    assert_eq!(
+        repo::list_endpoints(&db, graphql.id).await.unwrap().len(),
+        2
+    );
 
     // 环境 2 个，开发环境模块指向 3 个项目、变量 3 个
     let envs = repo::list_environments(&db).await.unwrap();
@@ -58,7 +66,10 @@ async fn seeds_full_fixture_set() {
         .find(|e| e.name == "开发环境")
         .expect("开发环境存在");
     assert_eq!(dev.modules.len(), 3);
-    assert!(dev.modules.iter().any(|m| m.base_url == "http://127.0.0.1:4010"));
+    assert!(dev
+        .modules
+        .iter()
+        .any(|m| m.base_url == "http://127.0.0.1:4010"));
     assert_eq!(dev.variables.len(), 3);
 
     // 全局参数 2 个；激活项 settings 已写入

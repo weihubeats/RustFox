@@ -292,7 +292,9 @@ pub async fn seed_dev_data(db: &SqlitePool) -> Result<()> {
             "/posts/1",
             "JSON Body 整体更新",
             EndpointStatus::Developing,
-            json_body(r#"{"id": 1, "title": "小奏技术周报", "body": "本周小奏技术动态", "userId": 1}"#),
+            json_body(
+                r#"{"id": 1, "title": "小奏技术周报", "body": "本周小奏技术动态", "userId": 1}"#,
+            ),
         ),
         (
             "删除文章",
@@ -316,7 +318,9 @@ pub async fn seed_dev_data(db: &SqlitePool) -> Result<()> {
     {
         repo::save_endpoint(
             db,
-            &endpoint(&open_demo, None, name, method, path, desc, status, i as i64, request),
+            &endpoint(
+                &open_demo, None, name, method, path, desc, status, i as i64, request,
+            ),
         )
         .await?;
     }
@@ -375,7 +379,11 @@ pub async fn seed_dev_data(db: &SqlitePool) -> Result<()> {
             module(&graphql, "https://countries.trevorblades.com", false),
         ],
         variables: vec![
-            env_var("token", "xz-dev-token-123", "小奏技术登录接口返回的 Bearer Token 示例"),
+            env_var(
+                "token",
+                "xz-dev-token-123",
+                "小奏技术登录接口返回的 Bearer Token 示例",
+            ),
             env_var("env_name", "development", "当前环境标识"),
             env_var("trace_id", "xz-trace-dev-001", "链路追踪 ID 示例"),
         ],
@@ -391,7 +399,11 @@ pub async fn seed_dev_data(db: &SqlitePool) -> Result<()> {
             module(&graphql, "https://countries.trevorblades.com", false),
         ],
         variables: vec![
-            env_var("token", "xz-test-token-456", "小奏技术登录接口返回的 Bearer Token 示例"),
+            env_var(
+                "token",
+                "xz-test-token-456",
+                "小奏技术登录接口返回的 Bearer Token 示例",
+            ),
             env_var("env_name", "staging", "当前环境标识"),
             env_var("trace_id", "xz-trace-stg-001", "链路追踪 ID 示例"),
         ],

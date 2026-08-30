@@ -12,9 +12,7 @@ use crate::state::AppState;
 /// 列出全部环境（全局维度，跨项目共享；模块已按当前项目自动同步）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn list_environments(state: State<'_, AppState>) -> CommandResult<Vec<Environment>> {
-    repo::list_environments(&state.db)
-        .await
-        .map_err(Into::into)
+    repo::list_environments(&state.db).await.map_err(Into::into)
 }
 
 /// 保存环境（upsert）。名称必填。返回同步项目模块后的完整环境。
@@ -26,7 +24,9 @@ pub async fn save_environment(
     if environment.name.trim().is_empty() {
         return Err(CommandError::validation("环境名称不能为空"));
     }
-    repo::save_environment(&state.db, &environment).await.map_err(Into::into)
+    repo::save_environment(&state.db, &environment)
+        .await
+        .map_err(Into::into)
 }
 
 /// 切换激活环境（`null` 表示不使用环境变量）。返回切换后的环境缓存。

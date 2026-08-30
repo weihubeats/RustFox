@@ -82,7 +82,9 @@ pub async fn agent_status(state: State<'_, AppState>) -> CommandResult<AgentStat
     Ok(AgentStatusInfo {
         running: guard.is_some(),
         address: guard.as_ref().map(|s| s.address()),
-        token_path: fox_agent::token::token_path(&fox_storage::db::data_dir()).display().to_string(),
+        token_path: fox_agent::token::token_path(&fox_storage::db::data_dir())
+            .display()
+            .to_string(),
     })
 }
 
