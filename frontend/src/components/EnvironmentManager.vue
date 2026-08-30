@@ -306,12 +306,15 @@ async function save(): Promise<void> {
     .map((v) => ({ ...v, key: v.key.trim() }))
   busy.value = true
   try {
-    const saved = await store.updateEnvironment({
-      ...env,
-      name,
-      modules: normalizedModules,
-      variables: normalizedVariables,
-    })
+    const saved = await store.updateEnvironment(
+      {
+        ...env,
+        name,
+        modules: normalizedModules,
+        variables: normalizedVariables,
+      },
+      { silent: true },
+    )
     selected.value = clone(saved)
     envs.value = clone(store.environments)
     dirty.value = false
@@ -509,7 +512,7 @@ async function remove(env: Environment): Promise<void> {
                     class="em-col-op"
                     @click="removeModule(i)"
                   />
-                  <span v-else class="em-col-op" :title="'项目模块随项目同步，无需手工删除'"></span>
+
                 </div>
                 <button class="rf-btn rf-btn-sm em-add-var" type="button" @click="addModule">
                   <Icon name="plus" :size="13" /> 添加模块
