@@ -228,10 +228,13 @@ async fn environment_crud() {
     assert_eq!(fetched.variables.len(), 1);
     assert_eq!(fetched.variables[0].effective_value(), "abc");
     // 默认模块基址
-    assert_eq!(fetched.base_url(None), Some("https://pay.example.com"));
+    assert_eq!(
+        fetched.base_url(None, None),
+        Some("https://pay.example.com")
+    );
     // 按模块名解析
     assert_eq!(
-        fetched.base_url(Some("收单")),
+        fetched.base_url(Some("收单"), None),
         Some("https://acq.example.com")
     );
 

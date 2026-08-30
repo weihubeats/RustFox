@@ -571,8 +571,17 @@ impl EnvironmentVariable {
 }
 
 impl Environment {
-    /// 默认模块：优先 `is_default`，否则取第一个（兼容无标记模块的旧数据）。
-    pub fn default_module(&self) -> Option<&ModuleUrlConfig> {
+    /// 默认模块：优先**当前项目绑定的模块**（project_id 匹配），其次 `is_default`，
+    /// 否则取第一个（兼容无标记模块的旧数据）。
+    ///
+    /// 项目偏好让多项目共用一个环境时，「默认模块」随所在项目自动落在该
+    /// 项目自己的基址上，而不是全局钉死的 is_default 模块。
+    pub fn default_module(&self, project_id: Option<Uuid>) -> Option<&ModuleUrlConfig> {
+        if let Some(pid) = project_id {
+            if let Some(m) = self.modules.iter().find(|m| m.project_id == Some(pid)) {
+                return Some(m);
+            }
+        }
         self.modules
             .iter()
             .find(|m| m.is_default)
@@ -583,7 +592,7 @@ impl Environment {
     pub fn module(&self, key: &str) -> Option<&ModuleUrlConfig> {
         let n = key.trim();
         if n.is_empty() {
-            return self.default_module();
+            return self.default_module(None);
         }
         self.modules
             .iter()
@@ -602,10 +611,10 @@ impl Environment {
     /// 当前环境实际采用的基址：显式模块 > 默认模块；无可用模块返回 `None`。
     ///
     /// `module_key` 为 `None` 或空时表示「未指定模块 → 默认模块」。
-    pub fn base_url(&self, module_key: Option<&str>) -> Option<&str> {
+    pub fn base_url(&self, module_key: Option<&str>, project_id: Option<Uuid>) -> Option<&str> {
         let module = match module_key {
             Some(key) => self.module(key)?,
-            None => self.default_module()?,
+            None => self.default_module(project_id)?,
         };
         let base = module.base_url.trim();
         if base.is_empty() {

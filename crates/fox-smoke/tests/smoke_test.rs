@@ -75,7 +75,7 @@ async fn full_user_flow() {
     });
     repo::update_environment(&db, &env).await.unwrap();
     // 后端环境解析应命中默认模块基址。
-    assert_eq!(env.base_url(None), Some(base_url.as_str()));
+    assert_eq!(env.base_url(None, None), Some(base_url.as_str()));
 
     // 合并变量（模拟工作区 merged_vars：项目变量 < 环境变量）。
     let mut vars = HashMap::<String, String>::new();

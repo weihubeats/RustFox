@@ -34,7 +34,9 @@ const options = computed(() => [
 ])
 
 /** 悬停 tooltip：完整 Base URL（无环境 / 未配置时不显示）。 */
-const tooltipContent = computed(() => (activeEnv.value ? envBaseUrl(activeEnv.value) : ''))
+const tooltipContent = computed(() =>
+  activeEnv.value ? envBaseUrl(activeEnv.value, store.project?.id) : '',
+)
 
 function envByValue(value: string | number): Environment | null | undefined {
   return store.environments.find((e) => e.id === String(value))
@@ -79,8 +81,8 @@ function colorClass(name: string): string {
                 <span class="edot" :class="`ed-${colorClass(option.label)}`"></span>
                 <span class="env-opt-name-text">{{ option.label }}</span>
               </span>
-              <span v-if="envBaseUrl(envByValue(option.value))" class="env-opt-url">
-                {{ envBaseUrl(envByValue(option.value)) }}
+              <span v-if="envBaseUrl(envByValue(option.value), store.project?.id)" class="env-opt-url">
+                {{ envBaseUrl(envByValue(option.value), store.project?.id) }}
               </span>
             </template>
           </template>

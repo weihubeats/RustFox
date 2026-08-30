@@ -65,6 +65,37 @@ describe('defaultModule / moduleByName', () => {
     expect(moduleByName(multiModuleEnv, '')?.module_name).toBe('支付')
     expect(moduleByName(multiModuleEnv, '不存在')?.module_name).toBe('支付')
   })
+
+  it('项目偏好：默认模块优先取当前项目绑定的模块（回归：开放演示误落 4010）', () => {
+    // is_default 钉在用户服务（4010）上；开放演示有自己的模块
+    const env = mkEnv({
+      modules: [
+        {
+          id: 'm-users',
+          project_id: 'proj-users',
+          module_name: '小奏技术 · 用户服务',
+          base_url: 'http://127.0.0.1:4010',
+          is_default: true,
+        },
+        {
+          id: 'm-open',
+          project_id: 'proj-open',
+          module_name: '小奏技术 · 开放演示',
+          base_url: 'https://jsonplaceholder.typicode.com',
+          is_default: false,
+        },
+      ],
+    })
+    expect(defaultModule(env, 'proj-open')?.module_name).toBe('小奏技术 · 开放演示')
+    expect(defaultModule(env, 'proj-users')?.module_name).toBe('小奏技术 · 用户服务')
+    // 无项目上下文 / 项目无绑定模块 → 回退 is_default
+    expect(defaultModule(env)?.module_name).toBe('小奏技术 · 用户服务')
+    expect(defaultModule(env, 'proj-不存在')?.module_name).toBe('小奏技术 · 用户服务')
+
+    expect(moduleByName(env, '', 'proj-open')?.base_url).toBe('https://jsonplaceholder.typicode.com')
+    expect(moduleBaseUrl(env, null, 'proj-open')).toBe('https://jsonplaceholder.typicode.com')
+    expect(envBaseUrl(env, 'proj-open')).toBe('https://jsonplaceholder.typicode.com')
+  })
 })
 
 describe('envBaseUrl / moduleBaseUrl', () => {
@@ -171,6 +202,30 @@ describe('resolveRequestUrl（请求拼接核心）', () => {
   it('无效模块键：回退默认模块并标记 fellBack', () => {
     const r = resolveRequestUrl(multiModuleEnv, '不存在', '/x')
     expect(r).toMatchObject({ url: 'https://pay.example.com/x', moduleName: '支付', fellBack: true })
+  })
+
+  it('项目偏好：未绑定模块的请求按所在项目解析默认模块', () => {
+    const env = mkEnv({
+      modules: [
+        {
+          id: 'm-users',
+          project_id: 'proj-users',
+          module_name: '小奏技术 · 用户服务',
+          base_url: 'http://127.0.0.1:4010',
+          is_default: true,
+        },
+        {
+          id: 'm-open',
+          project_id: 'proj-open',
+          module_name: '小奏技术 · 开放演示',
+          base_url: 'https://jsonplaceholder.typicode.com',
+          is_default: false,
+        },
+      ],
+    })
+    const r = resolveRequestUrl(env, null, '/posts', {}, 'proj-open')
+    expect(r.url).toBe('https://jsonplaceholder.typicode.com/posts')
+    expect(r.moduleName).toBe('小奏技术 · 开放演示')
   })
 
   it('完整 URL 路径直用，不按模块拼接', () => {

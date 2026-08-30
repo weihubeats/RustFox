@@ -21,9 +21,23 @@ export function envColorClass(name: string): string {
   return ''
 }
 
-/** 默认模块：优先 `is_default` 标记，否则取第一个（兼容无标记数据）。 */
-export function defaultModule(env: Environment | null | undefined): ModuleUrlConfig | undefined {
+/**
+ * 默认模块：优先**当前项目绑定的模块**（project_id 匹配），其次 `is_default` 标记，
+ * 否则取第一个（兼容无标记数据）。
+ *
+ * 项目偏好让多项目共用一个环境时，「默认模块」随所在项目自动落在该
+ * 项目自己的基址上（开放演示 → jsonplaceholder，用户服务 → 本地 4010），
+ * 而不是全局钉死在 is_default 的模块上。
+ */
+export function defaultModule(
+  env: Environment | null | undefined,
+  projectId?: string | null,
+): ModuleUrlConfig | undefined {
   const modules = env?.modules ?? []
+  if (projectId) {
+    const own = modules.find((m) => m.project_id === projectId)
+    if (own) return own
+  }
   return modules.find((m) => m.is_default) ?? modules[0]
 }
 
@@ -31,25 +45,29 @@ export function defaultModule(env: Environment | null | undefined): ModuleUrlCon
 export function moduleByName(
   env: Environment | null | undefined,
   key: string | null | undefined,
+  projectId?: string | null,
 ): ModuleUrlConfig | undefined {
   if (!env) return undefined
   const n = key?.trim()
-  if (!n) return defaultModule(env)
-  return env.modules.find((m) => m.id === n || m.module_name === n) ?? defaultModule(env)
+  if (!n) return defaultModule(env, projectId)
+  return (
+    env.modules.find((m) => m.id === n || m.module_name === n) ?? defaultModule(env, projectId)
+  )
 }
 
 /** 模块前置 URL（未指定 → 默认模块）；解析前的原始文本，保留 `{{变量}}`。 */
 export function moduleBaseUrl(
   env: Environment | null | undefined,
   key?: string | null,
+  projectId?: string | null,
 ): string {
-  return moduleByName(env, key)?.base_url?.trim() ?? ''
+  return moduleByName(env, key, projectId)?.base_url?.trim() ?? ''
 }
 
 /** 环境的「主 baseUrl」：默认模块基址；无模块时回退到名为 base_url 的已启用变量。 */
-export function envBaseUrl(env: Environment | null | undefined): string {
+export function envBaseUrl(env: Environment | null | undefined, projectId?: string | null): string {
   if (!env) return ''
-  const fromModule = defaultModule(env)?.base_url?.trim()
+  const fromModule = defaultModule(env, projectId)?.base_url?.trim()
   if (fromModule) return fromModule
   const varRow = env.variables.find((v) => v.key === 'base_url' && v.enabled)
   return varRow ? effectiveVariable(varRow) : ''
@@ -80,9 +98,12 @@ export function variableListToMap(
  * 默认模块基址自动以 `base_url` 注入（已有同名变量时不覆盖），
  * 使 `{{base_url}}` 在旧语义下继续可用。
  */
-export function environmentVariableMap(env: Environment | null | undefined): Record<string, string> {
+export function environmentVariableMap(
+  env: Environment | null | undefined,
+  projectId?: string | null,
+): Record<string, string> {
   const out = variableListToMap(env?.variables)
-  const base = envBaseUrl(env)
+  const base = envBaseUrl(env, projectId)
   if (base && !out.base_url) out.base_url = base
   return out
 }
@@ -144,8 +165,9 @@ export function resolveRequestUrl(
   moduleKey: string | null | undefined,
   path: string,
   extraVars: Record<string, string> = {},
+  projectId?: string | null,
 ): ResolvedRequestUrl {
-  const vars = { ...extraVars, ...environmentVariableMap(env) }
+  const vars = { ...extraVars, ...environmentVariableMap(env, projectId) }
   const rendered = resolveVariables(path, vars)
   if (isAbsolute(rendered)) return { url: rendered, moduleName: '', fellBack: false }
 
@@ -154,11 +176,11 @@ export function resolveRequestUrl(
   if (moduleKey?.trim()) {
     target = env?.modules.find((m) => m.id === moduleKey.trim() || m.module_name === moduleKey.trim())
     if (!target) {
-      target = defaultModule(env)
+      target = defaultModule(env, projectId)
       fellBack = !!target
     }
   } else {
-    target = defaultModule(env)
+    target = defaultModule(env, projectId)
   }
 
   const baseRaw = target?.base_url?.trim() ?? ''

@@ -245,7 +245,7 @@ function setModule(id: string): void {
 const envVars = computed(() => ({
   ...variableListToMap(store.globalVariables),
   ...(store.project?.variables ?? {}),
-  ...environmentVariableMap(activeEnv.value),
+  ...environmentVariableMap(activeEnv.value, store.project?.id),
 }))
 
 /** 地址栏前缀 chip 文案：绑定的模块基址 > 环境 base_url 变量的「解析后」实际值或会话 Base URL。 */
@@ -358,7 +358,7 @@ function buildUrl(): string {
   if (isAbsolutePath(d.path)) return d.path
   // 有环境（默认模块或显式绑定模块基址）时按多模块规则解析。
   if (activeEnv.value && (moduleId.value || envBaseUrl(activeEnv.value))) {
-    return resolveRequestUrl(activeEnv.value, moduleId.value, d.path, envVars.value).url
+    return resolveRequestUrl(activeEnv.value, moduleId.value, d.path, envVars.value, d.project_id).url
   }
   const path = d.path.startsWith('/') ? d.path : `/${d.path}`
   return `${store.urlDomain}${path}`

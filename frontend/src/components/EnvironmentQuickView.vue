@@ -50,7 +50,7 @@ watch(
   () => env.value?.id,
   () => {
     rows.value = toRows(env.value)
-    baseUrlValue.value = envBaseUrl(env.value)
+    baseUrlValue.value = envBaseUrl(env.value, store.project?.id)
     dirty.value = false
   },
   { immediate: true },
@@ -112,9 +112,12 @@ async function save(): Promise<void> {
       modules.push({ id: crypto.randomUUID(), module_name: '默认', base_url: normalizedBase, is_default: true })
     }
   } else {
-    const idx = modules.findIndex((m) => m.is_default)
-    const target = idx !== -1 ? idx : 0
-    modules[target] = { ...modules[target], base_url: normalizedBase }
+    // 优先写当前项目绑定的模块（快速编辑的是「本项目在这个环境的基址」）
+    const pid = store.project?.id
+    let idx = pid ? modules.findIndex((m) => m.project_id === pid) : -1
+    if (idx === -1) idx = modules.findIndex((m) => m.is_default)
+    if (idx === -1) idx = 0
+    modules[idx] = { ...modules[idx], base_url: normalizedBase }
   }
   busy.value = true
   try {
@@ -123,7 +126,7 @@ async function save(): Promise<void> {
       { silent: true },
     )
     rows.value = toRows(saved)
-    baseUrlValue.value = envBaseUrl(saved)
+    baseUrlValue.value = envBaseUrl(saved, store.project?.id)
     dirty.value = false
   } catch (err) {
     toast.error('保存环境失败', { message: err instanceof Error ? err.message : String(err) })

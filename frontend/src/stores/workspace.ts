@@ -83,10 +83,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 会话级 Base URL（仅本次会话，不落库）；cURL 导入时自动预填为 URL 的 origin。 */
   const sessionBaseUrl = ref('http://localhost')
 
-  /** 地址栏域名前缀（唯一真实数据源）：选中环境声明默认模块 base_url 或 base_url 变量时优先，否则回退会话 Base URL。 */
+  /** 地址栏域名前缀（唯一真实数据源）：选中环境声明默认模块 base_url 或 base_url 变量时优先，否则回退会话 Base URL。
+   *  默认模块随当前项目走（项目绑定的模块优先），多项目共用环境时各自落在自己的基址上。 */
   const urlDomain = computed(() => {
     const env = environments.value.find((e) => e.id === activeEnvId.value)
-    const base = envBaseUrl(env)
+    const base = envBaseUrl(env, project.value?.id)
     if (base) return '{{base_url}}'
     return sessionBaseUrl.value || ''
   })
@@ -99,9 +100,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (modules.length === 0) {
       modules.push({ id: crypto.randomUUID(), module_name: '默认', base_url: url, is_default: true })
     } else {
-      const idx = modules.findIndex((m) => m.is_default)
-      const target = idx !== -1 ? idx : 0
-      modules[target] = { ...modules[target], base_url: url }
+      // 优先写当前项目绑定的模块，其次 is_default，最后第一个
+      const pid = project.value?.id
+      let idx = pid ? modules.findIndex((m) => m.project_id === pid) : -1
+      if (idx === -1) idx = modules.findIndex((m) => m.is_default)
+      if (idx === -1) idx = 0
+      modules[idx] = { ...modules[idx], base_url: url }
     }
     const updated: Environment = { ...env, modules }
     try {

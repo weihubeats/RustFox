@@ -190,13 +190,19 @@ impl AppState {
                 (v.key, value)
             })
             .collect();
+        let project_id = project.as_ref().map(|p| p.id);
         let project_vars = project.map(|p| p.variables).unwrap_or_default();
         let mut environment_vars: VariableMap = environment
             .as_ref()
             .map(|e| e.effective_variables())
             .unwrap_or_default();
         if !environment_vars.contains_key("base_url") {
-            if let Some(base) = environment.as_ref().and_then(|e| e.base_url(None)) {
+            // 默认模块随当前激活项目走：开放演示项目注入 jsonplaceholder，
+            // 用户服务项目注入 127.0.0.1:4010，而非全局 is_default 钉死的模块。
+            if let Some(base) = environment
+                .as_ref()
+                .and_then(|e| e.base_url(None, project_id))
+            {
                 environment_vars.insert("base_url".into(), base.to_string());
             }
         }
@@ -214,8 +220,88 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fox_core::model::Project;
+    use fox_core::model::{Environment, ModuleUrlConfig, Project};
     use std::path::PathBuf;
+
+    /// {{base_url}} 注入随激活项目走：默认模块优先取当前项目绑定的模块，
+    /// 而非全局 is_default 钉死的模块（多项目共用一个环境的场景）。
+    #[tokio::test]
+    async fn base_url_follows_active_project_module() {
+        let path: PathBuf =
+            std::env::temp_dir().join(format!("rustfox-module-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = fox_storage::db::init_db(&path).await.expect("建库");
+        let state = AppState::new(db.clone());
+
+        let mk_project = |name: &str| Project {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            description: String::new(),
+            variables: Default::default(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let users = mk_project("小奏技术 · 用户服务");
+        let open = mk_project("小奏技术 · 开放演示");
+        repo::save_project(&db, &users).await.expect("落库项目");
+        repo::save_project(&db, &open).await.expect("落库项目");
+
+        let env_id = Uuid::new_v4();
+        let now = chrono::Utc::now();
+        repo::save_environment(
+            &db,
+            &Environment {
+                id: env_id,
+                name: "dev".into(),
+                // is_default 钉在开放演示模块上：历史语义会把它注入一切项目
+                modules: vec![
+                    ModuleUrlConfig {
+                        id: Uuid::new_v4(),
+                        project_id: Some(users.id),
+                        module_name: users.name.clone(),
+                        base_url: "http://127.0.0.1:4010".into(),
+                        is_default: false,
+                    },
+                    ModuleUrlConfig {
+                        id: Uuid::new_v4(),
+                        project_id: Some(open.id),
+                        module_name: open.name.clone(),
+                        base_url: "https://jsonplaceholder.typicode.com".into(),
+                        is_default: true,
+                    },
+                ],
+                variables: Vec::new(),
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .expect("落库环境");
+        state
+            .set_active_environment(Some(env_id))
+            .await
+            .expect("激活环境");
+
+        // 激活用户服务 → base_url = 用户服务自己的模块基址
+        state
+            .set_active_project(Some(users.id))
+            .await
+            .expect("激活");
+        let vars = state.variables_for(None).await.expect("变量表");
+        assert_eq!(
+            vars.get("base_url").map(String::as_str),
+            Some("http://127.0.0.1:4010")
+        );
+
+        // 切到开放演示 → base_url 跟随切换（即使另一模块才是 is_default）
+        state.set_active_project(Some(open.id)).await.expect("激活");
+        let vars = state.variables_for(None).await.expect("变量表");
+        assert_eq!(
+            vars.get("base_url").map(String::as_str),
+            Some("https://jsonplaceholder.typicode.com")
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 
     /// 激活项目 / 环境必须跨「重启」恢复：写入 settings 表，重建状态后可读回。
     #[tokio::test]
