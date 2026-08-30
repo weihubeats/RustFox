@@ -17,7 +17,7 @@
 import { computed, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
-import { envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
+import { defaultModule, envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Modal from './ui/Modal.vue'
@@ -50,6 +50,14 @@ const globalParams = ref<GlobalParam[]>([])
 const paramsDirty = ref(false)
 
 const activeEnvId = computed(() => store.activeEnvId)
+
+/**
+ * 当前项目在该环境下的「实际默认模块」：项目绑定模块优先，其次兜底 is_default。
+ * 运行时解析（地址栏前缀 / 发送 / {{base_url}}）与这里的展示一致。
+ */
+const effectiveDefaultId = computed<string | null>(
+  () => (selected.value ? defaultModule(selected.value, store.project?.id)?.id ?? null : null),
+)
 
 /** 全局组：全局变量 / 全局参数已启用；Vault Secrets 仍为占位（置灰）。 */
 const globalItems = [
@@ -419,7 +427,7 @@ async function remove(env: Environment): Promise<void> {
               >
                 <span class="edot" :class="`ed-${envColorClass(env.name)}`"></span>
                 <span class="em-row-name" v-tooltip-overflow="env.name">{{ env.name }}</span>
-                <span v-if="envBaseUrl(env)" class="em-row-url">{{ envBaseUrl(env) }}</span>
+                <span v-if="envBaseUrl(env, store.project?.id)" class="em-row-url">{{ envBaseUrl(env, store.project?.id) }}</span>
                 <span v-if="env.id === activeEnvId" class="em-row-active">当前</span>
                 <Popconfirm
                   :title="`删除环境「${env.name}」？删除后不可恢复。`"
@@ -457,26 +465,32 @@ async function remove(env: Environment): Promise<void> {
               <div class="em-section-head">
                 <span class="em-section-title">前置 URL（服务 / 模块）</span>
                 <span class="em-section-hint">
-                  项目模块随项目自动同步（只填基址）；「添加模块」可建手工临时模块；请求按绑定模块匹配，未绑定用默认模块
+                  项目模块随项目自动同步（只填基址）；请求按绑定模块匹配；未绑定的接口优先用**所在项目**的模块，
+                  项目没有模块时才落「兜底」标记的模块
                 </span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-mod">
                   <span class="em-col-mod">模块</span>
                   <span class="em-col-base">前置 URL</span>
-                  <span class="em-col-def">默认</span>
+                  <span class="em-col-def" title="兜底模块：项目未绑定模块的请求使用">兜底</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
                   v-for="(m, i) in selected.modules"
                   :key="m.id"
                   class="em-tr em-tr-mod"
-                  :class="{ 'is-default': m.is_default }"
+                  :class="{ 'is-default': m.id === effectiveDefaultId }"
                 >
                   <template v-if="m.project_id">
                     <span class="em-col-mod em-mod-project" :title="'项目模块：随项目「' + m.module_name + '」自动同步'">
                       <Icon name="folder" :size="12" class="em-mod-ic" />
                       <span class="em-mod-name" v-tooltip-overflow="m.module_name">{{ m.module_name }}</span>
+                    <span
+                      v-if="m.id === effectiveDefaultId"
+                      class="em-mod-effective"
+                      title="当前激活项目实际使用的默认基址（项目绑定模块优先）"
+                    >本项目默认</span>
                     </span>
                   </template>
                   <template v-else>
@@ -500,7 +514,7 @@ async function remove(env: Environment): Promise<void> {
                     class="em-col-def"
                     name="em-default-module"
                     :checked="m.is_default"
-                    :title="m.is_default ? '当前默认模块' : '设为默认'"
+                    :title="m.is_default ? '兜底模块：项目未绑定模块的请求使用' : '设为兜底默认'"
                     @change="setDefaultModule(m.id)"
                   />
                   <IconButton
@@ -1067,6 +1081,19 @@ async function remove(env: Environment): Promise<void> {
 
 .em-tr-mod.is-default .em-col-mod {
   font-weight: 600;
+}
+
+/* 「本项目默认」徽标：项目绑定模块中当前项目实际生效的那一个 */
+.em-mod-effective {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
 }
 
 /* 模块表列 */
