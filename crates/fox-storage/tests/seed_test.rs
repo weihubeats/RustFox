@@ -79,7 +79,8 @@ async fn seeds_full_fixture_set() {
         .await
         .unwrap()
         .expect("active_project_id 已写入");
-    assert!(active_project.contains(&users.id.to_string()));
+    // dev 默认激活公网项目（jsonplaceholder）而非本地 Mock，开箱即可直接发送请求
+    assert!(active_project.contains(&open_demo.id.to_string()));
     assert!(repo::get_setting(&db, "active_environment_id")
         .await
         .unwrap()

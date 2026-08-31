@@ -433,8 +433,10 @@ pub async fn seed_dev_data(db: &SqlitePool) -> Result<()> {
     )
     .await?;
 
-    // ---- 激活项：启动即落在「小奏技术 · 用户服务」+ 开发环境 ----
-    repo::set_setting(db, KEY_ACTIVE_PROJECT, &setting_id(&users.id)).await?;
+    // ---- 激活项：启动即落在「小奏技术 · 开放演示」（jsonplaceholder 公网接口）+ 开发环境 ----
+    // 默认激活公网项目而非本地 Mock（127.0.0.1:4010），保证 dev 开箱即可直接发送请求；
+    // 需要本地 Mock 演示时切到「小奏技术 · 用户服务」并启动 Mock 服务即可。
+    repo::set_setting(db, KEY_ACTIVE_PROJECT, &setting_id(&open_demo.id)).await?;
     repo::set_setting(db, KEY_ACTIVE_ENVIRONMENT, &setting_id(&dev_env.id)).await?;
 
     Ok(())
