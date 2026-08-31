@@ -4,6 +4,9 @@
  * 含备份/恢复与环境管理入口；在仪表板右上角齿轮与左侧导航「设置」处弹出。
  */
 import { onMounted, ref } from 'vue'
+import { join } from '@tauri-apps/api/path'
+import { open } from '@tauri-apps/plugin-dialog'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import EnvironmentManager from './EnvironmentManager.vue'
@@ -56,12 +59,39 @@ async function exportBackup(): Promise<void> {
   busy.value = true
   try {
     const text = await api.backupExport(project.value.id)
+    const stamp = new Date().toISOString().slice(0, 10)
+    const filename = `${project.value.name}-备份-${stamp}.json`
+
+    // Tauri 环境：目录选择框选目标文件夹（NSOpenPanel 目录树可正常展开下级），
+    // 再拼接默认文件名经 save_text_file 落盘。
+    // 不用 save() 存文件框：rfd 在 macOS 上把「目录+文件名」拼成伪目录 URL 设给
+    // setDirectoryURL（panel_ffi.rs），导致保存面板点击文件夹无法进入下级目录。
+    if ('__TAURI_INTERNALS__' in window) {
+      const dir = await open({
+        directory: true,
+        title: '选择备份保存目录',
+      })
+      if (!dir) return // 用户取消
+      const path = await join(dir, filename)
+      await api.writeTextFile(path, text)
+      toast.success('✓ 备份已导出', {
+        message: path.split('/').pop() || path,
+        action: {
+          label: '打开文件位置',
+          run: () => {
+            void revealItemInDir(path).catch(() => toast.error('无法定位文件'))
+          },
+        },
+      })
+      return
+    }
+
+    // 浏览器预览兜底：Blob 下载
     const blob = new Blob([text], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const stamp = new Date().toISOString().slice(0, 10)
     a.href = url
-    a.download = `${project.value.name}-备份-${stamp}.json`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
     toast.success('备份已导出')

@@ -5,12 +5,13 @@
  * - 范围：仅当前接口 / 整个项目（已废弃接口后端统一排除）；
  * - 格式卡片单选：OpenAPI 3.0 (JSON/YAML) / Postman v2.1 / Markdown /
  *   HTML 离线单页 / cURL 脚本；
- * - 流程：export_docs 生成内容 → @tauri-apps/plugin-dialog 原生保存框
- *   （默认文件名 rustfox-api-{项目}-{日期}.{ext}）→ save_text_file 落盘
+*  - 流程：export_docs 生成内容 → @tauri-apps/plugin-dialog 目录选择框（NSOpenPanel）
+ *   （选目录后拼接默认文件名 rustfox-api-{项目}-{日期}.{ext}）→ save_text_file 落盘
  *   → 成功 Toast 附「打开文件位置」（opener.revealItemInDir）。
  */
 import { computed, ref } from 'vue'
-import { save } from '@tauri-apps/plugin-dialog'
+import { join } from '@tauri-apps/api/path'
+import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import Modal from '../ui/Modal.vue'
 import Icon from '../ui/Icon.vue'
@@ -121,12 +122,16 @@ async function startExport(): Promise<void> {
       format: resolvedFormat.value,
     })
 
-    // 2) 原生保存框（Tauri dialog 插件）
-    const path = await save({
-      defaultPath: doc.suggested_name,
-      filters: [{ name: 'API 文档', extensions: [doc.suggested_name.split('.').pop() ?? 'txt'] }],
+    // 2) 目录选择框（NSOpenPanel 目录树可正常展开下级）→ 拼接默认文件名落盘。
+    //    不用 save() 存文件框：rfd 在 macOS 上把「目录+文件名」拼成伪目录 URL 设给
+    //    setDirectoryURL（panel_ffi.rs），保存面板点击文件夹无法进入下级目录。
+    const dir = await open({
+      directory: true,
+      title: '选择文档保存目录',
     })
-    if (!path) return // 用户取消
+    if (!dir) return // 用户取消
+
+    const path = await join(dir, doc.suggested_name)
 
     // 3) 写入磁盘
     await api.writeTextFile(path, doc.content)

@@ -77,14 +77,18 @@ async function installUpdate(): Promise<void> {
   progress.value = null
   try {
     let total = 0
+    let downloaded = 0
     await update.downloadAndInstall((event) => {
       switch (event.event) {
         case 'Started':
           total = event.data.contentLength ?? 0
+          downloaded = 0
           progress.value = total > 0 ? 0 : null
           break
         case 'Progress':
-          progress.value = total > 0 ? Math.min(event.data.chunkLength / total, 1) : null
+          // Progress 只带当前块长度（chunkLength），须自行累加才能表示真实进度
+          downloaded += event.data.chunkLength
+          progress.value = total > 0 ? Math.min(downloaded / total, 1) : null
           break
         case 'Finished':
           progress.value = 1

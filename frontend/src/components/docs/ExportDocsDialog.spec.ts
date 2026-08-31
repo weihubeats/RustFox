@@ -18,13 +18,17 @@ const apiMock = vi.hoisted(() => ({
   writeTextFile: vi.fn(),
 }))
 
-const dialogMock = vi.hoisted(() => ({ save: vi.fn() }))
+const dialogMock = vi.hoisted(() => ({ open: vi.fn() }))
 const openerMock = vi.hoisted(() => ({ revealItemInDir: vi.fn(async () => {}) }))
+const pathMock = vi.hoisted(() => ({
+  join: vi.fn(async (dir: string, name: string) => `${dir}/${name}`),
+}))
 
 vi.mock('../../stores/workspace', () => ({ useWorkspaceStore: () => storeMock }))
 vi.mock('../../composables/useFoxApi', () => ({ useFoxApi: () => apiMock }))
 vi.mock('@tauri-apps/plugin-dialog', () => dialogMock)
 vi.mock('@tauri-apps/plugin-opener', () => openerMock)
+vi.mock('@tauri-apps/api/path', () => pathMock)
 
 function draft(): Endpoint {
   return makeDraft({ id: 'ep-1', method: 'POST', path: '/api/v1/orders' })
@@ -68,7 +72,7 @@ beforeEach(() => {
     suggested_name: 'openapi-演示项目-2026-08-23.json',
   })
   apiMock.writeTextFile.mockResolvedValue(undefined)
-  dialogMock.save.mockResolvedValue('/Users/demo/Downloads/openapi-演示项目-2026-08-23.json')
+  dialogMock.open.mockResolvedValue('/Users/demo/Downloads')
 })
 
 afterEach(() => {
@@ -97,7 +101,7 @@ describe('ExportDocsDialog：渲染', () => {
 })
 
 describe('ExportDocsDialog：导出流程', () => {
-  it('默认仅当前接口：生成 → 原生保存框（带建议文件名）→ 落盘 → 关闭', async () => {
+  it('默认仅当前接口：生成 → 选择目录 → 落盘 → 关闭', async () => {
     const d = draft()
     const wrapper = mountDialog(d)
     await flushPromises()
@@ -109,8 +113,8 @@ describe('ExportDocsDialog：导出流程', () => {
       endpointId: 'ep-1',
       format: 'openapi_json',
     })
-    expect(dialogMock.save).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultPath: 'openapi-演示项目-2026-08-23.json' }),
+    expect(dialogMock.open).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: true }),
     )
     expect(apiMock.writeTextFile).toHaveBeenCalledWith(
       '/Users/demo/Downloads/openapi-演示项目-2026-08-23.json',
@@ -133,8 +137,8 @@ describe('ExportDocsDialog：导出流程', () => {
     wrapper.unmount()
   })
 
-  it('用户在保存框取消时不写盘、不关闭', async () => {
-    dialogMock.save.mockResolvedValue(null)
+  it('用户在目录选择框取消时不写盘、不关闭', async () => {
+    dialogMock.open.mockResolvedValue(null)
     const wrapper = mountDialog()
     await flushPromises()
 
