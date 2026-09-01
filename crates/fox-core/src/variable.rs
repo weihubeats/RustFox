@@ -1,7 +1,7 @@
 //! 变量引擎：`{{name}}` 语法解析、内置变量、优先级合并。
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Mutex, OnceLock};
 
 use chrono::{SecondsFormat, Utc};
 use rand::Rng;
@@ -20,8 +20,12 @@ const BUILTIN_RANDOM_INT: &str = "$randomInt";
 const BUILTIN_SEQ: &str = "$seq";
 
 /// 自增计数器存储：key → 下一次输出值。key 为空字符串表示全局 `{{$seq}}`。
-static SEQ_COUNTERS: LazyLock<Mutex<HashMap<String, u64>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SEQ_COUNTERS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+
+/// 惰性初始化计数器表（MSRV 1.79，`LazyLock` 需 1.80，故用 `OnceLock`）。
+fn seq_counters() -> &'static Mutex<HashMap<String, u64>> {
+    SEQ_COUNTERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// 解析指内置变量是否可用。
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +61,7 @@ pub fn builtin_value(name: &str) -> Option<String> {
 /// 自增序号：返回当前值（即下一次输出），随后 +1。
 /// `{{$seq}}` 全局计数，`{{$seq:名字}}` 各名字独立计数。未设置时从 1 开始。
 fn seq_value(key: &str) -> String {
-    let mut map = SEQ_COUNTERS.lock().expect("seq counters poisoned");
+    let mut map = seq_counters().lock().expect("seq counters poisoned");
     let cur = map.get(key).copied().unwrap_or(0);
     let out = if cur == 0 { 1 } else { cur };
     map.insert(key.to_string(), out + 1);
@@ -66,7 +70,7 @@ fn seq_value(key: &str) -> String {
 
 /// 列出全部自增序列（key + 下一次输出值，按 key 排序；含全局 `$seq`，其 key 为空串）。
 pub fn list_seq_counters() -> Vec<(String, u64)> {
-    let map = SEQ_COUNTERS.lock().expect("seq counters poisoned");
+    let map = seq_counters().lock().expect("seq counters poisoned");
     let mut v: Vec<_> = map.iter().map(|(k, val)| (k.clone(), *val)).collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
     v
@@ -74,7 +78,7 @@ pub fn list_seq_counters() -> Vec<(String, u64)> {
 
 /// 设置自增序列的下一次输出值（key 为空 = 全局 `$seq`）。
 pub fn set_seq_counter(key: &str, value: u64) {
-    SEQ_COUNTERS
+    seq_counters()
         .lock()
         .expect("seq counters poisoned")
         .insert(key.to_string(), value);
@@ -82,7 +86,7 @@ pub fn set_seq_counter(key: &str, value: u64) {
 
 /// 删除自增序列（删除后再使用从 1 重新开始）。
 pub fn delete_seq_counter(key: &str) {
-    SEQ_COUNTERS
+    seq_counters()
         .lock()
         .expect("seq counters poisoned")
         .remove(key);
@@ -90,12 +94,15 @@ pub fn delete_seq_counter(key: &str) {
 
 /// 导出全部计数（用于持久化）。
 pub fn dump_seq_counters() -> HashMap<String, u64> {
-    SEQ_COUNTERS.lock().expect("seq counters poisoned").clone()
+    seq_counters()
+        .lock()
+        .expect("seq counters poisoned")
+        .clone()
 }
 
 /// 从持久化恢复计数（合并加载，启动时调用；同名以恢复值为准）。
 pub fn load_seq_counters(map: HashMap<String, u64>) {
-    SEQ_COUNTERS
+    seq_counters()
         .lock()
         .expect("seq counters poisoned")
         .extend(map);
