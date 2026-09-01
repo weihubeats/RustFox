@@ -16,8 +16,10 @@ const props = withDefaults(
     placeholder?: string
     disabled?: boolean
     size?: 'sm' | 'md'
+    /** 输入框视觉基调：default 用主题卡片色；inset 用深陷半透明底（适合设置面板）。 */
+    tone?: 'default' | 'inset'
   }>(),
-  { modelValue: '', min: undefined, max: undefined, step: 1, placeholder: '', disabled: false, size: 'md' },
+  { modelValue: '', min: undefined, max: undefined, step: 1, placeholder: '', disabled: false, size: 'md', tone: 'default' },
 )
 
 const emit = defineEmits<{
@@ -84,7 +86,7 @@ function onBlur(): void {
 </script>
 
 <template>
-  <span class="cni" :class="[`size-${size}`, { disabled }]">
+  <span class="cni" :class="[`size-${size}`, `tone-${tone}`, { disabled }]">
     <input
       class="cni-input"
       type="text"
@@ -152,6 +154,29 @@ function onBlur(): void {
 .cni.disabled .cni-input {
   opacity: 0.45;
   cursor: default;
+}
+
+/* ---- inset 基调：深陷半透明底（设置面板用） ---- */
+.cni.tone-inset .cni-input {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme='light'] .cni.tone-inset .cni-input {
+  background: #ffffff;
+  border-color: rgba(24, 24, 27, 0.15);
+}
+.cni.tone-inset .cni-input:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+html[data-theme='light'] .cni.tone-inset .cni-input:hover:not(:disabled) {
+  border-color: rgba(24, 24, 27, 0.25);
+}
+.cni.tone-inset .cni-input:focus {
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.12);
+}
+.cni.tone-inset .cni-step:hover:not(:disabled) {
+  color: var(--text-2);
 }
 
 .cni-steppers {

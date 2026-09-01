@@ -5,22 +5,31 @@
  * 左栏：轻量 Menu List 导航（扁平行高 + 左侧紫色指示条）；
  * 右栏：卡片化设置组，Tab 切换淡入；简单项改动即自动保存。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { join } from '@tauri-apps/api/path'
 import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useThemeStore, type ThemeMode } from '../stores/theme'
 import EnvironmentManager from './EnvironmentManager.vue'
 import Modal from './ui/Modal.vue'
 import Icon, { type IconName } from './ui/Icon.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
-import type { Project, ProjectStat, SeqCounter } from '../types/foxApi'
+import { envBaseUrl } from '../utils/environment'
+import type { Environment, Project, ProjectStat, SeqCounter } from '../types/foxApi'
 
 const emit = defineEmits<{ close: [] }>()
 
 const api = useFoxApi()
 const toast = useToast()
+const theme = useThemeStore()
+
+const THEME_OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
+  { value: 'system', label: '跟随系统', icon: '💻' },
+  { value: 'dark', label: '深色', icon: '🌙' },
+  { value: 'light', label: '浅色', icon: '☀️' },
+]
 
 // ---------- 分类导航 ----------
 type TabId = 'general' | 'network' | 'sequences' | 'data' | 'environments'
@@ -39,11 +48,56 @@ const tabs: TabDef[] = [
 const activeTab = ref<TabId>('general')
 
 const showManager = ref(false)
+/** 「编辑」某环境时，传给 EnvironmentManager 让它初始聚焦该环境。 */
+const managerEnvId = ref<string | null>(null)
 
 const project = ref<Project | null>(null)
 const projectStat = ref<ProjectStat | null>(null)
 const busy = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+
+// ---------- 环境概览 ----------
+const environments = ref<Environment[]>([])
+const activeEnvId = ref<string | null>(null)
+const envLoading = ref(false)
+
+async function loadEnvironments(): Promise<void> {
+  envLoading.value = true
+  try {
+    const [envs, active] = await Promise.all([
+      api.listEnvironments(),
+      api.getActiveEnvironment(),
+    ])
+    environments.value = envs
+    activeEnvId.value = active?.id ?? null
+  } catch {
+    environments.value = []
+    activeEnvId.value = null
+  } finally {
+    envLoading.value = false
+  }
+}
+
+/** 打开环境管理弹窗；envId 为空则聚焦当前激活（或第一个）环境。 */
+function openEnvironmentManager(envId: string | null = null): void {
+  managerEnvId.value = envId
+  showManager.value = true
+}
+
+/** 环境概览辅助：本项目视角的默认模块基址。 */
+function envBase(env: Environment): string {
+  return envBaseUrl(env, project.value?.id)
+}
+
+/** 环境概览辅助：启用中的变量数量。 */
+function envVarCount(env: Environment): number {
+  return env.variables.filter((v) => v.enabled).length
+}
+
+// 管理弹窗关闭后刷新概览（可能新增/删除/改激活环境）
+watch(showManager, (open) => {
+  if (!open) void loadEnvironments()
+})
 
 onMounted(async () => {
   try {
@@ -72,6 +126,7 @@ onMounted(async () => {
   } catch {
     timeoutSec.value = DEFAULT_TIMEOUT_SEC
   }
+  await loadEnvironments()
   await loadCounters()
 })
 
@@ -300,35 +355,35 @@ const projectSummary = computed(() => {
 </script>
 
 <template>
-  <Modal :open="true" title="设置" width="880px" @close="emit('close')">
+  <Modal :open="true" title="设置" width="880px" dialog-class="sd-dialog" @close="emit('close')">
     <div class="flex h-[min(520px,70vh)]">
-      <!-- 左：轻量 Menu List 导航 -->
-      <aside class="w-52 shrink-0 overflow-y-auto border-r border-white/5 px-2 py-4">
+      <!-- 左：轻量 Menu List 导航（Linear / VS Code 风格） -->
+      <aside class="w-48 shrink-0 overflow-y-auto border-r border-zinc-200/80 px-2 py-3 dark:border-white/[0.06]">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
-          class="relative flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[13px] transition-colors duration-150"
+          class="relative flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors duration-150"
           :class="
             activeTab === tab.id
-              ? 'bg-white/10 font-medium text-white'
-              : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+              ? 'bg-purple-500/10 font-semibold text-purple-600 dark:bg-purple-500/10 dark:text-purple-300'
+              : 'border-none bg-transparent text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.05] dark:hover:text-zinc-200'
           "
           @click="activeTab = tab.id"
         >
           <span
             v-if="activeTab === tab.id"
-            class="absolute -left-0.5 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-purple-500"
+            class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-purple-600 dark:bg-purple-500"
           />
           <Icon
             :name="tab.icon"
             :size="15"
-            :class="activeTab === tab.id ? 'text-purple-400' : 'text-zinc-500'"
+            :class="activeTab === tab.id ? 'text-purple-600 dark:text-purple-300' : 'text-zinc-500'"
           />
           <span class="flex-1">{{ tab.label }}</span>
           <span
             v-if="tab.id === 'sequences' && sequencesCount"
-            class="rounded-full bg-white/10 px-1.5 py-px text-[11px] leading-4 text-zinc-400"
+            class="rounded-full bg-zinc-200/70 px-1.5 py-px text-[11px] leading-4 text-zinc-600 dark:bg-white/[0.08] dark:text-zinc-400"
           >
             {{ sequencesCount }}
           </span>
@@ -341,31 +396,32 @@ const projectSummary = computed(() => {
           <div :key="activeTab" class="space-y-4">
             <!-- 通用设置 -->
             <section v-if="activeTab === 'general'">
-              <header class="mb-6">
-                <h2 class="text-lg font-semibold leading-tight text-zinc-100">通用设置</h2>
-                <p class="mt-1 text-xs text-zinc-500">应用级请求与外观偏好。</p>
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">通用设置</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">应用级请求与外观偏好。</p>
               </header>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-1">
-                <div class="flex items-center justify-between px-4 py-4">
+              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-100">请求超时</div>
-                    <p class="mt-0.5 text-xs text-zinc-400">
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">请求超时</div>
+                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                       全局默认请求超时，应用于所有接口；改动即自动保存。
                     </p>
                   </div>
-                  <div class="relative">
+                  <div class="relative shrink-0">
                     <CustomNumberInput
                       :model-value="timeoutSec"
                       :min="1"
                       :max="3600"
                       :step="10"
                       size="md"
-                      class="w-28"
+                      tone="inset"
+                      class="w-24"
                       @change="saveTimeout"
                     />
                     <span
-                      class="pointer-events-none absolute right-[30px] top-1/2 -translate-y-1/2 text-[11px] text-zinc-500"
+                      class="pointer-events-none absolute right-[28px] top-1/2 -translate-y-1/2 text-xs text-zinc-500"
                     >
                       秒
                     </span>
@@ -373,26 +429,44 @@ const projectSummary = computed(() => {
                 </div>
               </div>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-1">
-                <div class="flex items-center justify-between px-4 py-4 opacity-40">
+              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-100">主题外观</div>
-                    <p class="mt-0.5 text-xs text-zinc-400">深色 / 浅色切换，跟随系统。</p>
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">主题外观</div>
+                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">跟随系统或手动切换深色 / 浅色，即时生效。</p>
                   </div>
-                  <span
-                    class="rounded border border-zinc-700/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500"
+                  <div
+                    class="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-300/50 bg-zinc-200/60 p-1 dark:border-white/10 dark:bg-black/30"
+                    role="radiogroup"
+                    aria-label="主题外观"
                   >
-                    即将推出
-                  </span>
+                    <button
+                      v-for="opt in THEME_OPTIONS"
+                      :key="opt.value"
+                      type="button"
+                      role="radio"
+                      :aria-checked="theme.mode === opt.value"
+                      class="flex h-8 items-center gap-1.5 rounded-md px-3 text-xs transition-all duration-150"
+                      :class="
+                        theme.mode === opt.value
+                          ? 'bg-purple-600 font-medium text-white shadow-sm'
+                          : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                      "
+                      @click="theme.setMode(opt.value)"
+                    >
+                      <span aria-hidden="true">{{ opt.icon }}</span>
+                      {{ opt.label }}
+                    </button>
+                  </div>
                 </div>
-                <div class="mx-4 border-t border-white/5">
-                  <div class="flex items-center justify-between px-0 py-4 opacity-40">
+                <div class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
+                  <div class="flex items-center justify-between gap-4 pt-5 opacity-40">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-100">快捷键</div>
-                      <p class="mt-0.5 text-xs text-zinc-400">发送请求、聚焦地址栏等全局快捷键。</p>
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">快捷键</div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">发送请求、聚焦地址栏等全局快捷键。</p>
                     </div>
                     <span
-                      class="rounded border border-zinc-700/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500"
+                      class="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/[0.05] dark:bg-white/[0.03] dark:text-zinc-500"
                     >
                       即将推出
                     </span>
@@ -403,16 +477,16 @@ const projectSummary = computed(() => {
 
             <!-- 网络与代理 -->
             <section v-if="activeTab === 'network'">
-              <header class="mb-6">
-                <h2 class="text-lg font-semibold leading-tight text-zinc-100">网络与代理</h2>
-                <p class="mt-1 text-xs text-zinc-500">配置全局 HTTP / SOCKS5 代理，应用于所有请求。</p>
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">网络与代理</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">配置全局 HTTP / SOCKS5 代理，应用于所有请求。</p>
               </header>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-1">
-                <div class="flex items-center justify-between px-4 py-4">
+              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-100">启用代理</div>
-                    <p class="mt-0.5 text-xs text-zinc-400">
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">启用代理</div>
+                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                       开启后所有请求经代理发出；关闭立即恢复直连，改动即保存。
                     </p>
                   </div>
@@ -421,7 +495,7 @@ const projectSummary = computed(() => {
                     role="switch"
                     :aria-checked="proxyEnabled"
                     class="relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors duration-150"
-                    :class="proxyEnabled ? 'bg-purple-500' : 'bg-white/10 border border-white/10'"
+                    :class="proxyEnabled ? 'bg-purple-500' : 'border border-zinc-300 bg-zinc-200 dark:border-white/10 dark:bg-white/10'"
                     @click="toggleProxy"
                   >
                     <span
@@ -431,18 +505,18 @@ const projectSummary = computed(() => {
                   </button>
                 </div>
 
-                <div v-if="proxyEnabled" class="mx-4 border-t border-white/5">
-                  <div class="flex items-center justify-between px-0 py-4">
+                <div v-if="proxyEnabled" class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
+                  <div class="flex items-center justify-between gap-4 pt-5">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-100">代理地址</div>
-                      <p class="mt-0.5 text-xs text-zinc-400">
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">代理地址</div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                         如 <code class="font-mono text-[11px]">http://127.0.0.1:7890</code> 或
                         <code class="font-mono text-[11px]">socks5://host:1080</code>；失焦自动保存。
                       </p>
                     </div>
                     <input
                       v-model="proxyUrl"
-                      class="rf-input w-72 font-mono text-[12.5px]"
+                      class="rf-input h-8 w-72 shrink-0 font-mono text-[12.5px]"
                       type="text"
                       placeholder="http://127.0.0.1:7890"
                       spellcheck="false"
@@ -450,15 +524,15 @@ const projectSummary = computed(() => {
                     />
                   </div>
 
-                  <div class="flex items-center justify-between border-t border-white/5 px-0 py-4">
+                  <div class="flex items-center justify-between gap-4 border-t border-zinc-200/70 pt-5 dark:border-white/[0.06]">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-100">连通性测试</div>
-                      <p class="mt-0.5 text-xs text-zinc-400">
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">连通性测试</div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                         {{ proxyTest ? proxyTest.message : '经当前代理请求一次公开目标，验证可用性。' }}
                       </p>
                     </div>
                     <button
-                      class="rf-btn"
+                      class="rf-btn shrink-0"
                       type="button"
                       :disabled="proxyBusy || proxyTesting"
                       @click="testProxy"
@@ -473,127 +547,136 @@ const projectSummary = computed(() => {
 
             <!-- 自增序列 -->
             <section v-if="activeTab === 'sequences'">
-              <header class="mb-6">
-                <h2 class="text-lg font-semibold leading-tight text-zinc-100">自增序列与变量</h2>
-                <p class="mt-1 text-xs text-zinc-500">
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">自增序列与变量</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">
                   请求中写 <code class="font-mono text-[11px]">&#123;&#123;$seq:key&#125;&#125;</code> 自动递增；
                   值即「下一次输出」，持久化、重启不丢。
                 </p>
               </header>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-5">
-                <div class="flex items-center justify-between pb-3">
-                  <div class="text-sm font-medium text-zinc-100">序列列表</div>
-                  <span class="text-[11px] text-zinc-500">改动失焦自动保存</span>
-                </div>
+              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">序列列表</div>
 
-                <div v-if="counters.length" class="overflow-hidden rounded-lg border border-white/5">
-                  <table class="w-full border-collapse text-[12.5px]">
-                    <thead>
-                      <tr class="text-left text-[11px] text-zinc-500">
-                        <th class="px-3 py-2 font-medium">Key</th>
-                        <th class="w-28 px-3 py-2 font-medium">下一值</th>
-                        <th class="w-32 px-3 py-2 text-right font-medium">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="c in counters"
-                        :key="c.key || '__global__'"
-                        class="border-t border-white/5"
+                <div v-if="counters.length" class="mt-3">
+                  <div
+                    class="mb-3 flex items-center gap-2 border-b border-zinc-200/70 pb-2 text-xs font-medium text-zinc-500 dark:border-white/[0.06] dark:text-zinc-400"
+                  >
+                    <div class="min-w-0 flex-1">序列 Key</div>
+                    <div class="w-40 text-right">当前值 / 下一次输出</div>
+                    <div class="w-24 text-right">操作</div>
+                  </div>
+
+                  <div
+                    v-for="c in counters"
+                    :key="c.key || '__global__'"
+                    class="flex items-center gap-2 border-b border-zinc-200/70 py-2 last:border-b-0 dark:border-white/[0.06]"
+                  >
+                    <div class="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-zinc-900 dark:text-zinc-100">
+                      <span
+                        class="shrink-0 rounded bg-purple-100 px-1.5 py-px text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-400"
                       >
-                        <td class="px-3 py-2 font-mono text-zinc-100">
-                          <span
-                            class="mr-1.5 rounded bg-purple-500/15 px-1.5 py-px text-[10px] font-medium text-purple-400"
-                          >
-                            全局
-                          </span>
-                          <span v-if="!c.key">$seq</span>
-                          <span v-else>{{ c.key }}</span>
-                        </td>
-                        <td class="px-3 py-2">
-                          <input
-                            v-model.number="c.value"
-                            class="rf-input rf-input-sm w-20 text-right font-mono tabular-nums"
-                            type="number"
-                            min="1"
-                            spellcheck="false"
-                            @change="saveSeq(c)"
-                          />
-                        </td>
-                        <td class="px-3 py-2 text-right">
-                          <button
-                            class="rf-btn rf-btn-sm rf-btn-ghost"
-                            type="button"
-                            title="重置为 1"
-                            @click="resetSeq(c)"
-                          >
-                            <Icon name="refresh" :size="12" />
-                          </button>
-                          <button
-                            class="rf-btn rf-btn-sm rf-btn-ghost"
-                            type="button"
-                            title="删除序列"
-                            @click="deleteSeq(c)"
-                          >
-                            <Icon name="trash" :size="12" />
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                        全局
+                      </span>
+                      <span v-if="!c.key" class="truncate">$seq</span>
+                      <span v-else class="truncate">{{ c.key }}</span>
+                    </div>
+                    <div class="flex w-40 justify-end">
+                      <input
+                        v-model.number="c.value"
+                        class="h-8 w-24 rounded-md border border-zinc-300 bg-white text-center font-mono text-xs text-zinc-800 tabular-nums outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                        type="number"
+                        min="1"
+                        spellcheck="false"
+                        @change="saveSeq(c)"
+                      />
+                    </div>
+                    <div class="flex w-24 items-center justify-end gap-1">
+                      <button
+                        class="rf-btn rf-btn-sm rf-btn-ghost"
+                        type="button"
+                        title="重置为 1"
+                        @click="resetSeq(c)"
+                      >
+                        <Icon name="refresh" :size="12" />
+                      </button>
+                      <button
+                        class="rf-btn rf-btn-sm rf-btn-ghost"
+                        type="button"
+                        title="删除序列"
+                        @click="deleteSeq(c)"
+                      >
+                        <Icon name="trash" :size="12" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <p v-else class="m-0 py-2 text-[12.5px] text-zinc-500">暂无序列，可在下方新增。</p>
 
-                <div class="mt-4 flex items-center gap-2 border-t border-white/5 pt-4">
-                  <input
-                    v-model="newSeqKey"
-                    class="rf-input flex-1 font-mono text-[12.5px]"
-                    type="text"
-                    placeholder="序列 key（留空 = 全局 $seq）"
-                    spellcheck="false"
-                    @keydown.enter="addSeq"
-                  />
-                  <input
-                    v-model.number="newSeqValue"
-                    class="rf-input w-24 text-right font-mono tabular-nums"
-                    type="number"
-                    min="1"
-                    placeholder="起始值"
-                    spellcheck="false"
-                    @keydown.enter="addSeq"
-                  />
-                  <button class="rf-btn rf-btn-primary" type="button" @click="addSeq">
-                    <Icon name="plus" :size="13" />
-                    添加新序列
-                  </button>
+                <div
+                  v-else
+                  class="flex flex-col items-center justify-center rounded-lg py-8 text-center"
+                >
+                  <Icon name="list" :size="22" class="mb-2 text-zinc-400 dark:text-zinc-600" />
+                  <div class="text-sm text-zinc-700 dark:text-zinc-300">暂无自定义序列</div>
+                  <div class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-500">下方输入 Key 名并设置起始值即可创建</div>
+                </div>
+
+                <div class="mt-4 border-t border-zinc-200/70 pt-4 dark:border-white/[0.06]">
+                  <div class="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-zinc-100/80 p-2 dark:border-white/[0.06] dark:bg-black/20">
+                    <input
+                      v-model="newSeqKey"
+                      class="h-8 min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 text-xs text-zinc-800 placeholder:text-zinc-400 outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white dark:placeholder:text-zinc-600"
+                      type="text"
+                      placeholder="序列 key（留空 = 全局 $seq）"
+                      spellcheck="false"
+                      @keydown.enter="addSeq"
+                    />
+                    <input
+                      v-model.number="newSeqValue"
+                      class="h-8 w-20 shrink-0 rounded-md border border-zinc-300 bg-white text-center font-mono text-xs text-zinc-800 tabular-nums placeholder:text-zinc-400 outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white dark:placeholder:text-zinc-600"
+                      type="number"
+                      min="1"
+                      placeholder="起始值"
+                      spellcheck="false"
+                      @keydown.enter="addSeq"
+                    />
+                    <button
+                      class="flex h-8 shrink-0 items-center gap-1 rounded-md bg-purple-600/80 px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-purple-600"
+                      type="button"
+                      @click="addSeq"
+                    >
+                      <Icon name="plus" :size="13" />
+                      添加新序列
+                    </button>
+                  </div>
+                  <p class="mt-2 text-right text-[11px] text-zinc-600 dark:text-zinc-500">改动失焦自动保存</p>
                 </div>
               </div>
             </section>
 
             <!-- 数据与备份 -->
             <section v-if="activeTab === 'data'">
-              <header class="mb-6">
-                <h2 class="text-lg font-semibold leading-tight text-zinc-100">数据与备份</h2>
-                <p class="mt-1 text-xs text-zinc-500">导出当前项目备份，或从备份文件恢复。</p>
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">数据与备份</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">导出当前项目备份，或从备份文件恢复。</p>
               </header>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-5">
+              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
                 <div class="flex items-center gap-3">
                   <div
-                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-500/15 text-purple-400"
+                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400"
                   >
                     <Icon name="package" :size="18" />
                   </div>
                   <div class="min-w-0">
-                    <div class="truncate text-sm font-medium text-zinc-100">
+                    <div class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                       {{ project ? project.name : '未选择项目' }}
                     </div>
-                    <p class="mt-0.5 truncate text-xs text-zinc-400">{{ projectSummary }}</p>
+                    <p class="mt-0.5 truncate text-xs text-zinc-600 dark:text-zinc-400">{{ projectSummary }}</p>
                   </div>
                 </div>
 
-                <div class="mt-4 flex items-center gap-2 border-t border-white/5 pt-4">
+                <div class="mt-4 flex items-center gap-2 border-t border-zinc-200/70 pt-4 dark:border-white/[0.06]">
                   <button
                     class="rf-btn"
                     type="button"
@@ -620,26 +703,71 @@ const projectSummary = computed(() => {
 
             <!-- 环境管理 -->
             <section v-if="activeTab === 'environments'">
-              <header class="mb-6">
-                <h2 class="text-lg font-semibold leading-tight text-zinc-100">环境管理</h2>
-                <p class="mt-1 text-xs text-zinc-500">
-                  创建 / 编辑 / 删除环境变量；变量经
-                  <code class="font-mono text-[11px]">&#123;&#123;变量&#125;&#125;</code>
-                  注入请求，可在工作区顶部快速切换。
-                </p>
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">环境管理</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">查看当前项目下的环境配置及生效变量。</p>
               </header>
 
-              <div class="rounded-xl border border-white/5 bg-zinc-900/50 p-1">
-                <div class="flex items-center justify-between px-4 py-4">
-                  <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-100">环境变量</div>
-                    <p class="mt-0.5 text-xs text-zinc-400">管理不同环境的 Base URL 与变量集合。</p>
+              <div class="space-y-2">
+                <div
+                  v-for="env in environments"
+                  :key="env.id"
+                  class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200/70 bg-zinc-50/80 p-3.5 dark:border-white/[0.06] dark:bg-zinc-900/40"
+                >
+                  <div class="flex min-w-0 items-center gap-2.5">
+                    <span
+                      class="sd-dot"
+                      :class="env.id === activeEnvId ? 'sd-dot-active' : ''"
+                      aria-hidden="true"
+                    ></span>
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-1.5">
+                        <span class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ env.name }}</span>
+                        <span
+                          v-if="env.id === activeEnvId"
+                          class="rounded-full bg-emerald-100 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                        >
+                          当前
+                        </span>
+                      </div>
+                      <div class="truncate font-mono text-[11px] text-zinc-600 dark:text-zinc-500">
+                        {{ envBase(env) || '未配置 Base URL' }}
+                      </div>
+                    </div>
                   </div>
-                  <button class="rf-btn" type="button" @click="showManager = true">
-                    <Icon name="beaker" :size="13" />
-                    打开环境管理
-                  </button>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <span
+                      class="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-white/[0.04] dark:text-zinc-400"
+                    >
+                      {{ envVarCount(env) }} 个变量
+                    </span>
+                    <button
+                      type="button"
+                      class="rounded-md px-2 py-1 text-[11px] text-zinc-500 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                      @click="openEnvironmentManager(env.id)"
+                    >
+                      编辑
+                    </button>
+                  </div>
                 </div>
+
+                <div
+                  v-if="!environments.length && !envLoading"
+                  class="rounded-lg border border-zinc-200/70 bg-zinc-50/80 p-6 text-center text-xs text-zinc-600 dark:border-white/[0.06] dark:bg-zinc-900/40 dark:text-zinc-500"
+                >
+                  暂无环境，点击下方「打开高级环境管理」创建。
+                </div>
+              </div>
+
+              <div class="mt-4 border-t border-zinc-200/70 pt-4 dark:border-white/[0.06]">
+                <button
+                  class="rf-btn w-full"
+                  type="button"
+                  @click="openEnvironmentManager()"
+                >
+                  <Icon name="settings" :size="13" />
+                  打开高级环境管理
+                </button>
               </div>
             </section>
           </div>
@@ -647,7 +775,7 @@ const projectSummary = computed(() => {
       </div>
     </div>
 
-    <EnvironmentManager v-model:open="showManager" />
+    <EnvironmentManager v-model:open="showManager" :initial-env-id="managerEnvId" />
   </Modal>
 </template>
 
@@ -665,5 +793,34 @@ const projectSummary = computed(() => {
 .pane-leave-to {
   opacity: 0;
   transform: translateY(-2px);
+}
+
+/* 环境概览状态点：默认灰，激活绿 + 柔光 */
+.sd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--text-3);
+  flex-shrink: 0;
+}
+.sd-dot-active {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-tint);
+}
+</style>
+
+<style>
+/* 设置弹窗容器：覆写 Modal 的 CSS 变量。
+   深色 = 深邃高级暗色底 + 极细白描边 + 柔和深影；浅色 = macOS 原生白色面板质感。 */
+.sd-dialog {
+  --bg-elevated: #121215;
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --radius-lg: 16px;
+  --shadow-lg: 0 25px 60px -12px rgba(0, 0, 0, 0.8);
+}
+html[data-theme='light'] .sd-dialog {
+  --bg-elevated: #ffffff;
+  --border-strong: rgba(24, 24, 27, 0.12);
+  --shadow-lg: 0 25px 60px -12px rgba(0, 0, 0, 0.18);
 }
 </style>

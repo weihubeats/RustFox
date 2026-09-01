@@ -12,6 +12,10 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
+/* dark: 变体跟随主题 Store 的 <html data-theme="dark|light">，
+   而非系统 prefers-color-scheme（否则手动切浅色但系统是深色时会错位）。 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 @theme {
   --color-app: var(--bg-app);
   --color-panel: var(--bg-panel);
@@ -126,6 +130,12 @@
   --tok-punct: #abb2bf;
   --tok-gutter: #5c6370;
 
+  /* ---- 代码编辑区表面（JsonEditor 覆盖层；深色为基准） ---- */
+  --code-bg: #121318;
+  --code-fg: #d7dbe3;
+  --code-caret: #c084fc;
+  --code-placeholder: rgba(215, 219, 227, 0.35);
+
   /* ---- 截断文本溢出 Tooltip（v-tooltip-overflow，见 directives/tooltipOverflow.ts） ---- */
   --overflow-tip-bg: rgba(33, 35, 41, 0.95);
   --overflow-tip-border: rgba(74, 78, 90, 0.5);
@@ -197,6 +207,21 @@
   --danger-border: rgba(220, 38, 38, 0.3);
   --info-border: rgba(37, 99, 235, 0.3);
   --mask: rgba(15, 23, 42, 0.45);
+
+  /* ---- JSON 语法高亮（One Light 色阶，与深色 --tok-* 对应） ---- */
+  --tok-key: #a626a4;
+  --tok-str: #50a14f;
+  --tok-num: #986801;
+  --tok-bool: #4078f2;
+  --tok-null: #986801;
+  --tok-punct: #5c6670;
+  --tok-gutter: #9aa0a6;
+
+  /* ---- 代码编辑区表面（JsonEditor 覆盖层） ---- */
+  --code-bg: #fbfcfe;
+  --code-fg: #1f2329;
+  --code-caret: #6e5ce6;
+  --code-placeholder: rgba(31, 35, 41, 0.35);
 }
 
 * {

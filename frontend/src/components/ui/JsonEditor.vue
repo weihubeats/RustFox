@@ -235,9 +235,9 @@ async function copyJson(): Promise<void> {
 
 .hl-wrap {
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #121318;
+  background: var(--code-bg);
   overflow: hidden;
   flex: 1;
   min-height: 0;
@@ -266,7 +266,7 @@ async function copyJson(): Promise<void> {
 .hl-pre {
   position: absolute;
   inset: 0;
-  color: #d7dbe3;
+  color: var(--code-fg);
   pointer-events: none;
   overflow: hidden;
   word-break: normal;
@@ -283,16 +283,16 @@ async function copyJson(): Promise<void> {
   outline: none;
   background: transparent;
   color: transparent;
-  caret-color: #c084fc;
+  caret-color: var(--code-caret);
   overflow: auto;
 }
 .hl-ta::placeholder {
-  color: rgba(215, 219, 227, 0.35);
+  color: var(--code-placeholder);
 }
 
 /* 大内容模式：无高亮覆盖层，textarea 直接着色 */
 .hl-ta.plain {
-  color: #d7dbe3;
+  color: var(--code-fg);
 }
 .hl-ta::selection {
   background: rgba(168, 85, 247, 0.28);
@@ -305,8 +305,8 @@ async function copyJson(): Promise<void> {
   top: 0;
   bottom: 0;
   z-index: 1;
-  background: rgba(255, 255, 255, 0.03);
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--bg-hover);
+  border-right: 1px solid var(--border);
   user-select: none;
   pointer-events: none;
 }

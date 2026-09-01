@@ -6,6 +6,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { useThemeStore } from './stores/theme'
 import '@fontsource/inter/400.css'
 import '@fontsource/inter/500.css'
 import '@fontsource/inter/600.css'
@@ -22,4 +23,9 @@ if (navigator.userAgent.includes('Mac')) {
   document.documentElement.setAttribute('data-platform', 'macos')
 }
 
-createApp(App).use(createPinia()).use(router).directive('tooltip-overflow', tooltipOverflow).directive('focus-end', focusEnd).mount('#app')
+const pinia = createPinia()
+
+// 防闪烁（FOUC）：在挂载前同步读取持久化主题并写入 <html>，首屏即正确主题。
+useThemeStore(pinia).init()
+
+createApp(App).use(pinia).use(router).directive('tooltip-overflow', tooltipOverflow).directive('focus-end', focusEnd).mount('#app')

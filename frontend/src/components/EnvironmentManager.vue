@@ -29,7 +29,7 @@ import type {
   ModuleUrlConfig,
 } from '../types/foxApi'
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; initialEnvId?: string | null }>()
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
 const store = useWorkspaceStore()
@@ -174,8 +174,11 @@ watch(
   (isOpen) => {
     if (!isOpen) return
     envs.value = clone(store.environments)
+    const preferred = props.initialEnvId
+      ? store.environments.find((e) => e.id === props.initialEnvId)
+      : undefined
     const active = store.environments.find((e) => e.id === store.activeEnvId)
-    select(active ?? store.environments[0] ?? null)
+    select(preferred ?? active ?? store.environments[0] ?? null)
     globalVars.value = clone(store.globalVariables)
     globalDirty.value = false
     globalParams.value = clone(store.globalParams)

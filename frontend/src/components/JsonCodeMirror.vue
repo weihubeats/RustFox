@@ -8,6 +8,7 @@ import { json, jsonParseLinter } from '@codemirror/lang-json'
 import { linter } from '@codemirror/lint'
 import { bracketMatching, defaultHighlightStyle, foldGutter, indentOnInput, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
+import { THEME_EVENT } from '../stores/theme'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +27,17 @@ const emit = defineEmits<{
 const host = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
 const readOnlyCompartment = new Compartment()
+const themeCompartment = new Compartment()
+
+/** 当前主题：以 <html> 的 data-theme 为准，并监听 rustfox:theme 全局事件联动。 */
+const theme = ref<'dark' | 'light'>(readThemeFromDom())
+function readThemeFromDom(): 'dark' | 'light' {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+}
+function onThemeEvent(e: Event): void {
+  const mode = (e as CustomEvent<{ mode: 'dark' | 'light' }>).detail?.mode
+  if (mode === 'dark' || mode === 'light') theme.value = mode
+}
 
 const darkHighlight = HighlightStyle.define([
   { tag: [tags.propertyName], color: '#c084fc' },
@@ -37,7 +49,17 @@ const darkHighlight = HighlightStyle.define([
   { tag: [tags.lineComment], color: '#64748b' },
 ])
 
-const editorTheme = EditorView.theme({
+const lightHighlight = HighlightStyle.define([
+  { tag: [tags.propertyName], color: '#7c3aed' },
+  { tag: [tags.string], color: '#059669' },
+  { tag: [tags.number], color: '#2563eb' },
+  { tag: [tags.bool, tags.null], color: '#b45309' },
+  { tag: [tags.punctuation, tags.bracket, tags.brace], color: '#6b7280' },
+  { tag: [tags.invalid], color: '#dc2626' },
+  { tag: [tags.lineComment], color: '#9ca3af' },
+])
+
+const darkTheme = EditorView.theme({
   '&': {
     height: '100%',
     fontSize: '12px',
@@ -96,7 +118,76 @@ const editorTheme = EditorView.theme({
   },
 })
 
+const lightTheme = EditorView.theme({
+  '&': {
+    height: '100%',
+    fontSize: '12px',
+    color: '#1f2329',
+  },
+  '.cm-scroller': {
+    fontFamily: 'var(--font-mono)',
+    lineHeight: '1.6',
+  },
+  '.cm-content': {
+    padding: '8px 0',
+    caretColor: '#7c3aed',
+  },
+  '.cm-line': {
+    padding: '0 8px',
+  },
+  '.cm-gutters': {
+    backgroundColor: 'transparent',
+    borderRight: '1px solid rgba(107, 114, 128, 0.2)',
+    color: '#9ca3af',
+  },
+  '.cm-foldGutter .cm-gutterElement': {
+    cursor: 'pointer',
+  },
+  '&.cm-focused': {
+    outline: 'none',
+  },
+  '.cm-cursor': {
+    borderLeftColor: '#7c3aed',
+  },
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection':
+    {
+      backgroundColor: 'rgba(124, 58, 237, 0.2) !important',
+    },
+  '.cm-activeLine': {
+    backgroundColor: 'rgba(107, 114, 128, 0.08)',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: 'rgba(107, 114, 128, 0.08)',
+  },
+  '.cm-tooltip': {
+    backgroundColor: '#ffffff',
+    border: '1px solid #d0d5dd',
+    color: '#1f2329',
+  },
+  '.cm-tooltip-lint': {
+    fontSize: '12px',
+  },
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'rgba(107, 114, 128, 0.12)',
+    color: '#6b7280',
+    border: 'none',
+  },
+  '.cm-searchMatch': {
+    backgroundColor: 'rgba(217, 119, 6, 0.2)',
+  },
+})
+
+/** 当前生效主题对应的扩展集（主题样式 + 高亮规则）。 */
+function currentThemeExtension() {
+  const dark = theme.value === 'dark'
+  return [
+    dark ? darkTheme : lightTheme,
+    syntaxHighlighting(dark ? darkHighlight : lightHighlight),
+  ]
+}
+
 onMounted(() => {
+  window.addEventListener(THEME_EVENT, onThemeEvent)
   if (!host.value) return
   view = new EditorView({
     parent: host.value,
@@ -114,7 +205,7 @@ onMounted(() => {
       highlightActiveLine(),
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
       json(),
-      syntaxHighlighting(darkHighlight),
+      themeCompartment.of(currentThemeExtension()),
       linter(jsonParseLinter()),
       readOnlyCompartment.of(EditorState.readOnly.of(props.readonly)),
       placeholder(props.placeholderText),
@@ -123,11 +214,18 @@ onMounted(() => {
           emit('update:modelValue', update.state.doc.toString())
         }
       }),
-      editorTheme,
     ],
   })
   if (props.autofocus) view.focus()
 })
+
+watch(
+  theme,
+  () => {
+    if (!view) return
+    view.dispatch({ effects: themeCompartment.reconfigure(currentThemeExtension()) })
+  },
+)
 
 watch(
   () => props.modelValue,
@@ -154,6 +252,7 @@ function requestMeasure(): void {
 defineExpose({ requestMeasure, focus: () => view?.focus() })
 
 onBeforeUnmount(() => {
+  window.removeEventListener(THEME_EVENT, onThemeEvent)
   view?.destroy()
   view = null
 })

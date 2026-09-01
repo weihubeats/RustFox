@@ -16,10 +16,12 @@ const props = withDefaults(
     width?: string
     closable?: boolean
     autofocus?: boolean
+    /** 附加到对话框容器的类名（可经 CSS 变量覆盖底色/边框/圆角/阴影，用于高级定制外观）。 */
+    dialogClass?: string
     /** 关闭前守卫：返回 false 拦截 Esc / 遮罩 / ✕ 触发的关闭（用于脏数据确认）。 */
     guardClose?: () => boolean
   }>(),
-  { title: '', width: '420px', closable: true, autofocus: true, guardClose: undefined },
+  { title: '', width: '420px', closable: true, autofocus: true, dialogClass: '', guardClose: undefined },
 )
 
 const emit = defineEmits<{
@@ -111,6 +113,7 @@ watch(
         <div
           ref="dialogEl"
           class="m-dialog"
+          :class="dialogClass"
           role="dialog"
           aria-modal="true"
           :aria-labelledby="title ? titleId : undefined"
