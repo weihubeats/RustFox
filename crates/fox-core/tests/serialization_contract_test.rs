@@ -65,7 +65,7 @@ fn request_spec() -> RequestSpec {
             }],
         },
         active_tab: Some("body".into()),
-        timeout_ms: 30_000,
+        timeout_ms: Some(30_000),
         follow_redirects: true,
         tests: None,
     }

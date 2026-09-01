@@ -62,6 +62,12 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-delete-mock-rule`
 - `allow-get-http-proxy`
 - `allow-set-http-proxy`
+- `allow-get-http-timeout-ms`
+- `allow-set-http-timeout-ms`
+- `allow-list-seq-counters`
+- `allow-set-seq-counter`
+- `allow-delete-seq-counter`
+- `allow-test-http-proxy`
 - `allow-list-request-examples`
 - `allow-save-request-example`
 - `allow-delete-request-example`
@@ -500,6 +506,32 @@ Denies the delete_request_example command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-delete-seq-counter`
+
+</td>
+<td>
+
+Enables the delete_seq_counter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-delete-seq-counter`
+
+</td>
+<td>
+
+Denies the delete_seq_counter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-delete-test-case`
 
 </td>
@@ -786,6 +818,32 @@ Denies the get_http_proxy command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-get-http-timeout-ms`
+
+</td>
+<td>
+
+Enables the get_http_timeout_ms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-get-http-timeout-ms`
+
+</td>
+<td>
+
+Denies the get_http_timeout_ms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-get-projects`
 
 </td>
@@ -1039,6 +1097,32 @@ Enables the list_request_histories command without any pre-configured scope.
 <td>
 
 Denies the list_request_histories command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-list-seq-counters`
+
+</td>
+<td>
+
+Enables the list_seq_counters command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-list-seq-counters`
+
+</td>
+<td>
+
+Denies the list_seq_counters command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1644,6 +1728,58 @@ Denies the set_http_proxy command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-set-http-timeout-ms`
+
+</td>
+<td>
+
+Enables the set_http_timeout_ms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-set-http-timeout-ms`
+
+</td>
+<td>
+
+Denies the set_http_timeout_ms command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-set-seq-counter`
+
+</td>
+<td>
+
+Enables the set_seq_counter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-set-seq-counter`
+
+</td>
+<td>
+
+Denies the set_seq_counter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-test-endpoint`
 
 </td>
@@ -1663,6 +1799,32 @@ Enables the test_endpoint command without any pre-configured scope.
 <td>
 
 Denies the test_endpoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-test-http-proxy`
+
+</td>
+<td>
+
+Enables the test_http_proxy command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-test-http-proxy`
+
+</td>
+<td>
+
+Denies the test_http_proxy command without any pre-configured scope.
 
 </td>
 </tr>

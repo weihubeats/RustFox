@@ -7,6 +7,33 @@
  * - 全局 :where(:focus-visible) 零特异性光环，组件自有 focus 样式优先级更高。
  */
 
+/* Tailwind v4：仅 theme + utilities（跳过 preflight，避免重置破坏现有 rf-* 组件）。
+   @theme 把设计令牌映射为语义 Tailwind 色板（bg-panel / text-ink1 / border-line ...）。 */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-card: var(--bg-card);
+  --color-elevated: var(--bg-elevated);
+  --color-code: var(--bg-code);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink1: var(--text-1);
+  --color-ink2: var(--text-2);
+  --color-ink3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-tint: var(--accent-tint);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+}
+
 :root {
   color-scheme: dark;
   /* ---- 色板（深色基准：GitHub Dark 灰蓝系，比纯黑亮一档） ---- */

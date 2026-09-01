@@ -17,8 +17,8 @@ use fox_core::model::{
 use fox_core::variable::{resolve_variables, VariableMap};
 use fox_core::AppError;
 
-/// 默认超时（秒）。
-pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+/// 默认超时（毫秒），300 秒。
+pub const DEFAULT_TIMEOUT_MS: u64 = 300_000;
 /// 最大响应体大小（字节）。
 pub const MAX_BODY_BYTES: usize = 20 * 1024 * 1024;
 
@@ -387,7 +387,7 @@ pub fn set_proxy(proxy: Option<&str>) -> Result<(), AppError> {
 /// 发送 HTTP 请求。
 ///
 /// - `url` 应为已渲染（含变量替换与路径变量）的完整地址。
-/// - `timeout_ms` 为超时毫秒数；None 时使用默认 30 秒。
+/// - `timeout_ms` 为超时毫秒数；None 时使用默认 300 秒。
 ///
 /// 复用 [`shared_client`] 全局连接池；超时按请求设置，各请求互不影响，
 /// 并发调用是安全的。

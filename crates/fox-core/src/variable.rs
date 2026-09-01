@@ -1,6 +1,7 @@
 //! 变量引擎：`{{name}}` 语法解析、内置变量、优先级合并。
 
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use chrono::{SecondsFormat, Utc};
 use rand::Rng;
@@ -16,6 +17,11 @@ const BUILTIN_UUID: &str = "$uuid";
 const BUILTIN_TIMESTAMP: &str = "$timestamp";
 const BUILTIN_ISO_TIMESTAMP: &str = "$isoTimestamp";
 const BUILTIN_RANDOM_INT: &str = "$randomInt";
+const BUILTIN_SEQ: &str = "$seq";
+
+/// 自增计数器存储：key → 下一次输出值。key 为空字符串表示全局 `{{$seq}}`。
+static SEQ_COUNTERS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// 解析指内置变量是否可用。
 #[derive(Debug, Clone, Copy)]
@@ -38,8 +44,61 @@ pub fn builtin_value(name: &str) -> Option<String> {
         BUILTIN_TIMESTAMP => Some(Utc::now().timestamp().to_string()),
         BUILTIN_ISO_TIMESTAMP => Some(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)),
         BUILTIN_RANDOM_INT => Some(rand::thread_rng().gen_range(0..=1000).to_string()),
-        _ => None,
+        _ => {
+            if let Some(rest) = name.strip_prefix(BUILTIN_SEQ) {
+                let key = rest.strip_prefix(':').unwrap_or("");
+                return Some(seq_value(key));
+            }
+            None
+        }
     }
+}
+
+/// 自增序号：返回当前值（即下一次输出），随后 +1。
+/// `{{$seq}}` 全局计数，`{{$seq:名字}}` 各名字独立计数。未设置时从 1 开始。
+fn seq_value(key: &str) -> String {
+    let mut map = SEQ_COUNTERS.lock().expect("seq counters poisoned");
+    let cur = map.get(key).copied().unwrap_or(0);
+    let out = if cur == 0 { 1 } else { cur };
+    map.insert(key.to_string(), out + 1);
+    out.to_string()
+}
+
+/// 列出全部自增序列（key + 下一次输出值，按 key 排序；含全局 `$seq`，其 key 为空串）。
+pub fn list_seq_counters() -> Vec<(String, u64)> {
+    let map = SEQ_COUNTERS.lock().expect("seq counters poisoned");
+    let mut v: Vec<_> = map.iter().map(|(k, val)| (k.clone(), *val)).collect();
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    v
+}
+
+/// 设置自增序列的下一次输出值（key 为空 = 全局 `$seq`）。
+pub fn set_seq_counter(key: &str, value: u64) {
+    SEQ_COUNTERS
+        .lock()
+        .expect("seq counters poisoned")
+        .insert(key.to_string(), value);
+}
+
+/// 删除自增序列（删除后再使用从 1 重新开始）。
+pub fn delete_seq_counter(key: &str) {
+    SEQ_COUNTERS
+        .lock()
+        .expect("seq counters poisoned")
+        .remove(key);
+}
+
+/// 导出全部计数（用于持久化）。
+pub fn dump_seq_counters() -> HashMap<String, u64> {
+    SEQ_COUNTERS.lock().expect("seq counters poisoned").clone()
+}
+
+/// 从持久化恢复计数（合并加载，启动时调用；同名以恢复值为准）。
+pub fn load_seq_counters(map: HashMap<String, u64>) {
+    SEQ_COUNTERS
+        .lock()
+        .expect("seq counters poisoned")
+        .extend(map);
 }
 
 /// 按优先级合并三张变量表：运行时 > 环境 > 项目。
@@ -189,6 +248,76 @@ mod tests {
         let out = resolve_variables("{{$randomInt}}", &v);
         let n: u64 = out.parse().unwrap();
         assert!((0..=1000).contains(&n));
+    }
+
+    #[test]
+    fn builtin_seq_global_increments() {
+        let v = VariableMap::new();
+        let a: u64 = resolve_variables("{{$seq}}", &v).parse().unwrap();
+        let b: u64 = resolve_variables("{{$seq}}", &v).parse().unwrap();
+        assert_eq!(b, a + 1);
+    }
+
+    #[test]
+    fn builtin_seq_named_is_independent() {
+        let v = VariableMap::new();
+        let key = format!("t{}", Uuid::new_v4().simple());
+        let a: u64 = resolve_variables(&format!("{{{{$seq:{key}}}}}"), &v)
+            .parse()
+            .unwrap();
+        let b: u64 = resolve_variables(&format!("{{{{$seq:{key}}}}}"), &v)
+            .parse()
+            .unwrap();
+        assert_eq!(b, a + 1);
+    }
+
+    #[test]
+    fn builtin_seq_value_is_next_output() {
+        let key = format!("t{}", Uuid::new_v4().simple());
+        set_seq_counter(&key, 100);
+        let v = VariableMap::new();
+        let first: u64 = resolve_variables(&format!("{{{{$seq:{key}}}}}"), &v)
+            .parse()
+            .unwrap();
+        let second: u64 = resolve_variables(&format!("{{{{$seq:{key}}}}}"), &v)
+            .parse()
+            .unwrap();
+        // 设置 value=100 → 下一次输出 100，随后 101。
+        assert_eq!(first, 100);
+        assert_eq!(second, 101);
+        delete_seq_counter(&key);
+    }
+
+    #[test]
+    fn seq_management_set_list_delete() {
+        let key = format!("t{}", Uuid::new_v4().simple());
+        set_seq_counter(&key, 42);
+        let listed = list_seq_counters();
+        let found = listed.iter().find(|(k, _)| *k == key).expect("应在列表中");
+        assert_eq!(found.1, 42);
+        delete_seq_counter(&key);
+        assert!(
+            !list_seq_counters().iter().any(|(k, _)| *k == key),
+            "删除后不应再出现"
+        );
+    }
+
+    #[test]
+    fn seq_management_dump_load_roundtrip() {
+        let mut map = dump_seq_counters();
+        map.insert("roundtrip".to_string(), 7);
+        load_seq_counters(map.clone());
+        let after = dump_seq_counters();
+        assert_eq!(after.get("roundtrip"), Some(&7));
+    }
+
+    #[test]
+    fn builtin_seq_works_with_literal_prefix() {
+        let v = VariableMap::new();
+        let out = resolve_variables("aaaa{{$seq}}", &v);
+        assert!(out.starts_with("aaaa"));
+        let n: u64 = out[4..].parse().unwrap();
+        assert!(n >= 1);
     }
 
     #[test]

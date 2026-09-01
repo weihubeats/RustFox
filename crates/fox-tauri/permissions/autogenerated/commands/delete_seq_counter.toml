@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-delete-seq-counter"
+description = "Enables the delete_seq_counter command without any pre-configured scope."
+commands.allow = ["delete_seq_counter"]
+
+[[permission]]
+identifier = "deny-delete-seq-counter"
+description = "Denies the delete_seq_counter command without any pre-configured scope."
+commands.deny = ["delete_seq_counter"]

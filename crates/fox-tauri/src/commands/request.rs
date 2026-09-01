@@ -81,22 +81,16 @@ pub async fn execute_request(
         (id.clone(), token)
     });
 
-    // 4. 发送（超时取自 RequestSpec，默认 30s；取消时返回 CANCELLED）。
+    // 4. 发送（超时：接口级 > 全局设置；None 时由 fox-http 用默认 300s 兜底）。
+    let timeout_ms = resolve_timeout_ms(&spec, &state).await?;
     let result = async {
         let resp: HttpResponseData = match token.as_ref() {
             Some((_, t)) => {
-                fox_http::client::send_request_cancel(
-                    args.method,
-                    &url,
-                    &spec,
-                    Some(spec.timeout_ms),
-                    t,
-                )
-                .await?
+                fox_http::client::send_request_cancel(args.method, &url, &spec, Some(timeout_ms), t)
+                    .await?
             }
             None => {
-                fox_http::client::send_request(args.method, &url, &spec, Some(spec.timeout_ms))
-                    .await?
+                fox_http::client::send_request(args.method, &url, &spec, Some(timeout_ms)).await?
             }
         };
 
@@ -144,6 +138,12 @@ pub async fn execute_request(
             .expect("request_cancels poisoned")
             .remove(id);
     }
+
+    // 8. 自增序列若被本次请求推进，回写磁盘（尽力而为，失败仅告警不阻断）。
+    if let Err(e) = super::seq::sync_seq_counters(&state.db).await {
+        eprintln!("[execute_request] 同步自增序列失败：{e}");
+    }
+
     result
 }
 
@@ -294,6 +294,16 @@ pub(crate) fn render_spec(spec: &RequestSpec, vars: &VariableMap) -> RequestSpec
     }
 }
 
+/// 解析请求超时（毫秒）：接口级 `spec.timeout_ms` 优先，其次全局设置，最后默认 300 秒。
+pub(crate) async fn resolve_timeout_ms(spec: &RequestSpec, state: &AppState) -> CommandResult<u64> {
+    if let Some(ms) = spec.timeout_ms {
+        return Ok(ms);
+    }
+    Ok(super::settings::read_http_timeout_ms(&state.db)
+        .await?
+        .unwrap_or(fox_http::client::DEFAULT_TIMEOUT_MS))
+}
+
 /// 渲染键值对列表（Query / Header / Path 变量）。
 fn render_kv(items: &[KeyValue], vars: &VariableMap) -> Vec<KeyValue> {
     items
@@ -431,7 +441,7 @@ mod tests {
                 raw: "{\"a\":1}".into(),
             },
             active_tab: None,
-            timeout_ms: 30000,
+            timeout_ms: None,
             follow_redirects: true,
             tests: None,
         };

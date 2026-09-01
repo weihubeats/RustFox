@@ -852,6 +852,8 @@ pub enum MultipartValueType {
 | `{{$timestamp}}` | 当前秒级时间戳 |
 | `{{$isoTimestamp}}` | ISO 8601 当前时间 |
 | `{{$randomInt}}` | 0 到 1000 随机整数 |
+| `{{$seq}}` | 自增序号（下一次输出值，持久化）；如 `aaaa{{$seq}}` → `aaaa1`、`aaaa2` |
+| `{{$seq:名字}}` | 命名自增序号，各名字独立计数；可在设置页查看 / 自定义 key 与起始值 |
 
 ---
 

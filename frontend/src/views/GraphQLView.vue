@@ -140,7 +140,7 @@ function buildArgs(): ExecuteRequestArgs {
       path_variables: [],
       auth: { type: 'none' },
       body: { mode: 'graphql', spec: { ...gql.value } },
-      timeout_ms: 30000,
+      timeout_ms: null,
       follow_redirects: true,
       tests: null,
     },

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use fox_core::model::{Endpoint, HttpMethod, RequestSpec};
 use fox_storage::repository as repo;
 
-use crate::commands::request::{apply_global_params, render_spec};
+use crate::commands::request::{apply_global_params, render_spec, resolve_timeout_ms};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
@@ -34,14 +34,14 @@ pub async fn test_endpoint(
     let global_params = repo::get_global_params(&state.db).await?;
     apply_global_params(&mut spec, &global_params, &vars);
     let mut runtime = std::collections::HashMap::new();
-    let (result, _) = fox_test::runner::run_endpoint(
-        &args.endpoint,
-        &url,
-        &spec,
-        &mut runtime,
-        Some(spec.timeout_ms),
-    )
-    .await;
+    let timeout_ms = resolve_timeout_ms(&spec, &state).await?;
+    let (result, _) =
+        fox_test::runner::run_endpoint(&args.endpoint, &url, &spec, &mut runtime, Some(timeout_ms))
+            .await;
+    // 自增序列若被本次测试推进，回写磁盘（尽力而为）。
+    if let Err(e) = super::seq::sync_seq_counters(&state.db).await {
+        eprintln!("[test_endpoint] 同步自增序列失败：{e}");
+    }
     Ok(result)
 }
 
@@ -89,5 +89,10 @@ pub async fn load_test(
         last_emit_ms.store(now, Ordering::Relaxed);
         let _ = app.emit("fox:load-progress", &p);
     };
-    Ok(fox_test::load::run_load(args.method, &url, &spec, &cfg, Some(&progress)).await)
+    let result = fox_test::load::run_load(args.method, &url, &spec, &cfg, Some(&progress)).await;
+    // 压测结束后回写一次自增序列（高并发下避免逐请求落库）。
+    if let Err(e) = super::seq::sync_seq_counters(&state.db).await {
+        eprintln!("[load_test] 同步自增序列失败：{e}");
+    }
+    Ok(result)
 }

@@ -69,7 +69,7 @@ async function sendScratch(): Promise<void> {
         path_variables: [],
         auth: { type: 'none' },
         body,
-        timeout_ms: 30000,
+        timeout_ms: null,
         follow_redirects: true,
         tests: null,
       },

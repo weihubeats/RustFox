@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-seq-counters"
+description = "Enables the list_seq_counters command without any pre-configured scope."
+commands.allow = ["list_seq_counters"]
+
+[[permission]]
+identifier = "deny-list-seq-counters"
+description = "Denies the list_seq_counters command without any pre-configured scope."
+commands.deny = ["list_seq_counters"]

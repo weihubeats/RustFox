@@ -391,16 +391,13 @@ pub struct RequestSpec {
     /// 为空时前端按 HTTP Method 智能默认（POST 系 → body，其余 → params）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_tab: Option<String>,
-    #[serde(default = "default_timeout")]
-    pub timeout_ms: u64,
+    /// 请求超时（毫秒）。`None` = 使用全局默认（设置中的请求超时）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
     #[serde(default = "default_true")]
     pub follow_redirects: bool,
     #[serde(default)]
     pub tests: Option<TestConfig>,
-}
-
-fn default_timeout() -> u64 {
-    30_000
 }
 
 impl Default for RequestSpec {
@@ -412,7 +409,7 @@ impl Default for RequestSpec {
             auth: AuthSpec::None,
             body: BodySpec::None,
             active_tab: None,
-            timeout_ms: 30_000,
+            timeout_ms: None,
             follow_redirects: true,
             tests: None,
         }
@@ -759,6 +756,13 @@ pub struct RequestHistory {
     pub created_at: DateTime<Utc>,
 }
 
+/// 自增序列（`{{$seq:key}}`）；`value` 为下一次输出值。key 为空字符串表示全局 `{{$seq}}`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeqCounter {
+    pub key: String,
+    pub value: u64,
+}
+
 /// WebSocket 待发消息类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -820,7 +824,7 @@ mod tests {
         assert_eq!(json["params"], serde_json::json!([]));
         assert_eq!(json["auth"]["type"], "none");
         assert_eq!(json["body"]["mode"], "none");
-        assert_eq!(json["timeout_ms"], 30_000);
+        assert_eq!(json["timeout_ms"], serde_json::Value::Null);
         assert_eq!(json["follow_redirects"], true);
     }
 

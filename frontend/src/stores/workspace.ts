@@ -47,7 +47,7 @@ export function defaultRequestSpec(): Endpoint['request'] {
     auth: { type: 'none' },
     body: { mode: 'none' },
     active_tab: null,
-    timeout_ms: 30000,
+    timeout_ms: null,
     follow_redirects: true,
     tests: null,
   }
@@ -696,7 +696,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         auth: { type: 'none' } as AuthSpec,
         body: restoreBody(testCase.body_type, testCase.body_content),
         active_tab: null,
-        timeout_ms: 30_000,
+        timeout_ms: null,
         follow_redirects: true,
         tests: null,
       }
@@ -1123,7 +1123,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         path_variables: [],
         auth: parsed.auth,
         body: parsed.body ?? { mode: 'none' },
-        timeout_ms: 30000,
+        timeout_ms: null,
         follow_redirects: true,
         tests: null,
       },

@@ -45,10 +45,12 @@ import type {
   OAuth2Token,
   Project,
   ProjectStat,
+  ProxyTestResult,
   RequestExample,
   RequestHistory,
   RequestSpec,
   ResponseExample,
+  SeqCounter,
   TestCase,
   TestCaseStatus,
 } from '../types/foxApi'
@@ -324,11 +326,28 @@ export function useFoxApi() {
   const deleteMockRule = (ruleId: string) =>
     run(() => call<void>('delete_mock_rule', { ruleId }))
 
-  // ---------- HTTP 设置（全局代理） ----------
+  // ---------- HTTP 设置（全局代理 / 请求超时） ----------
   const getHttpProxy = () => run(() => call<string | null>('get_http_proxy'))
 
   const setHttpProxy = (proxy: string | null) =>
     run(() => call<void>('set_http_proxy', { proxy }))
+
+  const getHttpTimeoutMs = () => run(() => call<number | null>('get_http_timeout_ms'))
+
+  const setHttpTimeoutMs = (timeoutMs: number) =>
+    run(() => call<void>('set_http_timeout_ms', { timeoutMs }))
+
+  // ---------- 自增序列 ----------
+  const listSeqCounters = () => run(() => call<SeqCounter[]>('list_seq_counters'))
+
+  const setSeqCounter = (key: string, value: number) =>
+    run(() => call<void>('set_seq_counter', { key, value }))
+
+  const deleteSeqCounter = (key: string) =>
+    run(() => call<void>('delete_seq_counter', { key }))
+
+  const testHttpProxy = (target?: string | null) =>
+    run(() => call<ProxyTestResult>('test_http_proxy', { target: target ?? null }))
 
   // ---------- 备份/恢复 ----------
   const backupExport = (projectId: string) =>
@@ -425,6 +444,12 @@ export function useFoxApi() {
     deleteMockRule,
     getHttpProxy,
     setHttpProxy,
+    getHttpTimeoutMs,
+    setHttpTimeoutMs,
+    listSeqCounters,
+    setSeqCounter,
+    deleteSeqCounter,
+    testHttpProxy,
     backupExport,
     backupRestore,
     importDocument,

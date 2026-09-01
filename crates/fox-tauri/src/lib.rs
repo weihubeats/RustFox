@@ -128,6 +128,8 @@ pub mod plugin {
                     }
                     // 恢复持久化的代理设置（失败静默保持直连）
                     tauri::async_runtime::block_on(commands::settings::apply_saved_proxy(&db));
+                    // 恢复持久化的自增序列（{{$seq:key}}，失败静默默认从 1 开始）
+                    tauri::async_runtime::block_on(commands::seq::apply_saved_seq_counters(&db));
                     // 恢复持久化的激活项目 / 环境（settings 表，含归属校验）
                     let state = AppState::new(db);
                     let _ = tauri::async_runtime::block_on(state.restore_active());
@@ -201,6 +203,12 @@ pub mod plugin {
                 commands::delete_mock_rule,
                 commands::get_http_proxy,
                 commands::set_http_proxy,
+                commands::get_http_timeout_ms,
+                commands::set_http_timeout_ms,
+                commands::list_seq_counters,
+                commands::set_seq_counter,
+                commands::delete_seq_counter,
+                commands::test_http_proxy,
                 commands::list_test_cases,
                 commands::save_test_case,
                 commands::update_test_case_meta,

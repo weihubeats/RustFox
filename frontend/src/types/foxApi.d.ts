@@ -142,9 +142,24 @@ export interface RequestSpec {
   body: BodySpec
   /** 编辑器配置 Tab 记忆（params/auth/headers/body/...），空时按 Method 智能默认。 */
   active_tab?: string | null
-  timeout_ms: number
+  /** 请求超时（毫秒）；null = 使用全局设置中的默认超时。 */
+  timeout_ms: number | null
   follow_redirects: boolean
   tests: unknown | null
+}
+
+/** 自增序列（Rust `SeqCounter`）；value 为下一次输出值，key 为空表示全局 `$seq`。 */
+export interface SeqCounter {
+  key: string
+  value: number
+}
+
+/** 代理连通性测试结果（Rust `ProxyTestResult`）。 */
+export interface ProxyTestResult {
+  ok: boolean
+  status: number
+  duration_ms: number
+  message: string
 }
 
 /** 项目（Rust `Project`）。 */

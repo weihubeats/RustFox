@@ -85,7 +85,7 @@ pub fn endpoint_from_curl(
             auth: parsed.auth,
             body: parsed.body.unwrap_or(BodySpec::None),
             active_tab: None,
-            timeout_ms: 30_000,
+            timeout_ms: None,
             follow_redirects: true,
             tests: None,
         },

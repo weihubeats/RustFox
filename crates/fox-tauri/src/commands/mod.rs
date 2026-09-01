@@ -16,6 +16,7 @@ pub mod oauth;
 pub mod project;
 pub mod request;
 pub mod request_example;
+pub mod seq;
 pub mod settings;
 pub mod test_case;
 
@@ -37,5 +38,6 @@ pub use oauth::*;
 pub use project::*;
 pub use request::*;
 pub use request_example::*;
+pub use seq::*;
 pub use settings::*;
 pub use test_case::*;

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-http-timeout-ms"
+description = "Enables the set_http_timeout_ms command without any pre-configured scope."
+commands.allow = ["set_http_timeout_ms"]
+
+[[permission]]
+identifier = "deny-set-http-timeout-ms"
+description = "Denies the set_http_timeout_ms command without any pre-configured scope."
+commands.deny = ["set_http_timeout_ms"]
