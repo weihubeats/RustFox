@@ -3,14 +3,14 @@
  * JsonEditor：JSON 编辑区（暗色代码编辑器风格）。
  * - 覆盖层方案：透明 textarea 叠加在高亮 <pre> 上（零依赖，滚动同步）；
  * - 左侧行号栏：随内容垂直平移、细边框与正文分隔；
- * - 顶部工具栏（非悬浮）：左侧校验状态 Tag，右侧 美化 / 压缩 / 复制 按钮；
+ * - 顶部工具栏（非悬浮）：左侧校验状态 Tag，右侧 美化 / 压缩 / 查找 / 复制 按钮；
  *   编辑区内没有任何绝对定位浮层遮挡代码。
  * - 深色底色 #121318，聚焦时 1px 紫色光晕（原 3px 重描边移除）。
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
-import { highlightJSON } from '../../utils/highlight'
+import { highlightJSON, highlightJSONText } from '../../utils/highlight'
 import { compactJson, prettyJson } from '../../utils/jsonFormat'
 import { JsonFormatError } from '../../utils/jsonFormat'
 import Icon from './Icon.vue'
@@ -21,11 +21,18 @@ const props = withDefaults(
     placeholder?: string
     /** 编辑区最小高度（px）。 */
     minHeight?: number
+    /** 查找词（实时/防抖搜索匹配并高亮）。 */
+    query?: string
+    /** 当前选中的匹配索引（0-based）。 */
+    activeMatch?: number
   }>(),
-  { placeholder: '', minHeight: 120 },
+  { placeholder: '', minHeight: 120, query: '', activeMatch: 0 },
 )
 
-const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string): void
+  (e: 'match-count', total: number): void
+}>()
 
 const toast = useToast()
 const taRef = ref<HTMLTextAreaElement | null>(null)
@@ -42,9 +49,72 @@ const LARGE_DOC_CHARS = 200_000
 
 const isLargeDoc = computed(() => props.modelValue.length > LARGE_DOC_CHARS)
 
+const matchCount = computed(() => {
+  if (!props.query || isLargeDoc.value) return 0
+  const ql = props.query.toLowerCase()
+  const lower = props.modelValue.toLowerCase()
+  let n = 0
+  let from = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) break
+    n += 1
+    from = idx + ql.length
+  }
+  return n
+})
+
+watch(
+  matchCount,
+  (cnt) => {
+    emit('match-count', cnt)
+  },
+  { immediate: true },
+)
+
 /** 空内容渲染一个空格，保证 pre 与 textarea 高度一致（滚动同步前提）。 */
-const html = computed(() =>
-  isLargeDoc.value ? '' : highlightJSON(props.modelValue.length ? props.modelValue : ' '),
+const html = computed(() => {
+  if (isLargeDoc.value) return ''
+  const val = props.modelValue.length ? props.modelValue : ' '
+  if (props.query) {
+    return highlightJSONText(val, props.query, props.activeMatch)
+  }
+  return highlightJSON(val)
+})
+
+function getMatchOffsets(text: string, q: string, targetIdx: number): [number, number] | null {
+  if (!q) return null
+  const ql = q.toLowerCase()
+  const lower = text.toLowerCase()
+  let from = 0
+  let cur = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) return null
+    if (cur === targetIdx) {
+      return [idx, idx + q.length]
+    }
+    cur += 1
+    from = idx + ql.length
+  }
+}
+
+watch(
+  () => [props.query, props.activeMatch],
+  ([q, matchIdx]) => {
+    if (!q || !taRef.value || matchIdx === undefined) return
+    const offsets = getMatchOffsets(props.modelValue, String(q), Number(matchIdx))
+    if (!offsets) return
+    const [start, end] = offsets
+    taRef.value.setSelectionRange(start, end)
+    const linesBefore = props.modelValue.slice(0, start).split('\n').length - 1
+    const lineHeight = 19.4
+    const targetScroll = Math.max(0, linesBefore * lineHeight - 40)
+    taRef.value.scrollTop = targetScroll
+    if (preRef.value) {
+      preRef.value.scrollTop = targetScroll
+    }
+  },
 )
 
 const lineCount = computed(() => (isLargeDoc.value ? 0 : props.modelValue.split('\n').length))
@@ -287,91 +357,127 @@ async function copyJson(): Promise<void> {
   overflow: auto;
 }
 .hl-ta::placeholder {
-  color: var(--code-placeholder);
+  color: var(--text-3);
 }
 
-/* 大内容模式：无高亮覆盖层，textarea 直接着色 */
+/* 纯文本模式：大文档降级，直接在 textarea 上着色 */
 .hl-ta.plain {
-  color: var(--code-fg);
-}
-.hl-ta::selection {
-  background: rgba(168, 85, 247, 0.28);
+  color: var(--text-1);
+  background: var(--code-bg);
 }
 
-/* ---- 行号栏 ---- */
+/* ---- 语法高亮色系 ---- */
+:deep(.hl-k) {
+  color: var(--tok-key, #e06c75);
+}
+:deep(.hl-s) {
+  color: var(--tok-str, #98c379);
+}
+:deep(.hl-n) {
+  color: var(--tok-num, #d19a66);
+}
+:deep(.hl-b) {
+  color: var(--tok-bool, #56b6c2);
+}
+:deep(.hl-null) {
+  color: var(--tok-null, #56b6c2);
+  font-style: italic;
+}
+:deep(.hl-p) {
+  color: var(--tok-punct, #abb2bf);
+}
+:deep(.hl-c) {
+  color: var(--tok-gutter, #5c6370);
+  font-style: italic;
+}
+
+/* ---- 查找标记 ---- */
+:deep(.rp-find-mark) {
+  background: var(--accent-tint, rgba(99, 102, 241, 0.25));
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+:deep(.rp-find-mark.active) {
+  background: var(--accent, #a855f7);
+  color: #fff;
+  outline: 1px solid var(--accent, #a855f7);
+  outline-offset: 1px;
+}
+
+/* 行号栏 */
 .hl-gutter {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  z-index: 1;
-  background: var(--bg-hover);
-  border-right: 1px solid var(--border);
+  background: var(--bg-card, #121318);
+  border-right: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
   user-select: none;
   pointer-events: none;
+  z-index: 1;
 }
-
 .hl-gutter-inner {
-  padding-top: 10px;
+  padding: 10px 0;
   will-change: transform;
 }
-
 .hl-gutter-line {
-  height: calc(12.5px * 1.55);
-  line-height: calc(12.5px * 1.55);
-  text-align: right;
-  padding-right: 10px;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--tok-gutter);
+  line-height: 1.55;
+  color: var(--tok-gutter, #5c6370);
+  text-align: right;
+  padding-right: 8px;
 }
 
-/* ---- 顶部工具栏（替代原右下悬浮层，不遮挡代码区） ---- */
+/* 工具栏 */
 .je-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  height: 24px;
-  flex-shrink: 0;
+  padding: 2px 2px 4px;
 }
-
 .je-toolbar-spacer {
   flex: 1;
 }
 
-/* 校验状态 Tag：淡绿 / 淡红 / 中性灰，低调不抢焦点 */
 .je-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 9px;
-  border-radius: 999px;
+  padding: 2px 7px;
+  border-radius: 9999px;
   font-size: 11px;
+  font-weight: 500;
   line-height: 1.4;
-  white-space: nowrap;
-  color: #6ee7a0;
-  background: rgba(52, 211, 153, 0.08);
+  letter-spacing: -0.01em;
+}
+.je-status.ok {
+  background: var(--success-tint);
+  color: var(--success);
 }
 .je-status.invalid {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-tint);
+  color: var(--danger);
 }
 .je-status.large {
-  color: var(--text-3);
-  background: var(--bg-hover);
+  background: var(--warning-tint);
+  color: var(--warning);
 }
+
 .je-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
   background: currentColor;
-  flex-shrink: 0;
 }
 
 .je-actions {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   margin-left: auto;
 }
 
@@ -383,42 +489,27 @@ async function copyJson(): Promise<void> {
   height: 24px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-2);
+  color: var(--text-3);
   cursor: pointer;
   transition:
     background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
 .je-btn:hover:not(:disabled) {
   background: var(--bg-hover);
+  border-color: var(--border);
   color: var(--text-1);
+}
+.je-btn.active {
+  background: var(--accent-tint, rgba(168, 85, 247, 0.15));
+  color: var(--accent, #a855f7);
+  border-color: var(--accent, #a855f7);
 }
 .je-btn:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-/* ---- 统一 JSON 语法着色（--tok-*，与响应 Body 共用，见 constants/editorTheme.ts） ---- */
-:deep(.hl-k) {
-  color: var(--tok-key);
-  font-weight: 600;
-}
-:deep(.hl-s) {
-  color: var(--tok-str);
-}
-:deep(.hl-n) {
-  color: var(--tok-num);
-}
-:deep(.hl-b) {
-  color: var(--tok-bool);
-}
-:deep(.hl-null) {
-  color: var(--tok-null);
-  font-style: italic;
-}
-:deep(.hl-p) {
-  color: var(--tok-punct);
 }
 </style>
