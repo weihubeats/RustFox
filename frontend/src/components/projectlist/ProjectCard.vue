@@ -90,7 +90,7 @@ const emit = defineEmits<{
   position: relative;
   display: flex;
   gap: 14px;
-  padding: 16px;
+  padding: 18px 20px;
   /* 网格子项：允许收缩到轨道宽，长描述走 ellipsis 而不是撑爆网格 */
   min-width: 0;
   border-radius: var(--radius-lg);
@@ -108,15 +108,12 @@ const emit = defineEmits<{
     box-shadow var(--dur) var(--ease);
 }
 .proj-card:hover {
-  border-color: rgba(168, 85, 247, 0.5);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   background:
-    linear-gradient(180deg, rgba(168, 85, 247, 0.05), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), rgba(255, 255, 255, 0) 60%),
     rgba(255, 255, 255, 0.028);
   transform: translateY(-2px);
-  box-shadow:
-    0 14px 34px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(168, 85, 247, 0.08),
-    0 4px 18px rgba(124, 58, 237, 0.1);
+  box-shadow: 0 14px 34px rgba(9, 12, 22, 0.5);
 }
 html[data-theme='light'] .proj-card {
   border-color: var(--border);

@@ -572,7 +572,7 @@ function onSplitterDblClick(): void {
 }
 .drw-splitter:hover,
 .drw-splitter:active {
-  background: rgba(168, 85, 247, 0.55);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* ---------- 分区卡片 ---------- */

@@ -839,7 +839,7 @@ async function remove(env: Environment): Promise<void> {
 
 .em-global-row.active {
   background: var(--accent-tint);
-  border: 1px solid rgba(124, 105, 245, 0.4);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   opacity: 1;
   cursor: pointer;
 }
@@ -918,7 +918,7 @@ async function remove(env: Environment): Promise<void> {
 
 .em-row.active {
   background: var(--accent-tint);
-  border-color: rgba(124, 105, 245, 0.4);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .em-row-name {

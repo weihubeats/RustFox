@@ -58,7 +58,7 @@ const router = useRouter()
   justify-content: center;
   color: #fff;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--put) 100%);
+  background: var(--accent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 

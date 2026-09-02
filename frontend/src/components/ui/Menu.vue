@@ -175,10 +175,8 @@ defineExpose({ openAt, close })
   min-width: 176px;
   max-width: 240px;
   padding: 6px;
-  background: rgba(23, 23, 23, 0.95);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border: 1px solid #262626;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   box-shadow:
     0 25px 50px -12px rgb(0 0 0 / 0.5),
@@ -202,14 +200,14 @@ defineExpose({ openAt, close })
   border-radius: 8px;
   font-size: 12px;
   font-family: inherit;
-  color: #d4d4d4;
+  color: var(--text-2);
   cursor: pointer;
   text-align: left;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .rf-menu-item:hover {
-  background: #262626;
-  color: #f5f5f5;
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 :global(html[data-theme='light']) .rf-menu-item {
   color: var(--text-2);
@@ -223,11 +221,11 @@ defineExpose({ openAt, close })
   color: var(--text-1);
 }
 .rf-menu-item.danger {
-  color: #fb7185;
+  color: var(--danger);
 }
 .rf-menu-item.danger:hover {
-  background: rgba(244, 63, 94, 0.1);
-  color: #fda4af;
+  background: var(--danger-tint);
+  color: var(--danger);
 }
 .rf-menu-item.disabled {
   color: var(--text-3);
@@ -244,10 +242,10 @@ defineExpose({ openAt, close })
   justify-content: center;
   width: 14px;
   height: 14px;
-  color: #a3a3a3;
+  color: var(--text-3);
 }
 .rf-menu-item:hover .rf-menu-icon {
-  color: #e5e5e5;
+  color: var(--text-2);
 }
 :global(html[data-theme='light']) .rf-menu-icon {
   color: var(--text-3);
@@ -291,7 +289,7 @@ defineExpose({ openAt, close })
 .rf-menu-divider {
   height: 1px;
   margin: 4px -6px;
-  background: #262626;
+  background: var(--border);
 }
 :global(html[data-theme='light']) .rf-menu-divider {
   background: var(--border-strong);

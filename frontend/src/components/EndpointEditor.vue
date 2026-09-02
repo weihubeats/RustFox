@@ -228,7 +228,11 @@ watch(
       moduleId.value = null
       return
     }
-    moduleId.value = localStorage.getItem(`rustfox:module:${id}`)
+    try {
+      moduleId.value = typeof localStorage !== 'undefined' ? localStorage.getItem(`rustfox:module:${id}`) : null
+    } catch {
+      moduleId.value = null
+    }
   },
   { immediate: true },
 )
@@ -236,8 +240,12 @@ watch(
 function setModule(id: string): void {
   moduleId.value = id || null
   if (draft.value?.id) {
-    if (id) localStorage.setItem(`rustfox:module:${draft.value.id}`, id)
-    else localStorage.removeItem(`rustfox:module:${draft.value.id}`)
+    try {
+      if (id) localStorage.setItem(`rustfox:module:${draft.value.id}`, id)
+      else localStorage.removeItem(`rustfox:module:${draft.value.id}`)
+    } catch {
+      // ignore storage errors
+    }
   }
 }
 

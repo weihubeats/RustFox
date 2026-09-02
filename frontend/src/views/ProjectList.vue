@@ -24,6 +24,7 @@ import DashboardNav from '../components/projectlist/DashboardNav.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ProjectCard from '../components/projectlist/ProjectCard.vue'
+import Skeleton from '../components/ui/Skeleton.vue'
 import ProjectCreateModal from '../components/projectlist/ProjectCreateModal.vue'
 import ProjectRenameModal from '../components/projectlist/ProjectRenameModal.vue'
 import ProjectDeleteModal from '../components/projectlist/ProjectDeleteModal.vue'
@@ -508,8 +509,15 @@ useWindowDrag(topBarEl)
             />
           </div>
 
-          <div v-else-if="loading" class="dash-empty">
-            <p class="rf-hint">加载中…</p>
+          <div v-else-if="loading" class="sk-grid" aria-busy="true" aria-label="加载中">
+            <div v-for="i in 6" :key="i" class="sk-card">
+              <Skeleton width="46px" height="46px" radius="12px" />
+              <div class="sk-lines">
+                <Skeleton width="55%" height="14px" />
+                <Skeleton width="80%" height="12px" />
+                <Skeleton width="35%" height="11px" />
+              </div>
+            </div>
           </div>
 
           <!-- 底部 Dropzone：拖入文档直接导入，或点击按钮创建 / 选择文件 -->
@@ -633,7 +641,7 @@ useWindowDrag(topBarEl)
   justify-content: center;
   color: #fff;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--put) 100%);
+  background: var(--accent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
@@ -670,10 +678,10 @@ useWindowDrag(topBarEl)
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px 28px 32px;
+  padding: 28px 32px 40px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 /* ---------- 摘要卡片（三列固定网格，统一高度与边距） ---------- */
@@ -693,7 +701,7 @@ useWindowDrag(topBarEl)
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 18px 22px;
+  padding: 22px 24px;
   border-radius: var(--radius-lg);
   /* 半透明深底 + 1px 微光边框：比纯 var(--border) 更有层次 */
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -709,7 +717,7 @@ useWindowDrag(topBarEl)
 .stat-card:hover {
   border-color: rgba(255, 255, 255, 0.12);
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
 }
 html[data-theme='light'] .stat-card {
   border-color: var(--border);
@@ -729,19 +737,19 @@ html[data-theme='light'] .stat-card {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .stat-icon.tint-indigo {
-  background: rgba(99, 102, 241, 0.13);
-  color: #818cf8;
-  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.22);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .stat-icon.tint-violet {
-  background: rgba(167, 139, 250, 0.12);
-  color: #a78bfa;
-  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.2);
+  background: var(--patch-tint);
+  color: var(--patch);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--patch) 20%, transparent);
 }
 .stat-icon.tint-amber {
-  background: rgba(245, 158, 11, 0.11);
-  color: #fbbf24;
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
+  background: var(--warning-tint);
+  color: var(--warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 18%, transparent);
 }
 
 .stat-body {
@@ -796,7 +804,7 @@ html[data-theme='light'] .stat-card {
   background: var(--border);
 }
 
-/* 渐变数字：白 → 灰的纵向渐变文字（暗色主题下的「高级感」核心） */
+/* 大数字：实色（skill：禁止渐变文本做大标题） */
 .hero-value {
   font-family: var(--font-mono);
   font-size: 30px;
@@ -804,16 +812,7 @@ html[data-theme='light'] .stat-card {
   line-height: 1.1;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.4));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-html[data-theme='light'] .hero-value {
-  background: linear-gradient(180deg, var(--text-1) 30%, var(--text-3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--text-1);
 }
 
 .hero-label {
@@ -982,21 +981,21 @@ html[data-theme='light'] .tl-item:hover {
   transform: translateY(1px);
 }
 
-/* 主 CTA：violet 渐变 + 霓虹光晕（页面唯一的高饱和焦点） */
+/* 主 CTA：flat accent（页面唯一的高饱和焦点，无渐变无霓虹） */
 .quick-btn.primary {
-  border: 1px solid rgba(139, 92, 246, 0.55);
-  background: linear-gradient(135deg, rgba(124, 105, 245, 0.95), rgba(99, 102, 241, 0.95));
+  border: 1px solid transparent;
+  background: var(--accent);
   color: #fff;
-  box-shadow:
-    0 4px 18px rgba(124, 105, 245, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: 0 3px 10px rgba(9, 12, 22, 0.45);
 }
 .quick-btn.primary:hover {
-  border-color: rgba(139, 92, 246, 0.85);
-  background: linear-gradient(135deg, var(--accent-hover), rgba(109, 118, 245, 0.98));
-  box-shadow:
-    0 6px 26px rgba(124, 105, 245, 0.48),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  border-color: transparent;
+  background: var(--accent-hover);
+  box-shadow: 0 5px 14px rgba(9, 12, 22, 0.5);
+}
+.quick-btn.primary:active {
+  background: var(--accent);
+  box-shadow: none;
 }
 
 /* 次要动作（导入）：中性描边样式 */
@@ -1027,8 +1026,8 @@ html[data-theme='light'] .tl-item:hover {
     transform var(--dur) var(--ease);
 }
 .add-card:hover {
-  border-color: rgba(168, 85, 247, 0.4);
-  background: rgba(124, 58, 237, 0.05);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 /* 拖拽悬停：实线主色框 + 光晕 + 轻微上浮，明确「可以放了」 */
 .add-card.drop-active {
@@ -1036,8 +1035,8 @@ html[data-theme='light'] .tl-item:hover {
   border-color: var(--accent);
   background: var(--accent-tint);
   box-shadow:
-    0 0 0 4px rgba(124, 105, 245, 0.12),
-    0 8px 30px rgba(124, 105, 245, 0.18);
+    0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 8px 30px rgba(9, 12, 22, 0.45);
   transform: translateY(-1px);
 }
 
@@ -1047,7 +1046,7 @@ html[data-theme='light'] .tl-item:hover {
   transition: color var(--dur) var(--ease);
 }
 .add-card:hover .add-icon {
-  color: #a78bfa;
+  color: var(--accent);
 }
 
 .add-text {
@@ -1062,7 +1061,7 @@ html[data-theme='light'] .tl-item:hover {
   transition: color var(--dur) var(--ease);
 }
 .add-card:hover .add-text {
-  color: #c4b5fd;
+  color: var(--accent-hover);
 }
 
 .add-actions {
@@ -1092,7 +1091,7 @@ html[data-theme='light'] .tl-item:hover {
 .add-btn:hover {
   border-color: var(--accent);
   background: var(--accent-tint);
-  color: #c4b5fd;
+  color: var(--accent-hover);
 }
 
 /* ---------- 工具栏：过滤 + 视图切换 + 排序 + 新建 ---------- */
@@ -1177,6 +1176,30 @@ html[data-theme='light'] .tl-item:hover {
   gap: 16px;
 }
 
+/* ---------- 加载骨架（与卡片网格同列型） ---------- */
+.sk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+.sk-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.sk-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+}
+
 /* ---------- 拖拽排序 ---------- */
 .card-grid :deep(.proj-card) {
   cursor: grab;
@@ -1203,8 +1226,8 @@ html[data-theme='light'] .tl-item:hover {
 
 /* ghost：原位置镂空占位（ghost 即原卡片元素，内部全部隐藏 + 极淡底色） */
 :global(.sortable-ghost) {
-  background-color: rgba(168, 85, 247, 0.05) !important;
-  border: 2px dashed rgba(168, 85, 247, 0.4) !important;
+  background-color: color-mix(in srgb, var(--accent) 5%, transparent) !important;
+  border: 2px dashed color-mix(in srgb, var(--accent) 40%, transparent) !important;
   border-radius: 0.75rem !important;
   box-shadow: none !important;
   opacity: 1;
@@ -1228,10 +1251,10 @@ html[data-theme='light'] .tl-item:hover {
   background: rgba(38, 38, 38, 0.95) !important;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  border: 1px solid #a855f7 !important;
+  border: 1px solid var(--accent) !important;
   box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.8),
-    0 0 40px rgba(59, 7, 100, 0.4) !important;
+    0 20px 50px rgba(9, 12, 22, 0.6),
+    0 0 40px rgba(9, 12, 22, 0.4) !important;
   transform: scale(1.03) rotate(1.5deg);
   cursor: grabbing;
 }

@@ -1079,6 +1079,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       moved.folder_id = newFolderId
     }
     if (changed.has(endpointId)) moved.sort_order = changed.get(endpointId)!
+    // 同步打开中的草稿（文件夹归属 / 顺序）：draft 是 openEndpoint 时的快照，
+    // 若不更新，保存草稿（saveActiveDraft 写全量）会用旧 folder_id 覆盖移动，
+    // 造成「移动到 B 文件夹，保存后又回到 A」。
+    for (const [id, order] of changed) {
+      const draft = drafts.value.get(id)
+      if (!draft) continue
+      draft.sort_order = order
+      if (id === endpointId) draft.folder_id = moved.folder_id
+    }
     await Promise.all(
       [...changed.keys()].map((id) => {
         const e = endpoints.value.find((x) => x.id === id)

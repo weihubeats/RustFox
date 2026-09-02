@@ -149,6 +149,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -212,22 +214,78 @@ jobs:
           print(pathlib.Path("latest.json").read_text())
           EOF
 
+      - name: 生成变更日志（conventional commits → Release body）
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$PREV_TAG" ]; then
+            python3 - "$PREV_TAG" <<'PYEOF' > changelog.md
+          import re, subprocess, sys
+          prev = sys.argv[1]
+          raw = subprocess.run(
+              ["git", "log", "--no-merges", "--pretty=format:%s", f"{prev}..HEAD"],
+              capture_output=True, text=True, check=True,
+          ).stdout.split("\n")
+          groups = [
+              ("feat", "新功能"),
+              ("fix", "修复"),
+              ("perf", "性能优化"),
+              ("refactor", "重构"),
+              ("docs", "文档"),
+              ("test", "测试"),
+              ("build", "构建"),
+              ("ci", "CI"),
+              ("chore", "其他改动"),
+              ("revert", "回退"),
+          ]
+          out = {t: [] for t, _ in groups}
+          for line in raw:
+              if not line or line.startswith("chore(release):"):
+                  continue
+              m = re.match(
+                  r"^(feat|fix|perf|refactor|docs|test|build|ci|chore|revert)(\([^)]*\))?:\s*(.*)", line
+              )
+              if m:
+                  out[m.group(1)].append(m.group(3))
+          if not any(out.values()):
+              print("- 无代码变更（仅发布流程/版本号调整）")
+          else:
+              for typ, label in groups:
+                  if out[typ]:
+                      print(f"### {label}")
+                      print("\n".join(f"- {m}" for m in out[typ]))
+                      print()
+          PYEOF
+          else
+            echo '- 首个正式发布版本' > changelog.md
+          fi
+          {
+            echo "### RustFox ${RELEASE_TAG#v} 更新内容"
+            echo
+            cat changelog.md
+            echo
+            echo '---'
+            echo
+            echo '## 分发包（Tauri 2）'
+            echo
+            echo '- **Windows**: `RustFox_x.x.x_x64-setup.exe`（NSIS 安装包）或 `RustFox_x.x.x_x64_en-US.msi`'
+            echo '- **macOS**: `RustFox_x.x.x_aarch64.dmg`（Apple Silicon）或 `RustFox_x.x.x_x64.dmg`（Intel）'
+            echo '  —— 首次打开若提示「已损坏」，执行 `xattr -cr /Applications/RustFox.app` 解除隔离（未做 Apple 公证的正常现象，详见使用手册）'
+            echo '- **Linux**: `rustfox_x.x.x_amd64.deb` 与 `.AppImage`'
+            echo
+            echo "使用手册：[docs/USER_GUIDE.md](https://github.com/\${GITHUB_REPOSITORY}/blob/\${RELEASE_TAG}/docs/USER_GUIDE.md)"
+          } > release_body.md
+          cat release_body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: RustFox ${{ env.RELEASE_TAG }}
-          body: |
-            ## RustFox 分发包（Tauri 2）
-
-            - **Windows**: `RustFox_x.x.x_x64-setup.exe`（NSIS 安装包）或 `RustFox_x.x.x_x64_en-US.msi`
-            - **macOS**: `RustFox_x.x.x_aarch64.dmg`（Apple Silicon）或 `RustFox_x.x.x_x64.dmg`（Intel）
-              ——首次打开若提示「已损坏」，执行 `xattr -cr /Applications/RustFox.app` 解除隔离（未做 Apple 公证的正常现象，详见使用手册）
-            - **Linux**: `rustfox_x.x.x_amd64.deb` 与 `.AppImage`
-
-            使用手册：[docs/USER_GUIDE.md](https://github.com/${{ github.repository }}/blob/${{ env.RELEASE_TAG }}/docs/USER_GUIDE.md)
+          body_path: release_body.md
           files: |
             artifacts/**
             latest.json
           draft: true
-          generate_release_notes: true
+          generate_release_notes: false

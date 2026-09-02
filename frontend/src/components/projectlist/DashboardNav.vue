@@ -82,11 +82,11 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
 .nav-item:active {
   background: var(--bg-active);
 }
-/* 选中态：半透明紫底 + 紫色文字 + 左缘主题色条 */
+/* 选中态：弱化 accent 底 + accent 文字 + 左缘主题色条 */
 .nav-item.active {
-  background: rgba(124, 58, 237, 0.1);
-  color: #a78bfa;
-  border-left-color: #a855f7;
+  background: var(--accent-tint);
+  color: var(--accent-hover);
+  border-left-color: var(--accent);
   font-weight: 500;
 }
 

@@ -5,7 +5,7 @@
  * - DOM 应用：apply 把 data-theme 写入 <html> 并广播 rustfox:theme 事件；
  * - 系统监听：system 模式切换 matchMedia 触发主题更新。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useThemeStore, THEME_EVENT, type ThemeMode } from './theme'
 
@@ -55,10 +55,13 @@ function stubLocalStorage(): Storage {
 
 describe('theme store', () => {
   beforeEach(() => {
+    stubLocalStorage()
     setActivePinia(createPinia())
     document.documentElement.removeAttribute('data-theme')
     document.documentElement.classList.remove('dark', 'light')
-    localStorage.clear()
+  })
+
+  afterEach(() => {
     vi.unstubAllGlobals()
   })
 

@@ -357,30 +357,31 @@ const projectSummary = computed(() => {
 <template>
   <Modal :open="true" title="设置" width="880px" dialog-class="sd-dialog" @close="emit('close')">
     <div class="flex h-[min(520px,70vh)]">
-      <!-- 左：轻量 Menu List 导航（Linear / VS Code 风格） -->
-      <aside class="w-48 shrink-0 overflow-y-auto border-r border-zinc-200/80 px-2 py-3 dark:border-white/[0.06]">
+      <!-- 左：极简 List 导航 -->
+      <aside class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-200/80 p-2 pr-4 dark:border-white/[0.06]">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
-          class="relative flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors duration-150"
+          class="relative flex h-9 w-full items-center gap-2.5 rounded-lg border-none px-3 text-left text-sm transition-all duration-150"
           :class="
             activeTab === tab.id
-              ? 'bg-purple-500/10 font-semibold text-purple-600 dark:bg-purple-500/10 dark:text-purple-300'
-              : 'border-none bg-transparent text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.05] dark:hover:text-zinc-200'
+              ? 'bg-purple-500/10 font-medium text-purple-600 dark:text-purple-300'
+              : 'bg-transparent text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.05] dark:hover:text-zinc-200'
           "
           @click="activeTab = tab.id"
         >
+          <!-- 选中时的左侧高亮细条 -->
           <span
             v-if="activeTab === tab.id"
-            class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-purple-600 dark:bg-purple-500"
+            class="absolute left-1 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-purple-600 dark:bg-purple-500"
           />
           <Icon
             :name="tab.icon"
             :size="15"
-            :class="activeTab === tab.id ? 'text-purple-600 dark:text-purple-300' : 'text-zinc-500'"
+            :class="activeTab === tab.id ? 'text-purple-600 dark:text-purple-400' : 'text-zinc-500 dark:text-zinc-400'"
           />
-          <span class="flex-1">{{ tab.label }}</span>
+          <span class="flex-1 truncate">{{ tab.label }}</span>
           <span
             v-if="tab.id === 'sequences' && sequencesCount"
             class="rounded-full bg-zinc-200/70 px-1.5 py-px text-[11px] leading-4 text-zinc-600 dark:bg-white/[0.08] dark:text-zinc-400"
@@ -547,109 +548,132 @@ const projectSummary = computed(() => {
 
             <!-- 自增序列 -->
             <section v-if="activeTab === 'sequences'">
-              <header>
+              <header class="mb-6">
                 <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">自增序列与变量</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">
-                  请求中写 <code class="font-mono text-[11px]">&#123;&#123;$seq:key&#125;&#125;</code> 自动递增；
-                  值即「下一次输出」，持久化、重启不丢。
+                <p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  请求中写 <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-purple-600 dark:bg-white/5 dark:text-purple-300">&#123;&#123;$seq:key&#125;&#125;</code> 自动递增；持久化存储、应用重启不丢失。
                 </p>
               </header>
 
-              <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
-                <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">序列列表</div>
-
-                <div v-if="counters.length" class="mt-3">
-                  <div
-                    class="mb-3 flex items-center gap-2 border-b border-zinc-200/70 pb-2 text-xs font-medium text-zinc-500 dark:border-white/[0.06] dark:text-zinc-400"
-                  >
-                    <div class="min-w-0 flex-1">序列 Key</div>
-                    <div class="w-40 text-right">当前值 / 下一次输出</div>
-                    <div class="w-24 text-right">操作</div>
+              <div class="space-y-4">
+                <!-- 新增自增序列卡片 -->
+                <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-4 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                  <div class="mb-3">
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">新增序列</div>
+                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                      留空 Key 即为全局默认序列 <code class="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">&#123;&#123;$seq&#125;&#125;</code>
+                    </p>
                   </div>
-
-                  <div
-                    v-for="c in counters"
-                    :key="c.key || '__global__'"
-                    class="flex items-center gap-2 border-b border-zinc-200/70 py-2 last:border-b-0 dark:border-white/[0.06]"
-                  >
-                    <div class="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-zinc-900 dark:text-zinc-100">
-                      <span
-                        class="shrink-0 rounded bg-purple-100 px-1.5 py-px text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-400"
-                      >
-                        全局
-                      </span>
-                      <span v-if="!c.key" class="truncate">$seq</span>
-                      <span v-else class="truncate">{{ c.key }}</span>
-                    </div>
-                    <div class="flex w-40 justify-end">
-                      <input
-                        v-model.number="c.value"
-                        class="h-8 w-24 rounded-md border border-zinc-300 bg-white text-center font-mono text-xs text-zinc-800 tabular-nums outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white"
-                        type="number"
-                        min="1"
-                        spellcheck="false"
-                        @change="saveSeq(c)"
-                      />
-                    </div>
-                    <div class="flex w-24 items-center justify-end gap-1">
-                      <button
-                        class="rf-btn rf-btn-sm rf-btn-ghost"
-                        type="button"
-                        title="重置为 1"
-                        @click="resetSeq(c)"
-                      >
-                        <Icon name="refresh" :size="12" />
-                      </button>
-                      <button
-                        class="rf-btn rf-btn-sm rf-btn-ghost"
-                        type="button"
-                        title="删除序列"
-                        @click="deleteSeq(c)"
-                      >
-                        <Icon name="trash" :size="12" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  v-else
-                  class="flex flex-col items-center justify-center rounded-lg py-8 text-center"
-                >
-                  <Icon name="list" :size="22" class="mb-2 text-zinc-400 dark:text-zinc-600" />
-                  <div class="text-sm text-zinc-700 dark:text-zinc-300">暂无自定义序列</div>
-                  <div class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-500">下方输入 Key 名并设置起始值即可创建</div>
-                </div>
-
-                <div class="mt-4 border-t border-zinc-200/70 pt-4 dark:border-white/[0.06]">
-                  <div class="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-zinc-100/80 p-2 dark:border-white/[0.06] dark:bg-black/20">
+                  <div class="flex items-center gap-2">
                     <input
                       v-model="newSeqKey"
-                      class="h-8 min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 text-xs text-zinc-800 placeholder:text-zinc-400 outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white dark:placeholder:text-zinc-600"
                       type="text"
-                      placeholder="序列 key（留空 = 全局 $seq）"
+                      class="rf-input flex-1 font-mono text-xs"
+                      placeholder="序列 Key（如 order_id）"
                       spellcheck="false"
                       @keydown.enter="addSeq"
                     />
-                    <input
-                      v-model.number="newSeqValue"
-                      class="h-8 w-20 shrink-0 rounded-md border border-zinc-300 bg-white text-center font-mono text-xs text-zinc-800 tabular-nums placeholder:text-zinc-400 outline-none transition-colors focus:border-purple-500 dark:border-white/10 dark:bg-black/30 dark:text-white dark:placeholder:text-zinc-600"
-                      type="number"
-                      min="1"
-                      placeholder="起始值"
-                      spellcheck="false"
-                      @keydown.enter="addSeq"
-                    />
+                    <div class="w-28 shrink-0">
+                      <CustomNumberInput
+                        :model-value="newSeqValue"
+                        :min="1"
+                        size="md"
+                        placeholder="起始值"
+                        @change="(v) => (newSeqValue = v)"
+                      />
+                    </div>
                     <button
-                      class="flex h-8 shrink-0 items-center gap-1 rounded-md bg-purple-600/80 px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-purple-600"
+                      class="rf-btn rf-btn-primary shrink-0"
                       type="button"
                       @click="addSeq"
                     >
                       <Icon name="plus" :size="13" />
-                      添加新序列
+                      <span>添加序列</span>
                     </button>
                   </div>
-                  <p class="mt-2 text-right text-[11px] text-zinc-600 dark:text-zinc-500">改动失焦自动保存</p>
+                </div>
+
+                <!-- 序列清单列表卡片 -->
+                <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-1 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                  <div class="flex items-center justify-between px-4 py-3">
+                    <div class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">已有序列清单</div>
+                    <span class="text-[11px] text-zinc-500">修改数值失焦自动保存</span>
+                  </div>
+
+                  <div v-if="counters.length" class="mx-2 mb-2 overflow-hidden rounded-lg border border-zinc-200/70 bg-white dark:border-white/[0.06] dark:bg-black/20">
+                    <table class="w-full border-collapse text-left text-[12.5px]">
+                      <thead>
+                        <tr class="border-b border-zinc-200/70 bg-zinc-50/60 text-[11px] text-zinc-500 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-zinc-400">
+                          <th class="px-3.5 py-2.5 font-medium">序列 Key / 占位符</th>
+                          <th class="w-36 px-3.5 py-2.5 font-medium">下一次输出值</th>
+                          <th class="w-24 px-3.5 py-2.5 text-right font-medium">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-zinc-200/70 dark:divide-white/[0.06]">
+                        <tr
+                          v-for="c in counters"
+                          :key="c.key || '__global__'"
+                          class="transition-colors hover:bg-zinc-50/50 dark:hover:bg-white/[0.02]"
+                        >
+                          <td class="px-3.5 py-2.5">
+                            <div class="flex items-center gap-2 font-mono">
+                              <span
+                                v-if="!c.key"
+                                class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
+                              >
+                                全局
+                              </span>
+                              <span class="text-zinc-900 dark:text-zinc-200">
+                                <template v-if="c.key">&#123;&#123;$seq:{{ c.key }}&#125;&#125;</template>
+                                <template v-else>&#123;&#123;$seq&#125;&#125;</template>
+                              </span>
+                            </div>
+                          </td>
+                          <td class="px-3.5 py-2.5">
+                            <CustomNumberInput
+                              :model-value="c.value"
+                              :min="1"
+                              size="sm"
+                              class="w-24"
+                              @change="(v) => { c.value = v; saveSeq(c) }"
+                            />
+                          </td>
+                          <td class="px-3.5 py-2.5 text-right">
+                            <div class="flex items-center justify-end gap-1">
+                              <button
+                                class="rf-btn rf-btn-sm rf-btn-ghost"
+                                type="button"
+                                title="重置为 1"
+                                @click="resetSeq(c)"
+                              >
+                                <Icon name="refresh" :size="12" />
+                              </button>
+                              <button
+                                class="rf-btn rf-btn-sm rf-btn-ghost text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400"
+                                type="button"
+                                title="删除序列"
+                                @click="deleteSeq(c)"
+                              >
+                                <Icon name="trash" :size="12" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- 优雅 Empty State -->
+                  <div
+                    v-else
+                    class="flex flex-col items-center justify-center py-10 text-center"
+                  >
+                    <div class="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-200/50 text-zinc-500 dark:bg-white/5 dark:text-zinc-500">
+                      <Icon name="list" :size="16" />
+                    </div>
+                    <p class="text-xs text-zinc-700 dark:text-zinc-400">暂无自定义序列</p>
+                    <p class="mt-0.5 text-[11px] text-zinc-500">在上方新增后即可在请求中自动自增引用</p>
+                  </div>
                 </div>
               </div>
             </section>
