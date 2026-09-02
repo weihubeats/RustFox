@@ -161,10 +161,13 @@ function syncScroll(e: Event): void {
   }
 }
 
-// 内容变化（格式化 / 粘贴 / 回退）后重新对齐滚动，避免高亮层与行号错位。
+// 内容变化（格式化 / 粘贴 / 回退 / 外部保存）后重新对齐滚动与 DOM 同步，避免高亮层与行号错位。
 watch(
   () => props.modelValue,
-  () => {
+  (newVal) => {
+    if (taRef.value && taRef.value.value !== newVal) {
+      taRef.value.value = newVal
+    }
     if (taRef.value && preRef.value) {
       preRef.value.scrollTop = taRef.value.scrollTop
       preRef.value.scrollLeft = taRef.value.scrollLeft

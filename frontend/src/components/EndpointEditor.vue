@@ -441,7 +441,10 @@ async function save(): Promise<void> {
     showNameDialog.value = true
     return
   }
-  await store.saveActiveDraft()
+  const ok = await store.saveActiveDraft()
+  if (ok) {
+    methodRevert = null
+  }
 }
 
 async function confirmName(): Promise<void> {
@@ -454,7 +457,10 @@ async function confirmName(): Promise<void> {
   draft.value.name = name
   draft.value.folder_id = pendingFolderId.value || null
   showNameDialog.value = false
-  await store.saveActiveDraft()
+  const ok = await store.saveActiveDraft()
+  if (ok) {
+    methodRevert = null
+  }
 }
 
 // ---------- 二级导航 + 保存为用例 ----------

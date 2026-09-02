@@ -215,4 +215,24 @@ describe('moveEndpoint：移动后打开草稿的 folder_id / sort_order 同步'
     expect(store.isDirty('ep-a')).toBe(false)
     expect(store.isDirty('ep-other')).toBe(false)
   })
+
+  it('编辑 body 内容并保存：草稿与保存态深克隆解耦，保存后内容稳定不丢失', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    const ep = store.endpoints.find((e) => e.id === 'ep-a')!
+    store.openEndpoint(ep)
+
+    const draft = store.draftOf('ep-a')!
+    draft.request.body = { mode: 'json', raw: '{"name":"fox","added":"s"}' }
+
+    expect(store.isDirty('ep-a')).toBe(true)
+    expect(await store.saveActiveDraft()).toBe(true)
+
+    // 保存后草稿保持最新内容
+    expect(store.draftOf('ep-a')?.request.body).toEqual({
+      mode: 'json',
+      raw: '{"name":"fox","added":"s"}',
+    })
+    expect(store.isDirty('ep-a')).toBe(false)
+  })
 })

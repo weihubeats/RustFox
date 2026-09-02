@@ -834,13 +834,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     try {
       const saved = await api.saveEndpoint(draft)
+      const savedClone = JSON.parse(JSON.stringify(saved)) as Endpoint
       const idx = endpoints.value.findIndex((e) => e.id === saved.id)
       if (idx === -1) {
-        endpoints.value.push(saved)
+        endpoints.value.push(savedClone)
       } else {
-        endpoints.value[idx] = saved
+        endpoints.value[idx] = savedClone
       }
-      drafts.value.set(saved.id, { ...saved })
+      drafts.value.set(saved.id, {
+        ...saved,
+        request: JSON.parse(JSON.stringify(saved.request)),
+      })
       toast.success(`接口已保存：${saved.name}`)
       return true
     } catch (err) {
