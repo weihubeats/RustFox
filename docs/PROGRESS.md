@@ -239,6 +239,15 @@
 9. 全局配色为深色渐变层级（bg → panel → panel-2），主色蓝色（#3b82f6 系）、成功绿 / 警告黄 / 危险红语义色统一；Toast 右下角弹出且带对应语义色边框。
 10. 质量标准：`cargo fmt --all` 无 diff、`cargo clippy -D warnings` 0 错误、`cargo test --workspace` 全部通过；任意窗口尺寸下布局不塌、无内容重叠；交互流畅无卡顿。
 
+## M17–M22：Tauri 时代增量（✅ 完成，git log 可查）
+
+- M17：Dioxus → Tauri 2 迁移完成（`crates/fox-tauri` 独立工作区插件 `fox`，前端 `frontend/` Vue 3 + TS + Tailwind 4 + Pinia，详见 TAURI_MIGRATION.md / ARCHITECTURE.md）。
+- M18：Agent 集成——桌面启动自动拉起 127.0.0.1 控制面（4110 起探测）；`fox-mcp` 提供 save_curl / list_projects / list_endpoints / agent_info；安装包内置二进制（v0.0.10+）；指南 docs/AGENT.md。
+- M19：官网 `website/` 中英落地页 + GitHub Pages 自动部署 workflow。
+- M20：环境全局化——多模块 Base URL、全局变量/全局参数；默认模块随当前项目；项目优先解析（环境 > 项目）。
+- M21：工作区——顶栏多项目标签快照（草稿/标签跨项目保留）；GraphQL 调试视图（/graphql，data/errors 语义）；测试用例 Drawer（Method 联动 / CodeMirror 6 / 拖拽分割）；设计态 Schema 标注 + 多格式文档导出；Cookie 自动回放 + 全局代理（持久化）；历史按接口过滤；项目卡片拖拽排序持久化；dev/正式数据目录隔离（`RustFox-dev`）。
+- M22：偏好——主题三档（跟随系统/深色/浅色，`<html data-theme>` + localStorage 持久）；请求超时可配置；自增序列管理；备份/文档导出改目录选择框；更新进度条累计修正。
+
 ## M2.6：功能联通性验收与诊断（✅ 通过）
 
 - 新增 `crates/fox-smoke`：`tests/smoke_test.rs` 端到端冒烟（纯逻辑，无 UI）：

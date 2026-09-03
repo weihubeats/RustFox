@@ -127,6 +127,45 @@ fn attach_auth(request: &mut Value, auth: &AuthSpec) {
                 ],
             });
         }
+        AuthSpec::Digest { username, password } if !username.is_empty() || !password.is_empty() => {
+            request["auth"] = json!({
+                "type": "digest",
+                "digest": [
+                    { "key": "username", "value": username, "type": "string" },
+                    { "key": "password", "value": password, "type": "string" },
+                ],
+            });
+        }
+        AuthSpec::Hawk { key_id, key } if !key_id.is_empty() || !key.is_empty() => {
+            request["auth"] = json!({
+                "type": "hawk",
+                "hawk": [
+                    { "key": "authId", "value": key_id, "type": "string" },
+                    { "key": "authKey", "value": key, "type": "string" },
+                    { "key": "algorithm", "value": "sha256", "type": "string" },
+                ],
+            });
+        }
+        AuthSpec::AwsV4 {
+            access_key,
+            secret_key,
+            region,
+            service,
+            session_token,
+        } if !access_key.is_empty() || !secret_key.is_empty() => {
+            let mut fields = vec![
+                json!({ "key": "accessKey", "value": access_key, "type": "string" }),
+                json!({ "key": "secretKey", "value": secret_key, "type": "string" }),
+                json!({ "key": "region", "value": region, "type": "string" }),
+                json!({ "key": "service", "value": service, "type": "string" }),
+            ];
+            if let Some(token) = session_token {
+                if !token.is_empty() {
+                    fields.push(json!({ "key": "sessionToken", "value": token, "type": "string" }));
+                }
+            }
+            request["auth"] = json!({ "type": "awsv4", "awsv4": fields });
+        }
         _ => {}
     }
 }

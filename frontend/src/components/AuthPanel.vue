@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * AuthPanel：认证配置面板（none / bearer / basic / apikey / oauth2）。
+ * AuthPanel：认证配置面板（none / bearer / basic / apikey / oauth2 / digest / hawk / awsv4 / hmac）。
  * OAuth2 授权流：后端起本地回调 + 打开系统浏览器，完成后令牌写入草稿。
+ * 签名类（Hawk / AWS SigV4 / HMAC）：每次发送由后端实时计算；Digest 遇 401 自动应答重发。
  */
 import { computed, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -20,11 +21,29 @@ const AUTH_TYPES: Array<{ value: string; label: string }> = [
   { value: 'basic', label: 'Basic' },
   { value: 'apikey', label: 'API Key' },
   { value: 'oauth2', label: 'OAuth2' },
+  { value: 'digest', label: 'Digest' },
+  { value: 'hawk', label: 'Hawk' },
+  { value: 'awsv4', label: 'AWS Signature V4' },
+  { value: 'hmac', label: 'HMAC (AK-SK)' },
 ]
 const AUTH_IN_OPTIONS = [
   { value: 'header', label: 'Header' },
   { value: 'query', label: 'Query' },
 ]
+
+/** 签名类认证的发送时行为说明。 */
+const SIGN_HINTS: Record<string, string> = {
+  digest: '发送时先不带凭据，收到 401 质询后自动应答重发（MD5 / SHA-256，qop=auth）。',
+  hawk: '发送时用时间戳 + 随机数实时计算 Hawk mac，有 Body 时附带 payload hash。',
+  awsv4: '发送时按区域 + 服务名做 SigV4 规范签名（x-amz-date + Authorization）。',
+  hmac: '发送时附带 X-Access-Key / X-Timestamp / X-Nonce / X-Signature 四个头。',
+}
+
+/** 当前认证类型的行为说明（签名类才有）。 */
+const signHint = computed(() => {
+  const t = authAny.value?.type
+  return (t && SIGN_HINTS[t]) || ''
+})
 
 /** Auth 编辑区；type 切换时替换为对应默认对象。所有分支字段统一为可选项。 */
 type EditableAuth = AuthSpec & {
@@ -40,6 +59,12 @@ type EditableAuth = AuthSpec & {
   token_url?: string
   scope?: string
   redirect_uri?: string
+  key_id?: string
+  access_key?: string
+  secret_key?: string
+  region?: string
+  service?: string
+  session_token?: string
 }
 
 const authAny = computed(() => props.draft?.request.auth as EditableAuth)
@@ -102,6 +127,25 @@ function setAuthType(type: string): void {
         scope: '',
         redirect_uri: '',
       }
+      break
+    case 'digest':
+      req.auth = { type: 'digest', username: '', password: '' }
+      break
+    case 'hawk':
+      req.auth = { type: 'hawk', key_id: '', key: '' }
+      break
+    case 'awsv4':
+      req.auth = {
+        type: 'awsv4',
+        access_key: '',
+        secret_key: '',
+        region: '',
+        service: '',
+        session_token: '',
+      }
+      break
+    case 'hmac':
+      req.auth = { type: 'hmac', access_key: '', secret_key: '' }
       break
   }
 }
@@ -172,6 +216,55 @@ function setAuthType(type: string): void {
       />
       <CustomSelect v-model="authAny.in" :options="AUTH_IN_OPTIONS" size="sm" class="auth-in-select" />
     </div>
+    <div v-else-if="authAny?.type === 'digest'" class="kv-row">
+      <input
+        v-model="authAny.username"
+        class="rf-input rf-input-sm kv-key"
+        placeholder="用户名"
+      />
+      <input
+        v-model="authAny.password"
+        class="rf-input rf-input-sm kv-value"
+        placeholder="密码"
+        type="password"
+      />
+    </div>
+    <div v-else-if="authAny?.type === 'hawk'" class="kv-row">
+      <input v-model="authAny.key_id" class="rf-input rf-input-sm kv-key" placeholder="Key ID" spellcheck="false" />
+      <input
+        v-model="authAny.key"
+        class="rf-input rf-input-sm kv-value"
+        placeholder="Key"
+        type="password"
+        spellcheck="false"
+      />
+    </div>
+    <div v-else-if="authAny?.type === 'awsv4'" class="sign-form">
+      <div class="kv-row">
+        <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" placeholder="Access Key" spellcheck="false" />
+        <input v-model="authAny.secret_key" class="rf-input rf-input-sm kv-value" placeholder="Secret Key" type="password" spellcheck="false" />
+      </div>
+      <div class="kv-row">
+        <input v-model="authAny.region" class="rf-input rf-input-sm kv-key" placeholder="Region（如 us-east-1）" spellcheck="false" />
+        <input v-model="authAny.service" class="rf-input rf-input-sm kv-value" placeholder="Service（如 iam / s3）" spellcheck="false" />
+      </div>
+      <div class="kv-row">
+        <input v-model="authAny.session_token" class="rf-input rf-input-sm kv-value" placeholder="Session Token（临时凭证选填）" spellcheck="false" />
+      </div>
+    </div>
+    <div v-else-if="authAny?.type === 'hmac'" class="kv-row">
+      <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" placeholder="Access Key" spellcheck="false" />
+      <input
+        v-model="authAny.secret_key"
+        class="rf-input rf-input-sm kv-value"
+        placeholder="Secret Key"
+        type="password"
+        spellcheck="false"
+      />
+    </div>
+    <p v-if="signHint" class="auth-hint">
+      {{ signHint }}
+    </p>
   </div>
 </template>
 
@@ -218,5 +311,17 @@ function setAuthType(type: string): void {
 
 .oauth-status.ok {
   color: var(--success);
+}
+
+.auth-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.sign-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 </style>

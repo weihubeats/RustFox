@@ -8,7 +8,7 @@
  * - urlencoded/multipart 为字段行编辑，graphql 为 query/variables 编辑器。
  * bodyAny 用 any 放宽联合类型访问（模板 v-model 直写 raw / spec.*）。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
@@ -86,9 +86,93 @@ function addMultipartField(): void {
 }
 
 function removeMultipartField(index: number): void {
-  const fields = props.draft?.request.body as { fields: unknown[] } | undefined
+  const fields = props.draft?.request.body as { fields: MultipartField[] } | undefined
   fields?.fields.splice(index, 1)
 }
+
+/**
+ * 纯文本输入的本地镜像 + 防抖回写：`v-model` 直写草稿会让每键触发
+ * Pinia 全量 deep watch + dirty 定版（遍历全部打开标签的草稿）。
+ * 此处 150ms 防抖回写 store；失焦 / 切接口 / 卸载时强制刷出。
+ * 注：切接口前浏览器必先触发 blur（点击驱动），故 blur 刷出足以覆盖；
+ * 程序化切换的极端竞态下最多丢 150ms 内的未落盘键入。
+ */
+function useDebouncedField(
+  get: () => string,
+  set: (v: string) => void,
+  /** 同步触发源：切接口 / 切换 body subtype / store 侧外部写入（如用例回填）。 */
+  syncKey: () => unknown,
+) {
+  const local = ref(get())
+  let timer: ReturnType<typeof setTimeout> | undefined
+  function flush(): void {
+    if (timer) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    const v = local.value
+    if (v !== get()) set(v)
+  }
+  function onInput(v: string): void {
+    local.value = v
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(flush, 150)
+  }
+  // 同步时 props 已是新值，只能丢弃 pending 并同步。真实交互必先经过 blur
+  //（点击驱动切换），@blur 已把旧值刷回旧草稿；程序化切换的极端竞态下
+  // 最多丢 150ms 内的未落盘键入。
+  watch(syncKey, () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    local.value = get()
+  })
+  onBeforeUnmount(flush)
+  return { local, onInput, flush }
+}
+
+const rawSyncKey = () => [
+  props.draft?.id,
+  activeTab.value,
+  rawSubtype.value,
+  (bodyAny.value as unknown as { raw?: string } | undefined)?.raw,
+]
+const rawText = useDebouncedField(
+  () => (bodyAny.value as unknown as { raw?: string } | undefined)?.raw ?? '',
+  (v) => {
+    const b = bodyAny.value as unknown as { raw?: string } | undefined
+    if (b) b.raw = v
+  },
+  rawSyncKey,
+)
+const gqlSyncKey = () => [
+  props.draft?.id,
+  graphql.value?.query,
+  graphql.value?.operation_name,
+]
+const gqlQuery = useDebouncedField(
+  () => graphql.value?.query ?? '',
+  (v) => {
+    if (graphql.value) graphql.value.query = v
+  },
+  gqlSyncKey,
+)
+const gqlOp = useDebouncedField(
+  () => graphql.value?.operation_name ?? '',
+  (v) => {
+    if (graphql.value) graphql.value.operation_name = v
+  },
+  gqlSyncKey,
+)
+const binPath = useDebouncedField(
+  () => (bodyAny.value as unknown as { path?: string } | undefined)?.path ?? '',
+  (v) => {
+    const b = bodyAny.value as unknown as { path?: string } | undefined
+    if (b) b.path = v
+  },
+  () => [props.draft?.id, (bodyAny.value as unknown as { path?: string } | undefined)?.path],
+)
 </script>
 
 <template>
@@ -113,18 +197,22 @@ function removeMultipartField(index: number): void {
     />
     <textarea
       v-else-if="activeTab === 'raw'"
-      v-model="bodyAny.raw"
+      :value="rawText.local.value"
       class="rf-input body-input"
       spellcheck="false"
       :placeholder="RAW_PLACEHOLDER[rawSubtype as RawSubtype] ?? '纯文本内容'"
+      @input="rawText.onInput(($event.target as HTMLTextAreaElement).value)"
+      @blur="rawText.flush()"
     ></textarea>
 
     <div v-else-if="activeTab === 'graphql'" class="gql-editor">
       <textarea
-        v-model="graphql.query"
+        :value="gqlQuery.local.value"
         class="rf-input body-input"
         spellcheck="false"
         placeholder="query Hero($id: ID!) { hero(id: $id) { name } }"
+        @input="gqlQuery.onInput(($event.target as HTMLTextAreaElement).value)"
+        @blur="gqlQuery.flush()"
       ></textarea>
       <JsonEditor
         v-model="graphql.variables"
@@ -132,9 +220,11 @@ function removeMultipartField(index: number): void {
         :min-height="80"
       />
       <input
-        v-model="graphql.operation_name"
+        :value="gqlOp.local.value"
         class="rf-input rf-input-sm"
         placeholder="operationName（可选）"
+        @input="gqlOp.onInput(($event.target as HTMLInputElement).value)"
+        @blur="gqlOp.flush()"
       />
     </div>
 
@@ -189,10 +279,12 @@ function removeMultipartField(index: number): void {
         <Icon name="upload" :size="14" /> 文件路径
       </label>
       <input
-        v-model="bodyAny.path"
+        :value="binPath.local.value"
         class="rf-input rf-input-sm binary-input"
         spellcheck="false"
         placeholder="/path/to/file.bin（如 /Users/me/avatar.png）"
+        @input="binPath.onInput(($event.target as HTMLInputElement).value)"
+        @blur="binPath.flush()"
       />
       <p class="binary-hint">
         发送时后端读取该文件的原始字节作为请求体；Content-Type 默认

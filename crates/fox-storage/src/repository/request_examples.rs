@@ -1,14 +1,16 @@
 //! RequestExample（请求用例）仓储：新建 / 列表 / 删除。
 
-use sqlx::SqlitePool;
+use std::collections::HashMap;
+
+use sqlx::{QueryBuilder, SqlitePool};
 use uuid::Uuid;
 
 use fox_core::model::RequestExample;
 use fox_core::Result;
 
 /// 新建请求用例（保存当前请求快照）。
-pub async fn create_request_example(
-    db: &SqlitePool,
+pub async fn create_request_example<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     example: &RequestExample,
 ) -> Result<RequestExample> {
     sqlx::query(
@@ -22,7 +24,7 @@ pub async fn create_request_example(
     .bind(serde_json::to_string(&example.request).map_err(fox_core::AppError::Json)?)
     .bind(example.created_at.to_rfc3339())
     .bind(example.updated_at.to_rfc3339())
-    .execute(db)
+    .execute(executor)
     .await?;
     Ok(example.clone())
 }
@@ -42,6 +44,34 @@ pub async fn list_request_examples(
     rows.into_iter()
         .map(RequestExampleRow::into_model)
         .collect()
+}
+
+/// 批量列出多个接口的请求用例（一次查询按 endpoint 分组；备份去 N+1 用）。
+pub async fn list_request_examples_by_endpoints(
+    db: &SqlitePool,
+    endpoint_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<RequestExample>>> {
+    let mut map: HashMap<Uuid, Vec<RequestExample>> = HashMap::with_capacity(endpoint_ids.len());
+    for chunk in endpoint_ids.chunks(500) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let mut qb = QueryBuilder::new(
+            "SELECT id, endpoint_id, name, request_json, created_at, updated_at
+             FROM request_examples WHERE endpoint_id IN (",
+        );
+        let mut separated = qb.separated(", ");
+        for id in chunk {
+            separated.push_bind(id.to_string());
+        }
+        separated.push_unseparated(") ORDER BY endpoint_id, created_at DESC");
+        let rows: Vec<RequestExampleRow> = qb.build_query_as().fetch_all(db).await?;
+        for row in rows {
+            let model = row.into_model()?;
+            map.entry(model.endpoint_id).or_default().push(model);
+        }
+    }
+    Ok(map)
 }
 
 /// 删除单条请求用例。

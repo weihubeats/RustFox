@@ -165,6 +165,94 @@ req, _ := http.NewRequest("POST", "https://api.example.com/t", strings.NewReader
   })
 })
 
+describe('parseCodeSnippet: Rust reqwest', () => {
+  it('post + header + body 字面量', () => {
+    const src = `
+let client = reqwest::Client::new();
+let res = client.post("https://api.example.com/orders")
+    .header("Content-Type", "application/json")
+    .header("X-Token", "abc")
+    .body("{\\"amount\\":99}")
+    .send()
+    .await?;
+`
+    const parsed = parseCodeSnippet('rust', src)
+    expect(parsed.url).toBe('https://api.example.com/orders')
+    expect(parsed.method).toBe('POST')
+    expect(parsed.headers).toEqual([
+      { key: 'Content-Type', value: 'application/json', enabled: true, description: '' },
+      { key: 'X-Token', value: 'abc', enabled: true, description: '' },
+    ])
+    expect(parsed.body).toEqual({ mode: 'json', raw: '{"amount":99}' })
+  })
+
+  it('bearer_auth 还原为 Bearer 头，basic_auth 还原为 Basic 认证', () => {
+    const src = `
+let res = client.get("https://api.example.com/me")
+    .bearer_auth("tok-1")
+    .send()
+    .await?;
+`
+    const parsed = parseCodeSnippet('rust', src)
+    expect(parsed.method).toBe('GET')
+    expect(parsed.headers).toEqual([
+      { key: 'Authorization', value: 'Bearer tok-1', enabled: true, description: '' },
+    ])
+    const src2 = `client.get("https://api.example.com/x").basic_auth("u", "p").send().await?;`
+    const parsed2 = parseCodeSnippet('rust', src2)
+    expect(parsed2.auth).toEqual({ type: 'basic', username: 'u', password: 'p' })
+  })
+
+  it('Method::PUT 显式形式 + .json 对象', () => {
+    const src = `
+let res = client.request(reqwest::Method::PUT, "https://api.example.com/u/1")
+    .json(&serde_json::json!({"name": "a"}))
+    .send()
+    .await?;
+`
+    const parsed = parseCodeSnippet('rust', src)
+    expect(parsed.method).toBe('PUT')
+    expect(parsed.body).toEqual({ mode: 'json', raw: '{"name":"a"}' })
+  })
+})
+
+describe('parseCodeSnippet: PHP', () => {
+  it('curl_setopt URL + headers + POSTFIELDS', () => {
+    const src = `
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, "https://api.example.com/pay");
+curl_setopt($ch, CURLOPT_HTTPHEADER, array("Content-Type: application/json", "X-Sign: s"));
+curl_setopt($ch, CURLOPT_POSTFIELDS, "{\\"order\\":1}");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+`
+    const parsed = parseCodeSnippet('php', src)
+    expect(parsed.url).toBe('https://api.example.com/pay')
+    expect(parsed.method).toBe('POST')
+    expect(parsed.headers).toEqual([
+      { key: 'Content-Type', value: 'application/json', enabled: true, description: '' },
+      { key: 'X-Sign', value: 's', enabled: true, description: '' },
+    ])
+    expect(parsed.body).toEqual({ mode: 'json', raw: '{"order":1}' })
+  })
+
+  it('Guzzle post + headers/json', () => {
+    const src = `
+$client = new Client();
+$res = $client->post("https://api.example.com/g", [
+    'headers' => ['X-A' => 'b'],
+    'json' => ['k' => 'v'],
+]);
+`
+    const parsed = parseCodeSnippet('php', src)
+    expect(parsed.url).toBe('https://api.example.com/g')
+    expect(parsed.method).toBe('POST')
+    expect(parsed.headers).toEqual([
+      { key: 'X-A', value: 'b', enabled: true, description: '' },
+    ])
+    expect(parsed.body).toEqual({ mode: 'json', raw: '{"k":"v"}' })
+  })
+})
+
 describe('parseCodeSnippet: 失败路径', () => {
   it('找不到 URL 时抛出中文错误', () => {
     expect(() => parseCodeSnippet('python', 'resp = requests.get(BASE_URL)')).toThrow(/URL/)

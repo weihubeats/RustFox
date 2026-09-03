@@ -3,20 +3,25 @@
 use std::collections::HashMap;
 
 use fox_http::client::HttpResponseData;
-use jsonpath_rust::{JsonPathFinder, JsonPathInst};
+use jsonpath_rust::path::config::JsonPathConfig;
+use jsonpath_rust::JsonPathInst;
 use serde_json::Value;
 
 use crate::config::ExtractSpec;
 
 /// JSONPath 提取：取第一个匹配项，转字符串；无匹配返回 None。
+///
+/// 引用式查询（`find_slice(&inst, json, cfg)` 返回指向原 JSON 的指针），
+/// 每个 extract spec 不再 `Box::new(json.clone())` 全拷贝一次 body。
 pub fn extract_body_json(body_value: Option<&Value>, path: &str) -> Option<String> {
     let json = body_value?;
     let inst: JsonPathInst = path.parse().ok()?;
-    let finder = JsonPathFinder::new(Box::new(json.clone()), Box::new(inst));
-    let matched = finder.find_slice().into_iter().next()?;
-    let value = matched.to_data();
-    match value {
-        Value::String(s) => Some(s),
+    let matched = inst
+        .find_slice(json, JsonPathConfig::default())
+        .into_iter()
+        .next()?;
+    match &*matched {
+        Value::String(s) => Some(s.clone()),
         // Null 视为未提取到（缺字段）。
         Value::Null => None,
         other => Some(other.to_string()),

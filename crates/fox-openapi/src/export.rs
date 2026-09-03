@@ -55,6 +55,17 @@ pub fn export_project(
     endpoints: &[Endpoint],
     examples_by_endpoint: &HashMap<uuid::Uuid, Vec<ResponseExample>>,
 ) -> Result<String, AppError> {
+    let value = export_project_value(project_name, endpoints, examples_by_endpoint)?;
+    serde_json::to_string_pretty(&value).map_err(|e| AppError::OpenApi(format!("导出失败：{e}")))
+}
+
+/// 将一组接口导出为 OpenAPI 结构值（JSON/YAML 双格式共用，避免
+/// 「结构 → JSON 文本 → Value → YAML」的双重编解码）。
+pub fn export_project_value(
+    project_name: &str,
+    endpoints: &[Endpoint],
+    examples_by_endpoint: &HashMap<uuid::Uuid, Vec<ResponseExample>>,
+) -> Result<serde_json::Value, AppError> {
     let mut path_map: IndexMap<String, PathItem> = IndexMap::new();
 
     for ep in endpoints {
@@ -97,7 +108,7 @@ pub fn export_project(
         extensions: IndexMap::new(),
     };
 
-    serde_json::to_string_pretty(&spec).map_err(|e| AppError::OpenApi(format!("导出失败：{e}")))
+    serde_json::to_value(&spec).map_err(|e| AppError::OpenApi(format!("导出失败：{e}")))
 }
 
 fn build_operation(ep: &Endpoint, examples: Option<&Vec<ResponseExample>>) -> Operation {

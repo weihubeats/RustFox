@@ -8,8 +8,8 @@ use fox_core::{AppError, Result};
 
 use super::rows::MockRuleRow;
 
-pub async fn create_mock_rule(
-    db: &SqlitePool,
+pub async fn create_mock_rule<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     project_id: Uuid,
     rule: &MockRule,
 ) -> Result<MockRule> {
@@ -17,9 +17,10 @@ pub async fn create_mock_rule(
     sqlx::query(
         "INSERT INTO mock_rules
          (id, project_id, endpoint_id, name, method, path, match_query_json, match_headers_json,
-          response_status, response_headers_json, response_body_template, delay_ms, enabled, priority,
+          response_status, response_headers_json, response_body_template, delay_ms,
+          fault_rate_pct, fault_status, enabled, priority,
           created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
             project_id = excluded.project_id,
             endpoint_id = excluded.endpoint_id,
@@ -32,6 +33,8 @@ pub async fn create_mock_rule(
             response_headers_json = excluded.response_headers_json,
             response_body_template = excluded.response_body_template,
             delay_ms = excluded.delay_ms,
+            fault_rate_pct = excluded.fault_rate_pct,
+            fault_status = excluded.fault_status,
             enabled = excluded.enabled,
             priority = excluded.priority,
             updated_at = excluded.updated_at",
@@ -48,11 +51,13 @@ pub async fn create_mock_rule(
     .bind(&row.response_headers_json)
     .bind(&row.response_body_template)
     .bind(row.delay_ms)
+    .bind(row.fault_rate_pct)
+    .bind(row.fault_status)
     .bind(row.enabled)
     .bind(row.priority)
     .bind(row.created_at.clone())
     .bind(row.updated_at.clone())
-    .execute(db)
+    .execute(executor)
     .await?;
     let _ = project_id;
     Ok(rule.clone())
@@ -61,7 +66,8 @@ pub async fn create_mock_rule(
 pub async fn list_mock_rules(db: &SqlitePool, project_id: Uuid) -> Result<Vec<MockRule>> {
     let rows: Vec<MockRuleRow> = sqlx::query_as(
         "SELECT id, project_id, endpoint_id, name, method, path, match_query_json, match_headers_json,
-                response_status, response_headers_json, response_body_template, delay_ms, enabled, priority,
+                response_status, response_headers_json, response_body_template, delay_ms,
+                fault_rate_pct, fault_status, enabled, priority,
                 created_at, updated_at
          FROM mock_rules WHERE project_id = ? ORDER BY priority DESC, created_at",
     )
@@ -76,6 +82,7 @@ pub async fn update_mock_rule(db: &SqlitePool, rule: &MockRule) -> Result<MockRu
     let result = sqlx::query(
         "UPDATE mock_rules SET name = ?, method = ?, path = ?, match_query_json = ?, match_headers_json = ?,
                 response_status = ?, response_headers_json = ?, response_body_template = ?, delay_ms = ?,
+                fault_rate_pct = ?, fault_status = ?,
                 enabled = ?, priority = ?, updated_at = ?
          WHERE id = ?",
     )
@@ -88,6 +95,8 @@ pub async fn update_mock_rule(db: &SqlitePool, rule: &MockRule) -> Result<MockRu
     .bind(&row.response_headers_json)
     .bind(&row.response_body_template)
     .bind(row.delay_ms)
+    .bind(row.fault_rate_pct)
+    .bind(row.fault_status)
     .bind(row.enabled)
     .bind(row.priority)
     .bind(row.updated_at.clone())
@@ -109,8 +118,11 @@ pub async fn delete_mock_rule(db: &SqlitePool, rule_id: Uuid) -> Result<()> {
 }
 
 /// 带 id：原样写入 Mock 规则。
-pub async fn save_mock_rule(db: &SqlitePool, rule: &MockRule) -> Result<()> {
-    create_mock_rule(db, rule.project_id, rule)
+pub async fn save_mock_rule<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    rule: &MockRule,
+) -> Result<()> {
+    create_mock_rule(executor, rule.project_id, rule)
         .await
         .map(|_| ())
 }

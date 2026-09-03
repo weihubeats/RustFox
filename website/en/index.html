@@ -5,7 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RustFox — Lightweight cross-platform API client</title>
 <meta name="description" content="A ~10 MB lightweight cross-platform API debugging client. Requests, mock server, automated testing and load testing in one installer. Local-first — your data stays yours.">
+<link rel="canonical" href="https://weihubeats.github.io/RustFox/en/">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RustFox">
+<meta property="og:title" content="RustFox — Lightweight cross-platform API client">
+<meta property="og:description" content="A ~10 MB lightweight cross-platform API debugging client. Requests, mock, testing and load testing in one installer.">
+<meta property="og:image" content="https://weihubeats.github.io/RustFox/assets/home.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RustFox — Lightweight cross-platform API client">
+<meta name="twitter:description" content="A ~10 MB lightweight cross-platform API client, one installer and ready to run.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦊</text></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RustFox","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","offers":{"@type":"Offer","price":"0"},"license":"https://github.com/weihubeats/RustFox/blob/main/LICENSE"}
+</script>
 <style>
 :root {
   --bg: #0d1117;
@@ -112,7 +125,20 @@ footer a:hover { color: var(--text); }
 @media (max-width: 720px) {
   .nav-links { display: none; }
   .hero { padding: 56px 0 40px; }
+  .mobile-menu { display: block; }
 }
+.mobile-menu { display: none; position: relative; }
+.mobile-menu summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 14px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.mobile-menu summary::-webkit-details-marker { display: none; }
+.mobile-menu .menu { position: absolute; right: 0; top: 44px; min-width: 180px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; }
+.mobile-menu .menu a { color: var(--muted); padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.mobile-menu .menu a:hover { color: var(--text); background: rgba(255,255,255,.04); text-decoration: none; }
+.faq { display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin: 0 auto; }
+.faq details { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+.faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.faq details p { margin-top: 10px; font-size: 14px; color: var(--muted); }
+.faq code { background: rgba(255,255,255,.06); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+.codeblock { background: #0a0d12; border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-x: auto; max-width: 760px; margin: 24px auto 0; color: #c9d1d9; white-space: pre; }
 </style>
 </head>
 <body>
@@ -123,11 +149,26 @@ footer a:hover { color: var(--text); }
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#compare">Compare</a>
+      <a href="#agent">AI integration</a>
       <a href="#screenshots">Screenshots</a>
+      <a href="#faq">FAQ</a>
       <a href="#download">Download</a>
       <a href="../index.html">中文</a>
       <a href="https://github.com/weihubeats/RustFox">GitHub</a>
     </div>
+    <details class="mobile-menu">
+      <summary aria-label="Open navigation menu">Menu ☰</summary>
+      <div class="menu">
+        <a href="#features">Features</a>
+        <a href="#compare">Compare</a>
+        <a href="#agent">AI integration</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#faq">FAQ</a>
+        <a href="#download">Download</a>
+        <a href="../index.html">中文</a>
+        <a href="https://github.com/weihubeats/RustFox">GitHub</a>
+      </div>
+    </details>
   </div>
 </nav>
 
@@ -165,9 +206,13 @@ footer a:hover { color: var(--text); }
     <p class="section-sub">Rust LTO + a single-process model + zero-copy SQLite storage.</p>
     <div class="features">
       <div class="feature"><div class="icon">🚀</div><h3>Requests & editing</h3><p>8 HTTP methods, 6 body types; paste-to-import cURL; {{name}} variables resolved everywhere; per-tab drafts.</p></div>
-      <div class="feature"><div class="icon">🔐</div><h3>Auth & security</h3><p>API Key / Basic / Bearer / OAuth2; environment variable values encrypted with AES-256-GCM.</p></div>
+      <div class="feature"><div class="icon">🔐</div><h3>Auth & security</h3><p>API Key / Basic / Bearer / OAuth2 (all four flows); values encrypted with AES-256-GCM; cookie replay + global proxy.</p></div>
       <div class="feature"><div class="icon">🧪</div><h3>Mock server</h3><p>Local axum mock with port auto-probing, fully offline; rules first, template variables for dynamic responses.</p></div>
-      <div class="feature"><div class="icon">✅</div><h3>Testing & load testing</h3><p>JSON test scripts: variable injection, extraction, assertions; load tests chart QPS and P50/P90/P99.</p></div>
+      <div class="feature"><div class="icon">✅</div><h3>Testing & load testing</h3><p>JSON test scripts + multi-case drawer: variable injection, extraction, assertions; load tests chart QPS and P50/P90/P99.</p></div>
+      <div class="feature"><div class="icon">🎨</div><h3>Appearance & preferences</h3><p>System / dark / light themes; configurable request timeout; auto-increment sequences; multi-project tabs keep drafts.</p></div>
+      <div class="feature"><div class="icon">📡</div><h3>GraphQL workbench</h3><p>Dedicated debugging view: Query / Variables / OperationName, with data and errors rendered per GraphQL semantics.</p></div>
+      <div class="feature"><div class="icon">⚡</div><h3>Realtime debugging</h3><p>WebSocket send/receive / Ping / auto-reconnect plus SSE subscribe and frame parsing, in a pop-out window.</p></div>
+      <div class="feature"><div class="icon">🔁</div><h3>Environment interop</h3><p>Environment import/export (native / Postman); OpenAPI 3.1 auto-normalized on import; Rust / PHP snippets importable too.</p></div>
       <div class="feature"><div class="icon">🔄</div><h3>Import / export</h3><p>OpenAPI 3.x / Swagger 2.0 / Postman v2.1 interop; Markdown docs; client code in cURL / JavaScript / Java / Go / Rust / Python / PHP with syntax highlighting.</p></div>
       <div class="feature"><div class="icon">🤖</div><h3>AI Agent integration</h3><p>Built-in MCP server and local HTTP control plane: save a cURL or a Java method as an endpoint with one sentence.</p></div>
     </div>
@@ -192,6 +237,23 @@ footer a:hover { color: var(--text); }
   </div>
 </section>
 
+<section id="agent">
+  <div class="container">
+    <h2>AI Agent integration</h2>
+    <p class="section-sub">The app starts a loopback control plane on launch — save a cURL or backend snippet as an endpoint with one sentence. Full guide: <a href="https://github.com/weihubeats/RustFox/blob/main/docs/en/AGENT.md">docs/en/AGENT.md</a>.</p>
+    <div class="features">
+      <div class="feature"><div class="icon">🤖</div><h3>MCP server (recommended)</h3><p>Configure the bundled <code>rustfox-mcp</code> absolute path once in Claude Code / Cursor and get four tools: save_curl / list_projects / list_endpoints / agent_info.</p></div>
+      <div class="feature"><div class="icon">🔌</div><h3>Direct HTTP</h3><p>Any HTTP-capable tool can call the <code>127.0.0.1:4110</code> control plane: POST /agent/curl to import, GET /agent/projects, /agent/endpoints, /agent/health to query.</p></div>
+      <div class="feature"><div class="icon">🔒</div><h3>Local-first security</h3><p>Loopback-only binding; random UUID token (0600); import is the only write op; existing base_url values are never overwritten.</p></div>
+    </div>
+    <div class="codeblock">{
+  "mcpServers": {
+    "rustfox": { "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" }
+  }
+}</div>
+  </div>
+</section>
+
 <section id="screenshots">
   <div class="container">
     <h2>A quick look</h2>
@@ -205,6 +267,21 @@ footer a:hover { color: var(--text); }
         <img src="../assets/api-home.png" alt="RustFox workspace" loading="lazy">
         <figcaption>Workspace — request editing / syntax highlighting / mock / testing / load testing</figcaption>
       </figure>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container">
+    <h2>FAQ</h2>
+    <p class="section-sub">More in the <a href="https://github.com/weihubeats/RustFox/blob/main/docs/en/USER_GUIDE.md">user guide FAQ</a>.</p>
+    <div class="faq">
+      <details open><summary>macOS says the app is "damaged"?</summary><p>It isn't — that's Gatekeeper blocking an un-notarized app. Move it to Applications, run <code>xattr -cr /Applications/RustFox.app</code>, then right-click → Open.</p></details>
+      <details><summary>Windows SmartScreen warning?</summary><p>Click "More info → Run anyway". The installer has no code-signing certificate yet — normal for open-source apps.</p></details>
+      <details><summary>Environment variables look garbled?</summary><p>The data-dir <code>master.key</code> was lost. Restore from a backup JSON (Settings → Restore).</p></details>
+      <details><summary>MCP reports spawn ENOENT?</summary><p>The binary isn't on PATH. Since v0.0.10 use the absolute path inside the install bundle (see the agent section above), not a bare <code>rustfox-mcp</code>.</p></details>
+      <details><summary>Dev build can't see release data?</summary><p>Expected: dev builds use the isolated <code>RustFox-dev</code> directory. Move data via backup JSON.</p></details>
+      <details><summary>How do I report a problem?</summary><p>The top-bar "Feedback" button generates a local diagnostics report — attach it to a GitHub Issue.</p></details>
     </div>
   </div>
 </section>
@@ -233,17 +310,17 @@ footer a:hover { color: var(--text); }
     <h2>Documentation</h2>
     <p class="section-sub">Bilingual docs, versioned with the repository.</p>
     <div class="download-cards">
-      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/README.md">
-        <div class="os">📖</div><h3>README (中文)</h3><p>Features / downloads / building</p>
-      </a>
-      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/README_EN.md">
-        <div class="os">📘</div><h3>README (English)</h3><p>Features / downloads / building</p>
-      </a>
       <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/en/USER_GUIDE.md">
-        <div class="os">📗</div><h3>User Guide</h3><p>Install / requests / mock / testing</p>
+        <div class="os">📖</div><h3>User Guide</h3><p>Install / requests / mock / testing / preferences</p>
+      </a>
+      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/README.md">
+        <div class="os">📘</div><h3>README (中文)</h3><p>Features / downloads / building</p>
       </a>
       <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/en/AGENT.md">
         <div class="os">🤖</div><h3>Agent Integration</h3><p>MCP / HTTP control plane</p>
+      </a>
+      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/CHANGELOG.md">
+        <div class="os">📗</div><h3>Changelog</h3><p>What's new in each version</p>
       </a>
     </div>
   </div>
@@ -251,7 +328,7 @@ footer a:hover { color: var(--text); }
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/weihubeats/RustFox">GitHub</a> · <a href="https://github.com/weihubeats/RustFox/releases">Releases</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/LICENSE">Apache-2.0 License</a></p>
+    <p><a href="https://github.com/weihubeats/RustFox">GitHub</a> · <a href="https://github.com/weihubeats/RustFox/releases">Releases</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/docs/en/USER_GUIDE.md">User Guide</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/docs/en/AGENT.md">Agent Integration</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/LICENSE">Apache-2.0 License</a></p>
     <p>Built with 🦊 &amp; Rust</p>
   </div>
 </footer>

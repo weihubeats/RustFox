@@ -75,6 +75,21 @@ export type AuthSpec =
       redirect_uri: string
       token?: OAuth2Token
     }
+  /** HTTP Digest 认证（RFC 7616）：401 质询后自动应答重发。 */
+  | { type: 'digest'; username: string; password: string }
+  /** Hawk 认证（HMAC-SHA-256，每次发送实时计算 mac）。 */
+  | { type: 'hawk'; key_id: string; key: string }
+  /** AWS Signature V4（兼容 SigV4 风格网关）。 */
+  | {
+      type: 'awsv4'
+      access_key: string
+      secret_key: string
+      region: string
+      service: string
+      session_token?: string
+    }
+  /** 通用 HMAC AK-SK 加签（X-Access-Key / X-Timestamp / X-Nonce / X-Signature）。 */
+  | { type: 'hmac'; access_key: string; secret_key: string }
 
 /** OAuth2 令牌（`expires_at` 为 UTC 时刻）。 */
 export interface OAuth2Token {
@@ -146,6 +161,8 @@ export interface RequestSpec {
   timeout_ms: number | null
   follow_redirects: boolean
   tests: unknown | null
+  /** 禁用 Cookie 自动回放（默认 false = 携带 Jar 中的同域 Cookie）。 */
+  disable_cookies?: boolean
 }
 
 /** 自增序列（Rust `SeqCounter`）；value 为下一次输出值，key 为空表示全局 `$seq`。 */
@@ -300,6 +317,8 @@ export interface CurlParsed {
   headers: KeyValue[]
   body: BodySpec | null
   auth: AuthSpec
+  /** 被忽略的参数原文（去重保序；旧后端返回缺失时按空处理）。 */
+  ignored?: string[]
 }
 
 /** 响应示例（Rust `ResponseExample`，fox-tauri `list_examples` 等返回）。 */
@@ -376,10 +395,19 @@ export interface BackupSummary {
   environments: number
   mock_rules: number
   response_examples: number
+  request_examples?: number
+  /** 恢复时应用的全局设置键（代理/超时/序列，未配置才应用）。 */
+  settings_applied?: string[]
+  /** 已有配置而跳过的全局设置键。 */
+  settings_skipped?: string[]
+  /** 按 key 补缺合并的全局变量数。 */
+  global_variables_merged?: number
+  /** 按 key 补缺合并的全局参数数。 */
+  global_params_merged?: number
 }
 
-/** 导入文档格式（Rust `ImportFormat`）。 */
-export type ImportFormat = 'openapi30' | 'swagger20' | 'postman21' | 'unknown'
+/** 导入文档格式（Rust `ImportFormat`，lowercase 序列化）。 */
+export type ImportFormat = 'openapi30' | 'openapi31' | 'swagger20' | 'postman21' | 'unknown'
 
 /** 导入的示例（Rust `ImportedExample`）。 */
 export interface ImportedExample {
@@ -439,7 +467,85 @@ export interface LoadResult {
   p99_ms: number
   rps: number
   errors: string[]
+  /** 是否被用户中途取消（取消时 total < 请求的 total）。 */
+  cancelled?: boolean
 }
+
+/** 压测进度（事件 `fox:load-progress` 载荷，Rust `LoadProgress`）。 */
+export interface LoadProgress {
+  done: number
+  total: number
+  ok: number
+  failed: number
+}
+
+/** 集合测试结果（Rust `CollectionResult`，results 与输入同序）。 */
+export interface CollectionResult {
+  results: EndpointResult[]
+  cancelled: boolean
+}
+
+/** 日志文件元信息（`log_files` 返回）。 */
+export interface LogFile {
+  name: string
+  size_bytes: number
+  modified_at: string
+}
+
+/** Jar 中的 Cookie 条目（`cookie_list` 返回）。 */
+export interface CookieEntry {
+  name: string
+  value: string
+  domain: string
+  path: string
+  /** RFC3339 到期时间；会话 Cookie 为 null。 */
+  expires_at: string | null
+  secure: boolean
+  http_only: boolean
+}
+
+/** 集合测试进度（事件 `fox:test-progress` 载荷）。 */
+export interface TestCollectionProgress {
+  done: number
+  total: number
+}
+
+/** 环境交换格式（`export_environment` 入参）。 */
+export type EnvExchangeFormat = 'rustfox_json' | 'postman_json'
+
+/** 环境导出结果（内容 + 建议文件名）。 */
+export interface ExportedEnv {
+  content: string
+  suggested_name: string
+}
+
+/** 环境导入预览（不落库；前端确认后经 saveEnvironment 落库）。 */
+export interface ImportedEnv {
+  /** 'rustfox' | 'postman' */
+  format: string
+  name: string
+  variables: EnvironmentVariable[]
+  modules: ModuleUrlConfig[]
+}
+
+/** WS 事件（事件 `fox:ws-event` 载荷）。 */
+export type WsEventPayload =
+  | { kind: 'state'; connection_id: string; state: string }
+  | {
+      kind: 'message'
+      connection_id: string
+      direction: 'in'
+      frame: 'text' | 'binary' | 'ping'
+      text: string
+    }
+  | { kind: 'failed'; connection_id: string; message: string }
+
+/** SSE 事件（事件 `fox:sse-event` 载荷；chunk 为原始文本块）。 */
+export type SseEventPayload =
+  | { kind: 'open'; connection_id: string }
+  | { kind: 'chunk'; connection_id: string; chunk: string }
+  | { kind: 'error'; connection_id: string; message: string }
+  | { kind: 'closed'; connection_id: string }
 
 /** Mock 匹配项（Rust `MockMatchItem`，query / header 匹配键值）。 */
 export interface MockMatchItem {
@@ -461,6 +567,10 @@ export interface MockRule {
   response_headers: Record<string, string>
   response_body_template: string
   delay_ms: number
+  /** 故障注入比例（0-100，0 = 关闭）。旧后端返回缺失时按 0 处理。 */
+  fault_rate_pct?: number
+  /** 故障注入状态码（默认 500）。 */
+  fault_status?: number
   enabled: boolean
   priority: number
   created_at: string

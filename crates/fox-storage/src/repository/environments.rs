@@ -9,7 +9,7 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use fox_core::model::{Environment, ModuleUrlConfig};
+use fox_core::model::{Environment, ModuleUrlConfig, Project};
 use fox_core::{AppError, Result};
 
 use super::projects;
@@ -156,9 +156,19 @@ pub async fn list_environments(db: &SqlitePool) -> Result<Vec<Environment>> {
 /// 保存前同样做一次项目模块同步（保证新建项目出现在每个环境的模块里），
 /// 返回同步后的完整环境（模块表已含全部项目），供调用方直接回填 UI。
 pub async fn save_environment(db: &SqlitePool, env: &Environment) -> Result<Environment> {
-    let mut model = env.clone();
     let projects = projects::list_projects(db).await?;
-    sync_modules_with_projects(&mut model.modules, &projects);
+    save_environment_with_projects(db, env, &projects).await
+}
+
+/// 带预取项目列表的保存（事务内复用：调用方先 `list_projects(tx.as_mut())`，
+/// 再逐环境 `save_environment_with_projects(tx.as_mut(), …)`，executor 每次现取）。
+pub async fn save_environment_with_projects<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    env: &Environment,
+    projects: &[Project],
+) -> Result<Environment> {
+    let mut model = env.clone();
+    sync_modules_with_projects(&mut model.modules, projects);
     let row = EnvironmentRow::from_model(&model);
     sqlx::query(
         "INSERT INTO environments (id, name, variables_json, modules_json, created_at, updated_at)
@@ -175,7 +185,7 @@ pub async fn save_environment(db: &SqlitePool, env: &Environment) -> Result<Envi
     .bind(row.modules_json.clone())
     .bind(row.created_at.clone())
     .bind(row.updated_at.clone())
-    .execute(db)
+    .execute(executor)
     .await?;
     Ok(model)
 }

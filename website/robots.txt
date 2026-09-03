@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://weihubeats.github.io/RustFox/sitemap.xml

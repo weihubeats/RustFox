@@ -155,7 +155,10 @@ pub async fn list_endpoints(db: &SqlitePool, project_id: Uuid) -> Result<Vec<End
 }
 
 /// 带 id：原样写入接口（upsert，同一 id 重复保存时更新而非报主键冲突）。
-pub async fn save_endpoint(db: &SqlitePool, endpoint: &Endpoint) -> Result<()> {
+pub async fn save_endpoint<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    endpoint: &Endpoint,
+) -> Result<()> {
     let row = EndpointRow::from_model(endpoint);
     sqlx::query(
         "INSERT INTO endpoints (id, project_id, folder_id, name, method, path, description, status, sort_order, request_json, created_at, updated_at)
@@ -184,7 +187,7 @@ pub async fn save_endpoint(db: &SqlitePool, endpoint: &Endpoint) -> Result<()> {
     .bind(&row.request_json)
     .bind(row.created_at.clone())
     .bind(row.updated_at.clone())
-    .execute(db)
+    .execute(executor)
     .await?;
     Ok(())
 }

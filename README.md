@@ -75,6 +75,10 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 ### 更多
 
 - GraphQL 调试视图
+- 实时调试：WebSocket 收发 / SSE 订阅（可弹出独立窗口）
+- 环境导入导出（RustFox 原生 / Postman）、OpenAPI 3.1 导入
+- Cookie 管理（查看/按域清理/单请求禁用）、Mock 热重载与故障注入
+- 删除撤销、目录树多选批量操作、快捷键帮助（Ctrl+/）、设置页日志查看
 - 备份（JSON）与恢复（ID 全量重映射，绝不覆盖现有数据）
 - 深色 / 浅色 / 跟随系统主题
 
@@ -174,7 +178,9 @@ scripts/package-tauri.sh                # 一键打包分发包
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构总览（Tauri 2 + Vue 3，含架构图与界面布局图） |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 用户手册 |
 | [docs/AGENT.md](docs/AGENT.md) | AI Agent 集成（MCP / HTTP 控制面） |
-| [docs/SPEC.md](docs/SPEC.md) | 详细规范（模型 / 数据库 / 命令） |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变化速览 |
+| [docs/README.md](docs/README.md) | 文档索引（用户 / 开发者 / 运维分流） |
+| [docs/SPEC.md](docs/SPEC.md) | 历史规范（已冻结，仅追溯用） |
 | [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md) | 手动验收清单 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 发布与部署 |
 | [docs/MILESTONES.md](docs/MILESTONES.md) | 里程碑总览 |

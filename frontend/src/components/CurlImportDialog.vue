@@ -110,6 +110,12 @@ function importToEditor(): void {
         <span class="preview-label">认证</span>
         <span>{{ parsed.auth.type }}</span>
       </div>
+      <div v-if="parsed.ignored?.length" class="preview-ignored">
+        <span class="preview-label">已忽略</span>
+        <span class="ignored-text" :title="`以下参数导入时未生效：${parsed.ignored.join(' ')}`">
+          {{ parsed.ignored.join(' ') }}（未生效）
+        </span>
+      </div>
     </div>
 
     <template #footer>
@@ -201,6 +207,21 @@ function importToEditor(): void {
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.preview-ignored {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+.ignored-text {
+  font-family: var(--font-mono);
   word-break: break-all;
 }
 </style>

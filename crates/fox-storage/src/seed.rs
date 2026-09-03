@@ -543,6 +543,8 @@ fn mock_rule(
         response_headers: HashMap::new(),
         response_body_template: body.to_string(),
         delay_ms,
+        fault_rate_pct: 0,
+        fault_status: 500,
         enabled: true,
         priority: 0,
         created_at: now,

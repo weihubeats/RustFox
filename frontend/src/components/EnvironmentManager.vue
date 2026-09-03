@@ -15,17 +15,23 @@
  * 所有编辑作用于本地副本，保存时一次落库（store.updateEnvironment upsert）。
  */
 import { computed, ref, watch } from 'vue'
+import { join } from '@tauri-apps/api/path'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { defaultModule, envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
+import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Modal from './ui/Modal.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 import type {
+  EnvExchangeFormat,
   Environment,
   EnvironmentVariable,
   GlobalParam,
+  ImportedEnv,
   ModuleUrlConfig,
 } from '../types/foxApi'
 
@@ -34,6 +40,7 @@ const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
 const store = useWorkspaceStore()
 const toast = useToast()
+const api = useFoxApi()
 
 const envs = ref<Environment[]>([])
 const selected = ref<Environment | null>(null)
@@ -199,6 +206,112 @@ function addEnvironment(): void {
   envs.value.push(env)
   select(env)
   dirty.value = true
+}
+
+// ---------- 环境导入导出（RustFox 原生 JSON / Postman Environment） ----------
+const EXCHANGE_FORMATS = [
+  { value: 'rustfox_json', label: 'RustFox' },
+  { value: 'postman_json', label: 'Postman' },
+]
+const exchangeFormat = ref<EnvExchangeFormat>('rustfox_json')
+const exchanging = ref(false)
+
+/** 导出选中环境：经目录选择框落盘（变量以明文落盘，与备份 JSON 口径一致）。 */
+async function exportSelected(): Promise<void> {
+  if (!selected.value || exchanging.value) return
+  if (dirty.value) {
+    toast.warning('有未保存的修改，导出的是已保存版本')
+  }
+  exchanging.value = true
+  try {
+    const doc = await api.exportEnvironment(selected.value.id, exchangeFormat.value)
+    const dir = await openDialog({ directory: true, title: '选择环境导出目录' })
+    if (!dir || Array.isArray(dir)) return
+    const path = await join(dir, doc.suggested_name)
+    await api.writeTextFile(path, doc.content)
+    toast.success('环境导出成功', { message: doc.suggested_name })
+  } catch (err) {
+    toast.error('环境导出失败', { message: err instanceof Error ? err.message : String(err) })
+  } finally {
+    exchanging.value = false
+  }
+}
+
+const importOpen = ref(false)
+const importText = ref('')
+const importPreview = ref<ImportedEnv | null>(null)
+const importError = ref('')
+const importing = ref(false)
+
+function openImport(): void {
+  importText.value = ''
+  importPreview.value = null
+  importError.value = ''
+  importOpen.value = true
+}
+
+async function importFromFile(): Promise<void> {
+  try {
+    const file = await openDialog({ multiple: false, title: '选择环境文件' })
+    if (!file || Array.isArray(file)) return
+    importText.value = await api.readTextFile(file)
+    await previewImport()
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function previewImport(): Promise<void> {
+  importError.value = ''
+  importPreview.value = null
+  if (!importText.value.trim()) {
+    importError.value = '请粘贴环境 JSON 或从文件读取'
+    return
+  }
+  importing.value = true
+  try {
+    importPreview.value = await api.importEnvironment(importText.value)
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    importing.value = false
+  }
+}
+
+/** 确认导入：重名自动加「导入」后缀，以新环境落库并选中。 */
+async function confirmImport(): Promise<void> {
+  const preview = importPreview.value
+  if (!preview || importing.value) return
+  importing.value = true
+  try {
+    const taken = new Set(envs.value.map((e) => e.name))
+    let name = preview.name
+    if (taken.has(name)) name = `${name} 导入`
+    let n = 2
+    while (taken.has(name)) {
+      name = `${preview.name} 导入 ${n++}`
+    }
+    const now = new Date().toISOString()
+    const env: Environment = {
+      id: crypto.randomUUID(),
+      name,
+      modules: preview.modules.map((m) => ({ ...m, id: crypto.randomUUID(), project_id: null })),
+      variables: preview.variables,
+      created_at: now,
+      updated_at: now,
+    }
+    const saved = await store.updateEnvironment(env, { silent: true })
+    envs.value.push(saved)
+    select(saved)
+    importOpen.value = false
+    toast.success(`环境导入成功：${saved.name}`, {
+      message: `${preview.variables.length} 变量 · ${preview.modules.length} 模块（${preview.format}）`,
+    })
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    importing.value = false
+  }
 }
 
 // ---------- 模块（Module Base URLs） ----------
@@ -440,6 +553,32 @@ async function remove(env: Environment): Promise<void> {
             <button class="rf-btn rf-btn-sm em-add" type="button" @click="addEnvironment">
               <Icon name="plus" :size="13" /> 新建环境
             </button>
+            <div class="em-exchange-row">
+              <CustomSelect
+                v-model="exchangeFormat"
+                :options="EXCHANGE_FORMATS"
+                size="sm"
+                class="em-exchange-select"
+              />
+              <button
+                class="rf-btn rf-btn-sm"
+                type="button"
+                :disabled="!selected || exchanging"
+                title="导出选中环境为文件"
+                @click="exportSelected"
+              >
+                <Icon name="upload" :size="13" /> 导出
+              </button>
+              <button
+                class="rf-btn rf-btn-sm"
+                type="button"
+                :disabled="exchanging"
+                title="从 RustFox / Postman 环境文件导入"
+                @click="openImport"
+              >
+                <Icon name="download" :size="13" /> 导入
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -751,6 +890,63 @@ async function remove(env: Environment): Promise<void> {
       </button>
     </template>
   </Modal>
+
+  <!-- 环境导入 -->
+  <Modal
+    v-if="importOpen"
+    :open="importOpen"
+    title="导入环境"
+    width="560px"
+    @update:open="importOpen = $event"
+    @close="importOpen = false"
+  >
+    <p class="em-import-hint">粘贴 RustFox 环境 JSON 或 Postman Environment，或从文件读取（自动识别格式）。</p>
+    <textarea
+      v-model="importText"
+      class="rf-input em-import-input"
+      spellcheck="false"
+      placeholder='{"name": "prod", "values": [{"key": "base_url", "value": "https://…"}]}'
+    ></textarea>
+    <div class="em-import-actions">
+      <button class="rf-btn rf-btn-sm" type="button" @click="importFromFile">
+        <Icon name="folder" :size="13" /> 从文件读取
+      </button>
+      <button
+        class="rf-btn rf-btn-sm rf-btn-primary"
+        type="button"
+        :disabled="importing || !importText.trim()"
+        @click="previewImport"
+      >
+        {{ importing ? '解析中…' : '解析预览' }}
+      </button>
+    </div>
+    <p v-if="importError" class="em-import-error">{{ importError }}</p>
+    <div v-if="importPreview" class="em-import-preview">
+      <div class="em-import-row">
+        <span class="em-import-label">名称</span>
+        <span>{{ importPreview.name }}</span>
+      </div>
+      <div class="em-import-row">
+        <span class="em-import-label">格式</span>
+        <span>{{ importPreview.format === 'postman' ? 'Postman' : 'RustFox' }}</span>
+      </div>
+      <div class="em-import-row">
+        <span class="em-import-label">内容</span>
+        <span>{{ importPreview.variables.length }} 变量 · {{ importPreview.modules.length }} 模块</span>
+      </div>
+    </div>
+    <template #footer>
+      <button class="rf-btn" type="button" @click="importOpen = false">取消</button>
+      <button
+        class="rf-btn rf-btn-primary"
+        type="button"
+        :disabled="!importPreview || importing"
+        @click="confirmImport"
+      >
+        {{ importing ? '导入中…' : '导入为新环境' }}
+      </button>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
@@ -969,6 +1165,64 @@ async function remove(env: Environment): Promise<void> {
   width: 100%;
   border-style: dashed;
   color: var(--text-2);
+}
+
+/* 导入导出行：格式选择 + 导入/导出按钮 */
+.em-exchange-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.em-exchange-select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 环境导入弹窗 */
+.em-import-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.em-import-input {
+  width: 100%;
+  min-height: 110px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+.em-import-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.em-import-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-size: 12px;
+}
+.em-import-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.em-import-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.em-import-label {
+  width: 44px;
+  flex-shrink: 0;
+  color: var(--text-3);
 }
 
 /* ============ 右侧详情 ============ */

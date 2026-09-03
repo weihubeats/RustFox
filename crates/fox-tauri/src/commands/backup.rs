@@ -4,14 +4,18 @@
 use tauri::State;
 use uuid::Uuid;
 
-use fox_backup::{build_backup, restore_backup, BackupFile};
+use fox_backup::{build_backup, restore_backup, BackupFile, BackupInput};
 use fox_core::model::EndpointStatus;
 use fox_storage::repository as repo;
 
 use crate::error::CommandResult;
 use crate::state::AppState;
 
-/// 导出项目为备份 JSON 字符串（含项目 + 文件夹 + 接口 + 环境 + Mock 规则 + 响应示例 + 请求用例）。
+/// 备份设置白名单（全局维度，随备份走；恢复时保守合并，见 `backup_restore`）。
+const BACKUP_SETTING_KEYS: &[&str] = &["http_proxy", "http_timeout_ms", "seq_counters"];
+
+/// 导出项目为备份 JSON 字符串（含项目 + 文件夹 + 接口 + 环境 + Mock 规则 +
+/// 响应示例 + 请求用例 + 全局设置快照 + 全局变量/参数）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> CommandResult<String> {
     let project = repo::get_project(&state.db, project_id).await?;
@@ -19,39 +23,56 @@ pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> Comm
     let endpoints = repo::list_endpoints(&state.db, project_id).await?;
     let environments = repo::list_environments(&state.db).await?;
     let mock_rules = repo::list_mock_rules(&state.db, project_id).await?;
-
-    let mut response_examples = Vec::new();
-    let mut request_examples = Vec::new();
-    for ep in endpoints
-        .iter()
-        .filter(|e| e.status != EndpointStatus::Deprecated)
-    {
-        if let Ok(list) = repo::list_response_examples(&state.db, ep.id).await {
-            response_examples.extend(list);
-        }
-        if let Ok(list) = repo::list_request_examples(&state.db, ep.id).await {
-            request_examples.extend(list);
+    let global_variables = repo::get_global_variables(&state.db).await?;
+    let global_params = repo::get_global_params(&state.db).await?;
+    let mut settings = std::collections::HashMap::new();
+    for key in BACKUP_SETTING_KEYS {
+        if let Some(value) = repo::get_setting(&state.db, key).await? {
+            settings.insert((*key).to_string(), value);
         }
     }
 
-    let file = build_backup(
-        &project,
-        &folders,
-        &endpoints,
-        &environments,
-        &mock_rules,
-        &response_examples,
-        &request_examples,
-    );
+    // 批量一次查询（去 N+1：E 个接口原来 2E 次查询 + 2E 次 JSON 反序列化）。
+    let active_ids: Vec<Uuid> = endpoints
+        .iter()
+        .filter(|e| e.status != EndpointStatus::Deprecated)
+        .map(|e| e.id)
+        .collect();
+    let response_examples: Vec<_> =
+        repo::list_response_examples_by_endpoints(&state.db, &active_ids)
+            .await
+            .unwrap_or_default()
+            .into_values()
+            .flatten()
+            .collect();
+    let request_examples: Vec<_> = repo::list_request_examples_by_endpoints(&state.db, &active_ids)
+        .await
+        .unwrap_or_default()
+        .into_values()
+        .flatten()
+        .collect();
+
+    let file = build_backup(&BackupInput {
+        project: &project,
+        folders: &folders,
+        endpoints: &endpoints,
+        environments: &environments,
+        mock_rules: &mock_rules,
+        response_examples: &response_examples,
+        request_examples: &request_examples,
+        settings: &settings,
+        global_variables: &global_variables,
+        global_params: &global_params,
+    });
     file.serialize().map_err(Into::into)
 }
 
 /// 从备份 JSON 恢复：校验格式 → 全量重映射 UUID → 落库为全新项目。
 /// 返回 `{ id, name, counts }` 摘要。
 ///
-/// 原子性：落库逐条执行（repository 以连接池为参数，事务化需全链路重构），
-/// 任一步失败时级联删除已创建的项目（所有子表对 projects(id) 声明了
-/// ON DELETE CASCADE），用户视角等效于「要么全部成功，要么什么都没发生」。
+/// 原子性：全部写入在单个 SQLite 事务内（`BEGIN IMMEDIATE`），任一步失败
+/// 自动回滚——用户视角真正「要么全部成功，要么什么都没发生」，且中间态
+/// 对其他连接不可见（原来是逐条串行 + 事后补偿删除）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn backup_restore(
     state: State<'_, AppState>,
@@ -60,45 +81,56 @@ pub async fn backup_restore(
     let file = BackupFile::parse(&text)?;
     let restored = restore_backup(&file);
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(fox_core::AppError::Database)?;
     let result: fox_core::Result<()> = async {
-        repo::save_project(&state.db, &restored.project).await?;
+        repo::save_project(tx.as_mut(), &restored.project).await?;
         for folder in &restored.folders {
-            repo::save_folder(&state.db, folder).await?;
+            repo::save_folder(tx.as_mut(), folder).await?;
         }
         for endpoint in &restored.endpoints {
-            repo::save_endpoint(&state.db, endpoint).await?;
+            repo::save_endpoint(tx.as_mut(), endpoint).await?;
         }
+        // 环境保存需项目列表做模块同步：同事务内预取一次（读己之写）。
+        let projects = repo::list_projects(tx.as_mut()).await?;
         for environment in &restored.environments {
-            repo::save_environment(&state.db, environment).await?;
+            repo::save_environment_with_projects(tx.as_mut(), environment, &projects).await?;
         }
         for rule in &restored.mock_rules {
-            repo::save_mock_rule(&state.db, rule).await?;
+            repo::save_mock_rule(tx.as_mut(), rule).await?;
         }
         for example in &restored.response_examples {
-            repo::save_response_example(&state.db, example).await?;
+            repo::save_response_example(tx.as_mut(), example).await?;
         }
         for example in &restored.request_examples {
-            repo::create_request_example(&state.db, example).await?;
+            repo::create_request_example(tx.as_mut(), example).await?;
         }
         Ok(())
     }
     .await;
-
     if let Err(e) = result {
-        // 补偿删除（含级联）；删除本身失败时仅记录，不掩盖原始错误
-        if let Err(del) = sqlx::query("DELETE FROM projects WHERE id = ?")
-            .bind(restored.project.id)
-            .execute(&state.db)
-            .await
-        {
+        // tx 未 commit，drop 即回滚；显式回滚失败也仅记录，不掩盖原始错误。
+        if let Err(rb) = tx.rollback().await {
             tracing::error!(
                 project = %restored.project.id,
-                error = %del,
-                "backup_restore 补偿删除残留项目失败"
+                error = %rb,
+                "backup_restore 事务回滚失败"
             );
         }
         return Err(e.into());
     }
+    tx.commit().await.map_err(fox_core::AppError::Database)?;
+
+    // 全局维度合并（commit 之后、尽力而为，失败仅告警不回滚项目数据）：
+    // 全部为保守合并（缺失才补 / 取 max），幂等可重试，故放在事务外，
+    // 避免把加密 blob 编解码塞进原子单元。
+    let globals = restore_globals(&state.db, &file).await.unwrap_or_else(|e| {
+        tracing::warn!("备份全局维度合并失败（项目数据已落库）：{e}");
+        GlobalRestoreSummary::default()
+    });
 
     Ok(serde_json::json!({
         "id": restored.project.id,
@@ -109,5 +141,95 @@ pub async fn backup_restore(
         "mock_rules": restored.mock_rules.len(),
         "response_examples": restored.response_examples.len(),
         "request_examples": restored.request_examples.len(),
+        "settings_applied": globals.settings_applied,
+        "settings_skipped": globals.settings_skipped,
+        "global_variables_merged": globals.global_variables_merged,
+        "global_params_merged": globals.global_params_merged,
     }))
+}
+
+/// 全局维度恢复摘要（合并计数，供前端展示"恢复了什么"）。
+#[derive(Debug, Default)]
+struct GlobalRestoreSummary {
+    settings_applied: Vec<String>,
+    settings_skipped: Vec<String>,
+    global_variables_merged: usize,
+    global_params_merged: usize,
+}
+
+/// 全局维度保守合并：
+///
+/// - 全局变量 / 参数：按 key 补缺，不覆盖现有同名项；
+/// - `http_proxy` / `http_timeout_ms`：仅当前未配置时应用，不覆盖用户现有全局配置；
+/// - `seq_counters`：按 key 取 max 合并，并刷新内存计数（重启一致）。
+async fn restore_globals(
+    db: &sqlx::SqlitePool,
+    file: &BackupFile,
+) -> fox_core::Result<GlobalRestoreSummary> {
+    let mut summary = GlobalRestoreSummary::default();
+
+    if !file.global_variables.is_empty() {
+        let mut current = repo::get_global_variables(db).await?;
+        let mut keys: std::collections::HashSet<String> =
+            current.iter().map(|v| v.key.clone()).collect();
+        for v in &file.global_variables {
+            if keys.insert(v.key.clone()) {
+                current.push(v.clone());
+                summary.global_variables_merged += 1;
+            }
+        }
+        if summary.global_variables_merged > 0 {
+            repo::save_global_variables(db, &current).await?;
+        }
+    }
+
+    if !file.global_params.is_empty() {
+        let mut current = repo::get_global_params(db).await?;
+        let keys: std::collections::HashSet<String> = current
+            .iter()
+            .map(|p| format!("{:?}:{}", p.location, p.key.to_lowercase()))
+            .collect();
+        for p in &file.global_params {
+            let key = format!("{:?}:{}", p.location, p.key.to_lowercase());
+            if !keys.contains(&key) {
+                current.push(p.clone());
+                summary.global_params_merged += 1;
+            }
+        }
+        if summary.global_params_merged > 0 {
+            repo::save_global_params(db, &current).await?;
+        }
+    }
+
+    for key in ["http_proxy", "http_timeout_ms"] {
+        let Some(value) = file.settings.get(key) else {
+            continue;
+        };
+        if repo::get_setting(db, key).await?.is_some() {
+            summary.settings_skipped.push(key.to_string());
+        } else {
+            repo::set_setting(db, key, value).await?;
+            summary.settings_applied.push(key.to_string());
+        }
+    }
+
+    if let Some(seq_json) = file.settings.get("seq_counters") {
+        let incoming: std::collections::HashMap<String, u64> =
+            serde_json::from_str(seq_json).unwrap_or_default();
+        if !incoming.is_empty() {
+            let mut merged = fox_core::variable::dump_seq_counters();
+            for (k, v) in incoming {
+                let entry = merged.entry(k).or_insert(v);
+                if *entry < v {
+                    *entry = v;
+                }
+            }
+            let json = serde_json::to_string(&merged).map_err(fox_core::AppError::Json)?;
+            repo::set_setting(db, "seq_counters", &json).await?;
+            fox_core::variable::load_seq_counters(merged);
+            summary.settings_applied.push("seq_counters".to_string());
+        }
+    }
+
+    Ok(summary)
 }

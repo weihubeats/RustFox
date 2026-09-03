@@ -1,4 +1,5 @@
 pub mod client;
+pub mod cookie;
 pub mod script_sandbox;
 pub mod ws_client;
 

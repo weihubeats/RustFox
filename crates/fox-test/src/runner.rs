@@ -1,10 +1,19 @@
 //! 测试运行器（SPEC §17.2）：按配置执行单个接口的测试流程。
+//!
+//! 并发模型：`run_endpoint` 为单接口串行入口；`run_collection` 为集合入口，
+//! worker 数恒为并发度，经原子计数器领任务，运行时变量表由
+//! `tokio::sync::Mutex` 共享（锁仅在快照/回写瞬间持有，发送与断言不持锁）。
 
 use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use fox_core::model::{Endpoint, RequestSpec};
 use fox_http::client::{send_request, HttpResponseData};
 use serde_json::Value;
+use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use uuid::Uuid;
 
 use crate::assert::{evaluate, Outcome};
@@ -56,6 +65,26 @@ pub async fn run_endpoint(
     runtime_vars: &mut HashMap<String, String>,
     timeout_ms: Option<u64>,
 ) -> (EndpointResult, Option<HttpResponseData>) {
+    // 配置解析由 run_one 统一处理（含"无测试配置跳过"与"配置错误"语义）；
+    // 运行时变量经互斥表访问（串行入口独占，集合入口多 worker 共享）。
+    let shared = AsyncMutex::new(std::mem::take(runtime_vars));
+    let (result, resp) = run_one(ep, url, spec, &shared, timeout_ms).await;
+    *runtime_vars = shared.into_inner();
+    (result, resp)
+}
+
+/// 单接口四步核心（pre→send→assert→extract），运行时变量表由调用方提供：
+///
+/// - 锁只在快照/回写瞬间持有，网络发送与断言求值全程不持锁；
+/// - 集合并发下多个 worker 共享同一张表：extract 按完成顺序合并，
+///   强顺序依赖的链路请用 `concurrency=1`（等价串行）。
+async fn run_one(
+    ep: &Endpoint,
+    url: &str,
+    spec: &RequestSpec,
+    runtime: &AsyncMutex<HashMap<String, String>>,
+    timeout_ms: Option<u64>,
+) -> (EndpointResult, Option<HttpResponseData>) {
     let config = match TestSpec::from_request_value(ep.request.tests.as_ref()) {
         Ok(c) => c,
         Err(reason) => {
@@ -82,10 +111,14 @@ pub async fn run_endpoint(
         );
     }
 
-    // 1. pre_request：设置变量（值先解析，支持 {{$timestamp}} 与前面提取的变量）。
+    // 1. pre_request：快照→本地解析→回写（值支持 {{$timestamp}} 与已提取变量）。
+    let snapshot = runtime.lock().await.clone();
+    let mut injected = HashMap::with_capacity(config.pre_request.len());
     for p in &config.pre_request {
-        let value = resolve_text(&p.value, runtime_vars);
-        runtime_vars.insert(p.name.clone(), value);
+        injected.insert(p.name.clone(), resolve_text(&p.value, &snapshot));
+    }
+    if !injected.is_empty() {
+        runtime.lock().await.extend(injected);
     }
 
     // 2. 发送请求。
@@ -99,20 +132,27 @@ pub async fn run_endpoint(
         }
     };
 
-    // 3. 断言（expected 中的 {{变量}} 先按运行时上下文解析）。
-    let body_value: Option<Value> = serde_json::from_str(&resp.body_text()).ok();
+    // 3. 断言（expected 中的 {{变量}} 按快照解析；body 只解析一次复用）。
+    let snapshot = runtime.lock().await.clone();
+    let body_value: Option<Value> = serde_json::from_slice(resp.body.as_ref()).ok();
     let outcomes: Vec<Outcome> = config
         .assertions
         .iter()
-        .map(|a| evaluate(&resolve(a, runtime_vars), &resp, body_value.as_ref()))
+        .map(|a| {
+            if needs_resolve(a) {
+                evaluate(&resolve(a, &snapshot), &resp, body_value.as_ref())
+            } else {
+                evaluate(a, &resp, body_value.as_ref())
+            }
+        })
         .collect();
     let ok = outcomes.iter().all(|o| o.passed);
 
     // 4. 提取变量（供后续接口使用）。
     let extracted: HashMap<String, String> =
         extract_variables(&config.extract, &resp, body_value.as_ref());
-    for (k, v) in extracted {
-        runtime_vars.insert(k, v);
+    if !extracted.is_empty() {
+        runtime.lock().await.extend(extracted);
     }
 
     (
@@ -129,6 +169,106 @@ pub async fn run_endpoint(
         },
         Some(resp),
     )
+}
+
+/// 集合测试条目（调用方已渲染好 url/spec：变量只需解析一次）。
+#[derive(Debug, Clone)]
+pub struct CollectionItem {
+    pub endpoint: Endpoint,
+    pub url: String,
+    pub spec: RequestSpec,
+}
+
+/// 集合测试选项。
+#[derive(Debug, Clone, Default)]
+pub struct CollectionOptions {
+    /// 并发度（默认 5；1 = 严格串行，extract 按输入顺序传递）。
+    pub concurrency: Option<usize>,
+    /// 单接口超时毫秒数。
+    pub timeout_ms: Option<u64>,
+    /// 取消令牌；触发后 worker 停止领新任务。
+    pub cancel: Option<tokio_util::sync::CancellationToken>,
+}
+
+/// 集合测试结果（results 与输入同序；取消时只含已完成项）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CollectionResult {
+    pub results: Vec<EndpointResult>,
+    pub cancelled: bool,
+}
+
+/// 并发跑集合：固定 worker 池 + 原子计数器领任务 + mpsc 回传聚合。
+///
+/// 原来前端 N 次 IPC 逐个调 `test_endpoint`（N 次变量加载 + 串行等待）；
+/// 现在一次 IPC 跑完整个集合，变量加载一次、发送按并发度并行、可取消。
+pub async fn run_collection(
+    items: Vec<CollectionItem>,
+    runtime_vars: &mut HashMap<String, String>,
+    options: &CollectionOptions,
+    progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+) -> CollectionResult {
+    let total = items.len();
+    if total == 0 {
+        return CollectionResult {
+            results: Vec::new(),
+            cancelled: false,
+        };
+    }
+    let concurrency = options.concurrency.unwrap_or(5).clamp(1, 64).min(total);
+    let runtime = Arc::new(AsyncMutex::new(std::mem::take(runtime_vars)));
+    let items = Arc::new(items);
+    let next = Arc::new(AtomicUsize::new(0));
+    let cancel = options.cancel.clone();
+    let timeout_ms = options.timeout_ms;
+
+    let (tx, mut rx) = mpsc::channel::<(usize, EndpointResult)>(concurrency * 2);
+    for _ in 0..concurrency {
+        let tx = tx.clone();
+        let next = next.clone();
+        let items = items.clone();
+        let runtime = runtime.clone();
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            loop {
+                if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                    break;
+                }
+                let idx = next.fetch_add(1, Ordering::Relaxed);
+                if idx >= items.len() {
+                    break;
+                }
+                let item = &items[idx];
+                let (result, _) =
+                    run_one(&item.endpoint, &item.url, &item.spec, &runtime, timeout_ms).await;
+                if tx.send((idx, result)).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    drop(tx);
+
+    let mut ordered: Vec<Option<EndpointResult>> = (0..total).map(|_| None).collect();
+    let mut done = 0usize;
+    while let Some((idx, result)) = rx.recv().await {
+        ordered[idx] = Some(result);
+        done += 1;
+        if let Some(cb) = progress {
+            cb(done, total);
+        }
+    }
+    let results: Vec<EndpointResult> = ordered.into_iter().flatten().collect();
+
+    // 回写合并后的运行时变量（extract 成果保留给调用方后续使用）。
+    let merged = Arc::try_unwrap(runtime)
+        .map(|m| m.into_inner())
+        .unwrap_or_default();
+    *runtime_vars = merged;
+
+    CollectionResult {
+        results,
+        cancelled: cancel.as_ref().is_some_and(|c| c.is_cancelled()),
+    }
 }
 
 /// 按目录排序执行顺序：文件夹排序在前，文件夹内按接口 sort_order。
@@ -156,6 +296,11 @@ pub fn order_endpoints<'a>(
 
 fn resolve_text(input: &str, vars: &HashMap<String, String>) -> String {
     fox_core::resolve_variables(input, vars)
+}
+
+/// 是否需要解析：expected 为含 `{{}}` 的字符串时才需 clone + 解析。
+fn needs_resolve(a: &crate::config::AssertionSpec) -> bool {
+    matches!(&a.expected, Some(serde_json::Value::String(s)) if s.contains("{{"))
 }
 
 /// 断言 expected 里的 `{{变量}}` 先解析（仅在字符串期望时）。
@@ -197,6 +342,78 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
+    }
+
+    fn ep_with_tests(name: &str, path: &str) -> Endpoint {
+        let mut e = ep(name, path, None, 0);
+        e.request.tests = Some(serde_json::json!({
+            "assertions": [{"type": "status", "op": "eq", "expected": 200}],
+            "extract": [{"name": "last_n", "from": "body", "path": "$.n"}],
+        }));
+        e
+    }
+
+    #[tokio::test]
+    async fn collection_runs_concurrently_in_input_order() {
+        use tokio::net::TcpListener;
+        let app = axum::Router::new()
+            .route("/fast", axum::routing::get(|| async { "{\"n\":1}" }))
+            .route(
+                "/slow",
+                axum::routing::get(|| async {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    "{\"n\":2}"
+                }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let mk = |name: &str, path: &str| {
+            let e = ep_with_tests(name, path);
+            let url = format!("http://{addr}{path}");
+            CollectionItem {
+                endpoint: e,
+                url,
+                spec: RequestSpec::default(),
+            }
+        };
+        // slow 在前：串行会是慢→快→慢；并发 2 下结果仍与输入同序。
+        let items = vec![
+            mk("slow-1", "/slow"),
+            mk("fast", "/fast"),
+            mk("slow-2", "/slow"),
+        ];
+        let options = CollectionOptions {
+            concurrency: Some(2),
+            timeout_ms: Some(5_000),
+            cancel: None,
+        };
+        let mut runtime = HashMap::new();
+        let started = std::time::Instant::now();
+        let result = run_collection(items, &mut runtime, &options, None).await;
+        let elapsed = started.elapsed();
+
+        assert!(!result.cancelled);
+        assert_eq!(result.results.len(), 3);
+        let names: Vec<&str> = result
+            .results
+            .iter()
+            .map(|r| r.endpoint_name.as_str())
+            .collect();
+        assert_eq!(names, vec!["slow-1", "fast", "slow-2"]);
+        assert!(result.results.iter().all(|r| r.ok), "断言应全过");
+        assert!(
+            elapsed.as_millis() < 400,
+            "并发 2 跑 2×150ms 慢请求应远小于串行 300ms+，实际 {}ms",
+            elapsed.as_millis()
+        );
+        assert!(
+            runtime.contains_key("last_n"),
+            "extract 成果应回写运行时变量表"
+        );
     }
 
     #[test]

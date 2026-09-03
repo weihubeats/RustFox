@@ -43,12 +43,14 @@ pub async fn create_project(db: &SqlitePool, name: &str, description: &str) -> R
     Ok(model)
 }
 
-pub async fn list_projects(db: &SqlitePool) -> Result<Vec<Project>> {
+pub async fn list_projects<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<Vec<Project>> {
     let rows: Vec<ProjectRow> = sqlx::query_as(
         "SELECT id, name, description, variables_json, created_at, updated_at
          FROM projects ORDER BY sort_order ASC, created_at ASC",
     )
-    .fetch_all(db)
+    .fetch_all(executor)
     .await?;
     rows.into_iter().map(ProjectRow::into_model).collect()
 }
@@ -143,7 +145,10 @@ pub async fn delete_project(db: &SqlitePool, project_id: Uuid) -> Result<()> {
 
 /// 备份恢复：按给定 id 原样写入项目。
 /// 带 id：原样写入项目（upsert，同一 id 重复保存时更新而非报主键冲突）。
-pub async fn save_project(db: &SqlitePool, project: &Project) -> Result<()> {
+pub async fn save_project<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    project: &Project,
+) -> Result<()> {
     let row = ProjectRow::from_model(project);
     sqlx::query(
         "INSERT INTO projects (id, name, description, variables_json, created_at, updated_at)
@@ -160,7 +165,7 @@ pub async fn save_project(db: &SqlitePool, project: &Project) -> Result<()> {
     .bind(&row.variables_json)
     .bind(row.created_at.clone())
     .bind(row.updated_at.clone())
-    .execute(db)
+    .execute(executor)
     .await?;
     Ok(())
 }

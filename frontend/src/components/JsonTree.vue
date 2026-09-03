@@ -11,7 +11,7 @@
  *   匹配总数通过 `match-count` 事件上报；
  * - 外部可通过 `expandAll()` / `collapseAll()` 控制全部节点的展开状态。
  */
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { escapeHtml } from '../utils/highlight'
 import Icon from './ui/Icon.vue'
 
@@ -52,19 +52,28 @@ const emit = defineEmits<{ 'match-count': [number] }>()
 /** 折叠状态：path（`$["key"]` / `$[0]`）→ 是否展开。 */
 const expanded = reactive<Record<string, boolean>>({})
 
+/**
+ * 全局展开标记：`expandAll` / `collapseAll` 原来递归收集全量容器 path
+ * 并逐个写入 reactive，大 JSON 直接卡死。改为 O(1) 标记：
+ * 非 null 时覆盖所有未显式切换节点的展开态，单节点 toggle 写入
+ * `expanded` 覆盖标记（模板把当前行 open 态传进来，无需查 depth）。
+ */
+const forceOpen = ref<boolean | null>(null)
+
 // 数据更换（新响应）时清空折叠状态：旧 path 键跨响应累积既持续占用内存，
 // 也会让新响应中同路径节点意外保持展开。同一标签页内组件实例是复用的。
 watch(
   () => props.data,
   () => {
     for (const k of Object.keys(expanded)) delete expanded[k]
+    forceOpen.value = null
   },
 )
 
 const rootRef = ref<HTMLDivElement | null>(null)
 
-function toggle(path: string): void {
-  expanded[path] = !expanded[path]
+function toggle(path: string, currentOpen: boolean): void {
+  expanded[path] = !currentOpen
 }
 
 function tok(text: string, cls: string): Seg {
@@ -119,7 +128,7 @@ const lines = computed<Line[]>(() => {
       return
     }
 
-    const open = force || (expanded[path] ?? depth < props.expandDepth)
+    const open = force || (forceOpen.value ?? (expanded[path] ?? depth < props.expandDepth))
     if (!open) {
       const segments = [
         ...(keyHtml ?? []),
@@ -206,7 +215,12 @@ watch(
   { immediate: true },
 )
 
-/** 每行的最终 HTML（含查找高亮）：一次遍历，同时推进全局匹配序号。 */
+/**
+ * 每行的最终 HTML（含查找高亮）：一次遍历，同时推进全局匹配序号。
+ *
+ * 注意：不再依赖 `activeMatch`——上/下一个导航原来每次触发万行 HTML
+ * 全量重建；现在 mark 只带序号，激活态由 watcher 做 DOM 级切换。
+ */
 const lineHtmls = computed(() => {
   const htmls: string[] = []
   let global = 0
@@ -244,8 +258,7 @@ function renderHighlighted(
       const s = Math.max(ms, start)
       const e = Math.min(me, end)
       out += escapeHtml(seg.text.slice(sliceFrom, s - start))
-      const active = startGlobal + i === props.activeMatch
-      out += `<mark class="jt-mark${active ? ' active' : ''}">${escapeHtml(
+      out += `<mark class="jt-mark" data-mi="${startGlobal + i}">${escapeHtml(
         seg.text.slice(s - start, e - start),
       )}</mark>`
       sliceFrom = e - start
@@ -266,39 +279,30 @@ onBeforeUnmount(() => {
   disposed = true
 })
 
-watch(
-  () => props.activeMatch,
-  () => {
-    if (disposed) return
-    rootRef.value?.querySelector('.jt-mark.active')?.scrollIntoView({ block: 'nearest' })
-  },
-  { flush: 'post' },
-)
-
-// ---------- 展开 / 收起全部 ----------
-/** 递归收集数据中所有容器节点 path（含当前折叠不可见的部分）。 */
-function collectContainerPaths(value: unknown, path: string, out: string[]): void {
-  if (value === null || typeof value !== 'object') return
-  out.push(path)
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => collectContainerPaths(item, `${path}[${i}]`, out))
-  } else {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      collectContainerPaths(v, `${path}[${JSON.stringify(k)}]`, out)
-    }
-  }
+/** 激活匹配的 DOM 级切换：避免上/下导航触发 HTML 全量重建。 */
+function applyActiveMark(): void {
+  if (disposed) return
+  const root = rootRef.value
+  if (!root) return
+  root.querySelector('.jt-mark.active')?.classList.remove('active')
+  const el = root.querySelector(`.jt-mark[data-mi="${props.activeMatch}"]`)
+  el?.classList.add('active')
+  el?.scrollIntoView({ block: 'nearest' })
 }
 
+watch(() => props.activeMatch, applyActiveMark, { flush: 'post' })
+// 查找词/数据变化导致 HTML 重建后，重新挂上激活态。
+watch(lineHtmls, () => applyActiveMark(), { flush: 'post' })
+// 首挂即应用（无 query 时 querySelector 为空操作，开销可忽略）。
+onMounted(() => applyActiveMark())
+
+// ---------- 展开 / 收起全部（O(1) 标记，见 forceOpen 说明） ----------
 function expandAll(): void {
-  const paths: string[] = []
-  if (props.data !== undefined) collectContainerPaths(props.data, '$', paths)
-  for (const p of paths) expanded[p] = true
+  forceOpen.value = true
 }
 
 function collapseAll(): void {
-  const paths: string[] = []
-  if (props.data !== undefined) collectContainerPaths(props.data, '$', paths)
-  for (const p of paths) expanded[p] = false
+  forceOpen.value = false
 }
 
 defineExpose({ expandAll, collapseAll, matchCount })
@@ -320,7 +324,7 @@ defineExpose({ expandAll, collapseAll, matchCount })
         class="jt-toggle"
         :class="{ open: line.open }"
         :aria-label="line.open ? '折叠' : '展开'"
-        @click="toggle(line.toggleable)"
+        @click="toggle(line.toggleable, line.open ?? false)"
       >
         <Icon :name="line.open ? 'chevron-down' : 'chevron-right'" :size="12" />
       </button>

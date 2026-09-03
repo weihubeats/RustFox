@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use fox_backup::{build_backup, restore_backup, BackupFile};
+use fox_backup::{build_backup, restore_backup, BackupFile, BackupInput};
 use fox_core::model::{
     BodySpec, HttpMethod, KeyValue, ModuleUrlConfig, RequestExample, RequestHistory,
     ResponseExample, TestCase, TestCaseStatus, TestRun,
@@ -263,15 +263,18 @@ async fn openapi_roundtrip_and_backup() {
     let all_req_examples: Vec<RequestExample> =
         repo::list_request_examples(&db, ep.id).await.unwrap();
 
-    let file = build_backup(
-        &project,
-        &folders,
-        &eps,
-        &envs,
-        &rules,
-        &all_examples,
-        &all_req_examples,
-    );
+    let file = build_backup(&BackupInput {
+        project: &project,
+        folders: &folders,
+        endpoints: &eps,
+        environments: &envs,
+        mock_rules: &rules,
+        response_examples: &all_examples,
+        request_examples: &all_req_examples,
+        settings: &std::collections::HashMap::new(),
+        global_variables: &[],
+        global_params: &[],
+    });
     let text = file.serialize().expect("序列化备份");
     assert!(text.contains("rustfox-project-backup"));
 
@@ -378,6 +381,7 @@ async fn curl_import_roundtrip_keeps_url_headers_body() {
             timeout_ms: None,
             follow_redirects: true,
             tests: None,
+            disable_cookies: false,
         },
         created_at: now,
         updated_at: now,
@@ -451,6 +455,7 @@ async fn test_case_management_flow() {
             timeout_ms: None,
             follow_redirects: true,
             tests: None,
+            disable_cookies: false,
         },
         created_at: Utc::now(),
         updated_at: Utc::now(),

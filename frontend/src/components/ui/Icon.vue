@@ -49,6 +49,7 @@ export type IconName =
   | 'layout-grid'
   | 'arrow-up-right'
   | 'plug'
+  | 'keyboard'
   | 'more-horizontal'
 
 const ICONS: Record<IconName, string> = {
@@ -114,6 +115,8 @@ const ICONS: Record<IconName, string> = {
   plug:
     '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
   'more-horizontal': '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  keyboard:
+    '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/>',
 }
 
 withDefaults(defineProps<{ name: IconName; size?: number; strokeWidth?: number }>(), {

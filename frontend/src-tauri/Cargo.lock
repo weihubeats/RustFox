@@ -1705,6 +1705,7 @@ name = "fox-tauri"
 version = "0.0.2"
 dependencies = [
  "arboard",
+ "base64 0.22.1",
  "chrono",
  "fox-agent",
  "fox-backup",
@@ -1716,6 +1717,8 @@ dependencies = [
  "fox-openapi",
  "fox-storage",
  "fox-test",
+ "futures",
+ "reqwest 0.12.28",
  "rfd 0.15.4",
  "serde",
  "serde_json",
@@ -1745,6 +1748,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]

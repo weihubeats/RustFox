@@ -62,6 +62,8 @@ function blankRule(): MockRule {
     response_headers: {},
     response_body_template: '',
     delay_ms: 0,
+    fault_rate_pct: 0,
+    fault_status: 500,
     enabled: true,
     priority: 0,
     created_at: now,
@@ -144,6 +146,24 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           placeholder="延迟 ms"
           @update:model-value="editing.delay_ms = $event === '' ? 0 : Number($event)"
         />
+        <CustomNumberInput
+          :model-value="editing.fault_rate_pct ?? 0"
+          size="sm"
+          :min="0"
+          :max="100"
+          placeholder="故障 %"
+          title="故障注入比例：百分之多少的命中请求返回故障状态码（0 = 关闭）"
+          @update:model-value="editing.fault_rate_pct = $event === '' ? 0 : Math.max(0, Math.min(100, Number($event)))"
+        />
+        <CustomNumberInput
+          :model-value="editing.fault_status ?? 500"
+          size="sm"
+          :min="100"
+          :max="599"
+          placeholder="故障码"
+          title="故障注入时的状态码"
+          @update:model-value="editing.fault_status = $event === '' ? 500 : Number($event)"
+        />
         <CustomSelect
           :model-value="editing.priority"
           :options="PRIORITY_OPTIONS"
@@ -185,7 +205,9 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
         <span class="rule-method">{{ r.method }}</span>
         <span class="rule-path">{{ r.path }}</span>
         <span class="rule-status">{{ r.response_status }}</span>
-        <span class="rule-meta">{{ r.enabled ? '启用' : '停用' }} · 优先级 {{ r.priority }}</span>
+        <span class="rule-meta">
+          {{ r.enabled ? '启用' : '停用' }} · 优先级 {{ r.priority }}<span v-if="(r.fault_rate_pct ?? 0) > 0"> · 故障 {{ r.fault_rate_pct }}%→{{ r.fault_status ?? 500 }}</span><span v-if="r.delay_ms"> · 延迟 {{ r.delay_ms }}ms</span>
+        </span>
         <button class="rf-btn rf-btn-sm" type="button" @click="editing = { ...r }">编辑</button>
         <Popconfirm :title="`删除规则「${r.name}」？`" @confirm="remove(r)">
           <IconButton name="trash" :size="13" tone="danger" title="删除" />

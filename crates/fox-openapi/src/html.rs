@@ -142,6 +142,10 @@ fn auth_line(auth: &AuthSpec) -> String {
             )
         }
         AuthSpec::OAuth2 { .. } => "OAuth2".into(),
+        AuthSpec::Digest { .. } => "Digest 认证（RFC 7616）".into(),
+        AuthSpec::Hawk { .. } => "Hawk 认证（HMAC-SHA-256）".into(),
+        AuthSpec::AwsV4 { .. } => "AWS Signature V4".into(),
+        AuthSpec::Hmac { .. } => "HMAC (AK-SK)".into(),
     }
 }
 

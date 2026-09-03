@@ -138,6 +138,10 @@ pub struct KeyValue {
     pub example: String,
 }
 
+fn default_fault_status() -> u16 {
+    500
+}
+
 fn default_true() -> bool {
     true
 }
@@ -203,6 +207,46 @@ pub enum AuthSpec {
         /// 已获取的令牌；授权成功后写入，刷新后由缓存回填。
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token: Option<OAuth2Token>,
+    },
+    /// HTTP Digest 认证（RFC 7616）。
+    ///
+    /// 发送时先不带凭据；收到 `401 + WWW-Authenticate: Digest …` 后按质询
+    /// 计算应答并自动重发一次（支持 MD5 / MD5-sess / SHA-256，qop=auth）。
+    Digest {
+        username: String,
+        password: String,
+    },
+    /// Hawk 认证（Hawk 协议，HMAC-SHA-256）。
+    ///
+    /// 每次发送用递增时间戳 + 随机 nonce 计算 `mac`，有 body 时附带 payload `hash`。
+    Hawk {
+        /// 凭证标识（`id`）。
+        key_id: String,
+        /// 共享密钥（`key`）。
+        key: String,
+    },
+    /// AWS Signature V4（兼容华为云 / 阿里云等 SigV4 风格网关）。
+    ///
+    /// 按区域 + 服务名做四步密钥派生，对方法 / 路径 / 排序后查询串 /
+    /// `host;x-amz-date[;x-amz-security-token]` 头做规范签名。
+    #[serde(rename = "awsv4")]
+    AwsV4 {
+        access_key: String,
+        secret_key: String,
+        region: String,
+        service: String,
+        /// 临时凭证配套；为空时不发送 `x-amz-security-token`。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_token: Option<String>,
+    },
+    /// 通用 HMAC AK-SK 加签（时间戳 + 随机数 + 方法 + 路径）。
+    ///
+    /// 发送 `X-Access-Key / X-Timestamp / X-Nonce / X-Signature` 四个头，
+    /// `X-Signature = hex(HMAC-SHA256(secret, "ak\\nts\\nnonce\\nMETHOD\\npath_query"))`。
+    #[serde(rename = "hmac")]
+    Hmac {
+        access_key: String,
+        secret_key: String,
     },
 }
 
@@ -398,6 +442,9 @@ pub struct RequestSpec {
     pub follow_redirects: bool,
     #[serde(default)]
     pub tests: Option<TestConfig>,
+    /// 禁用 Cookie 自动回放（默认 false = 携带 jar 中的同域 Cookie）。
+    #[serde(default)]
+    pub disable_cookies: bool,
 }
 
 impl Default for RequestSpec {
@@ -412,6 +459,7 @@ impl Default for RequestSpec {
             timeout_ms: None,
             follow_redirects: true,
             tests: None,
+            disable_cookies: false,
         }
     }
 }
@@ -723,6 +771,12 @@ pub struct MockRule {
     pub response_headers: HashMap<String, String>,
     pub response_body_template: String,
     pub delay_ms: u64,
+    /// 故障注入：百分之多少的命中请求返回 fault_status（0 = 关闭）。
+    #[serde(default)]
+    pub fault_rate_pct: u8,
+    /// 故障注入时的状态码（默认 500）。
+    #[serde(default = "default_fault_status")]
+    pub fault_status: u16,
     pub enabled: bool,
     pub priority: i64,
     pub created_at: DateTime<Utc>,
@@ -899,6 +953,60 @@ mod tests {
         assert_eq!(json["in"], "header");
         let back: AuthSpec = serde_json::from_value(json).unwrap();
         assert_eq!(back, auth);
+    }
+
+    #[test]
+    fn auth_signing_types_json_shape_and_roundtrip() {
+        // tag 命名与前端 `AuthSpec` 联合类型严格对应。
+        let cases: Vec<(AuthSpec, &str)> = vec![
+            (
+                AuthSpec::Digest {
+                    username: "u".into(),
+                    password: "p".into(),
+                },
+                "digest",
+            ),
+            (
+                AuthSpec::Hawk {
+                    key_id: "id-1".into(),
+                    key: "k".into(),
+                },
+                "hawk",
+            ),
+            (
+                AuthSpec::AwsV4 {
+                    access_key: "AK".into(),
+                    secret_key: "SK".into(),
+                    region: "cn-north-1".into(),
+                    service: "s3".into(),
+                    session_token: None,
+                },
+                "awsv4",
+            ),
+            (
+                AuthSpec::Hmac {
+                    access_key: "ak".into(),
+                    secret_key: "sk".into(),
+                },
+                "hmac",
+            ),
+        ];
+        for (auth, tag) in cases {
+            let json = serde_json::to_value(&auth).unwrap();
+            assert_eq!(json["type"], tag);
+            let back: AuthSpec = serde_json::from_value(json).unwrap();
+            assert_eq!(back, auth);
+        }
+        // session_token 为空时不序列化（紧凑存储）。
+        let json = serde_json::to_value(&AuthSpec::AwsV4 {
+            access_key: String::new(),
+            secret_key: String::new(),
+            region: String::new(),
+            service: String::new(),
+            session_token: None,
+        })
+        .unwrap();
+        assert!(json.get("session_token").is_none());
     }
 
     #[test]

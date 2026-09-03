@@ -7,7 +7,7 @@
  *   编辑区内没有任何绝对定位浮层遮挡代码。
  * - 深色底色 #121318，聚焦时 1px 紫色光晕（原 3px 重描边移除）。
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
 import { highlightJSON } from '../../utils/highlight'
@@ -42,12 +42,38 @@ const LARGE_DOC_CHARS = 200_000
 
 const isLargeDoc = computed(() => props.modelValue.length > LARGE_DOC_CHARS)
 
+/**
+ * 高亮/校验用文本：小文档（<20k）即时跟手；中等以上防抖 150ms。
+ * 原来每键全量 `highlightJSON + split + JSON.parse`（高亮/行号/校验各一次），
+ * 百 KB 文档下每次键入三遍全量扫描；输入本身走 textarea 非受控即时响应，
+ * 防抖只延迟着色与状态 Tag，不影响键入手感。
+ */
+const SHOWN_DEBOUNCE_CHARS = 20_000
+const shownText = ref(props.modelValue)
+let shownTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (shownTimer) clearTimeout(shownTimer)
+    if (v.length < SHOWN_DEBOUNCE_CHARS) {
+      shownText.value = v
+      return
+    }
+    shownTimer = setTimeout(() => {
+      shownText.value = v
+    }, 150)
+  },
+)
+onUnmounted(() => {
+  if (shownTimer) clearTimeout(shownTimer)
+})
+
 /** 空内容渲染一个空格，保证 pre 与 textarea 高度一致（滚动同步前提）。 */
 const html = computed(() =>
-  isLargeDoc.value ? '' : highlightJSON(props.modelValue.length ? props.modelValue : ' '),
+  isLargeDoc.value ? '' : highlightJSON(shownText.value.length ? shownText.value : ' '),
 )
 
-const lineCount = computed(() => (isLargeDoc.value ? 0 : props.modelValue.split('\n').length))
+const lineCount = computed(() => (isLargeDoc.value ? 0 : shownText.value.split('\n').length))
 
 /** 行号栏宽度随位数增长：左留白 + 位数×字宽 + 右留白。 */
 const gutterWidth = computed(() =>
@@ -56,7 +82,7 @@ const gutterWidth = computed(() =>
 
 const status = computed<'empty' | 'ok' | 'invalid' | 'large'>(() => {
   if (isLargeDoc.value) return 'large'
-  const t = props.modelValue.trim()
+  const t = shownText.value.trim()
   if (!t) return 'empty'
   try {
     JSON.parse(t)

@@ -63,6 +63,13 @@ pub struct AppState {
     /// 在途请求的取消令牌注册表（request_id → token；「取消请求」时触发中止）。
     /// 持有期间不 await，普通 `Mutex` 即可。
     pub request_cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// 在途长任务的取消令牌注册表（run_id → token；
+    /// 压测 `cancel_load_test` 与集合测试 `cancel_test_collection` 共用）。
+    pub run_cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// WebSocket 会话（connection_id → 会话；含事件转发任务句柄）。
+    pub ws: RwLock<HashMap<String, crate::commands::ws::WsSession>>,
+    /// SSE 订阅任务（connection_id → 转发任务句柄；断开即 abort）。
+    pub sse: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 impl AppState {
@@ -73,6 +80,9 @@ impl AppState {
             mock: RwLock::new(None),
             agent: RwLock::new(None),
             request_cancels: Mutex::new(HashMap::new()),
+            run_cancels: Mutex::new(HashMap::new()),
+            ws: RwLock::new(HashMap::new()),
+            sse: RwLock::new(HashMap::new()),
         }
     }
 
@@ -206,14 +216,16 @@ impl AppState {
                 environment_vars.insert("base_url".into(), base.to_string());
             }
         }
-        // 项目 > 全局；再叠环境（环境 > 项目）。
-        let project_over_global =
-            fox_core::merge_variables(&project_vars, &global_vars, &HashMap::new());
-        Ok(fox_core::merge_variables(
-            &HashMap::new(),
-            &environment_vars,
-            &project_over_global,
-        ))
+        // 单次合并（优先级 环境 > 项目 > 全局）：三张表均为 owned，直接 move，
+        // 原来两次 `merge_variables` 把全部键值克隆了两遍。
+        let mut merged = global_vars;
+        for (k, v) in project_vars {
+            merged.insert(k, v);
+        }
+        for (k, v) in environment_vars {
+            merged.insert(k, v);
+        }
+        Ok(merged)
     }
 }
 

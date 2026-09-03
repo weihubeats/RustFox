@@ -99,9 +99,16 @@ const parsed = computed<unknown | null>(() => {
 
 const isJson = computed(() => parsed.value !== null)
 
+/** 树视图是否接管 pretty 展示（接管时跳过 stringify + 切分，见 pretty/prettySplit）。 */
+const useTree = computed(
+  () => activeTab.value === 'body' && viewMode.value === 'pretty' && isJson.value && !bodyTooLarge.value,
+)
+
 const pretty = computed(() => {
-  if (parsed.value !== null) return JSON.stringify(parsed.value, null, EDITOR_INDENT)
-  return props.response.body
+  if (parsed.value === null) return props.response.body
+  // 树接管时不需要 pretty 文本：跳过体积放大 2-3 倍的 stringify。
+  if (useTree.value) return ''
+  return JSON.stringify(parsed.value, null, EDITOR_INDENT)
 })
 
 const isHtml = computed(() => props.response.content_type.toLowerCase().includes('html'))
@@ -126,8 +133,22 @@ function splitLines(text: string): { lines: string[]; truncated: boolean } {
   return { lines, truncated: false }
 }
 
-const prettySplit = computed(() => splitLines(pretty.value))
-const rawSplit = computed(() => splitLines(props.response.body))
+/**
+ * 切分懒计算：原来两个全量 split 无论当前是否可见都执行
+ *（20MB body → 数十万行字符串 ×2 份驻留）。
+ */
+const prettySplit = computed(() => {
+  if (useTree.value || viewMode.value !== 'pretty' || activeTab.value !== 'body')
+    return { lines: [] as string[], truncated: false }
+  return splitLines(pretty.value)
+})
+const rawSplit = computed(() => {
+  if (activeTab.value !== 'body') return { lines: [] as string[], truncated: false }
+  // raw 视图与 preview 回退（非 html 按 raw 文本查）才需要行数组。
+  if (viewMode.value !== 'raw' && !(viewMode.value === 'preview' && !isHtml.value))
+    return { lines: [] as string[], truncated: false }
+  return splitLines(props.response.body)
+})
 
 const prettyLines = computed(() => prettySplit.value.lines)
 const rawLines = computed(() => rawSplit.value.lines)
@@ -246,10 +267,8 @@ watch(query, (q) => {
   }, 160)
 })
 
-/** JSON 树是否可见（查找对其生效；行视图走本地计数）。 */
-const treeVisible = computed(
-  () => activeTab.value === 'body' && viewMode.value === 'pretty' && isJson.value && !bodyTooLarge.value,
-)
+/** JSON 树是否可见（查找对其生效；行视图走本地计数）——即 useTree 别名。 */
+const treeVisible = useTree
 
 /** 行视图（rp-lines）当前渲染的行；仅按实际可见行计数，保证大响应不卡顿。 */
 const searchLines = computed(() => {
@@ -310,6 +329,12 @@ function highlightText(raw: string, q: string): string {
 function highlightPrettyText(raw: string, q: string): string {
   return highlightJSONText(raw, q)
 }
+
+/**
+ * 超大行数时关闭逐行 JSON 正则高亮（每行一次正则 + 转义，上万行即掉帧），
+ * 降级为纯文本 + 查找标记。
+ */
+const prettyHighlightOff = computed(() => prettyLines.value.length > 5000)
 
 function nextMatch(): void {
   if (!total.value) return
@@ -474,7 +499,7 @@ onUnmounted(() => {
         <div v-else-if="viewMode === 'pretty'" class="rp-lines">
           <div v-for="(ln, i) in shownPrettyLines" :key="i" class="rp-line">
             <span class="rp-line-gutter">{{ i + 1 }}</span>
-            <span class="rp-line-text" v-html="highlightPrettyText(ln, searchQuery)"></span>
+            <span class="rp-line-text" v-html="prettyHighlightOff ? highlightText(ln, searchQuery) : highlightPrettyText(ln, searchQuery)"></span>
           </div>
           <button
             v-if="hasMorePretty"

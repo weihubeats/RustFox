@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 fox-core = { path = "../fox-core" }
+fox-sign = { path = "../fox-sign" }
 fox-storage = { path = "../fox-storage" }
 fox-oauth = { path = "../fox-oauth" }
 serde = { workspace = true }

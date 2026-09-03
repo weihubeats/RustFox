@@ -49,10 +49,17 @@ pub async fn execute_request(
     args: ExecuteRequestArgs,
 ) -> CommandResult<ExecuteResponse> {
     // 1. 加载变量（环境 > 项目 > 全局），渲染 URL 与请求规格；再注入全局参数。
-    let vars = state.variables_for(args.environment_id).await?;
+    //    三路独立查询同波次并发（原来串行 3~4 次 DB 往返）。
+    let (vars, global_params, timeout_ms) = tokio::join!(
+        state.variables_for(args.environment_id),
+        repo::get_global_params(&state.db),
+        resolve_timeout_ms(&args.spec, &state),
+    );
+    let vars = vars?;
+    let global_params = global_params?;
+    let timeout_ms = timeout_ms?;
     let url = fox_core::resolve_variables(&args.url, &vars);
     let mut spec = render_spec(&args.spec, &vars);
-    let global_params = repo::get_global_params(&state.db).await?;
     apply_global_params(&mut spec, &global_params, &vars);
 
     // 2. 参数校验：URL 必填、必须是 http/https。
@@ -81,8 +88,7 @@ pub async fn execute_request(
         (id.clone(), token)
     });
 
-    // 4. 发送（超时：接口级 > 全局设置；None 时由 fox-http 用默认 300s 兜底）。
-    let timeout_ms = resolve_timeout_ms(&spec, &state).await?;
+    // 4. 发送（超时已在第 1 步随变量同波次解析）。
     let result = async {
         let resp: HttpResponseData = match token.as_ref() {
             Some((_, t)) => {
@@ -140,7 +146,7 @@ pub async fn execute_request(
     }
 
     // 8. 自增序列若被本次请求推进，回写磁盘（尽力而为，失败仅告警不阻断）。
-    if let Err(e) = super::seq::sync_seq_counters(&state.db).await {
+    if let Err(e) = super::seq::sync_seq_counters_if_dirty(&state.db).await {
         eprintln!("[execute_request] 同步自增序列失败：{e}");
     }
 
@@ -179,7 +185,9 @@ fn build_history(
     spec: &RequestSpec,
     data: &ExecuteResponse,
 ) -> RequestHistory {
-    let body_preview: String = data.body.chars().take(2000).collect();
+    // 响应预览按字节截断（字符边界安全）：`chars().take(n)` 会对 20MB
+    // 大响应做全量字符迭代，耗时与 body 成正比；字节截断为 O(截断长度)。
+    let body_preview: String = byte_truncate(&data.body, 2000);
     let mut spec_value = serde_json::to_value(spec).unwrap_or(serde_json::Value::Null);
     if let Some(obj) = spec_value.as_object_mut() {
         obj.insert("auth".into(), serde_json::json!({ "type": "none" }));
@@ -209,6 +217,18 @@ fn build_history(
         .to_string(),
         created_at: chrono::Utc::now(),
     }
+}
+
+/// 按字节上限截断字符串（保证字符边界；上限内无分配直接借用返回 owned）。
+fn byte_truncate(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 /// 渲染请求规格中的全部变量（key/value、认证、body）。
@@ -252,6 +272,36 @@ pub(crate) fn render_spec(spec: &RequestSpec, vars: &VariableMap) -> RequestSpec
                 redirect_uri: fox_core::resolve_variables(redirect_uri, vars),
                 token: token.clone(),
             },
+            AuthSpec::Digest { username, password } => AuthSpec::Digest {
+                username: fox_core::resolve_variables(username, vars),
+                password: fox_core::resolve_variables(password, vars),
+            },
+            AuthSpec::Hawk { key_id, key } => AuthSpec::Hawk {
+                key_id: fox_core::resolve_variables(key_id, vars),
+                key: fox_core::resolve_variables(key, vars),
+            },
+            AuthSpec::AwsV4 {
+                access_key,
+                secret_key,
+                region,
+                service,
+                session_token,
+            } => AuthSpec::AwsV4 {
+                access_key: fox_core::resolve_variables(access_key, vars),
+                secret_key: fox_core::resolve_variables(secret_key, vars),
+                region: fox_core::resolve_variables(region, vars),
+                service: fox_core::resolve_variables(service, vars),
+                session_token: session_token
+                    .as_deref()
+                    .map(|t| fox_core::resolve_variables(t, vars)),
+            },
+            AuthSpec::Hmac {
+                access_key,
+                secret_key,
+            } => AuthSpec::Hmac {
+                access_key: fox_core::resolve_variables(access_key, vars),
+                secret_key: fox_core::resolve_variables(secret_key, vars),
+            },
         },
         body: match &spec.body {
             BodySpec::None => BodySpec::None,
@@ -291,6 +341,7 @@ pub(crate) fn render_spec(spec: &RequestSpec, vars: &VariableMap) -> RequestSpec
         timeout_ms: spec.timeout_ms,
         follow_redirects: spec.follow_redirects,
         tests: spec.tests.clone(),
+        disable_cookies: spec.disable_cookies,
     }
 }
 
@@ -444,6 +495,7 @@ mod tests {
             timeout_ms: None,
             follow_redirects: true,
             tests: None,
+            disable_cookies: false,
         };
         let response = ExecuteResponse {
             status: 200,

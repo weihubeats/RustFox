@@ -40,6 +40,13 @@ url = "2"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 tokio-util = "0.7"
+# WS/SSE 实时调试命令：reqwest 长连接拉流 + futures 流消费 + base64 帧编码
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "stream",
+] }
+futures = "0.3"
+base64 = "0.22"
 sqlx = { version = "0.7", features = [
     "runtime-tokio-rustls",
     "sqlite",

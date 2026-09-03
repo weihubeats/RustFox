@@ -50,6 +50,7 @@ export function defaultRequestSpec(): Endpoint['request'] {
     timeout_ms: null,
     follow_redirects: true,
     tests: null,
+    disable_cookies: false,
   }
 }
 
@@ -157,11 +158,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** [定版本号, 结果]：仅当本版未计算过时才做全量比较。 */
   const dirtyCache = new Map<string, [number, boolean]>()
 
+  /**
+   * 保存态索引：isDirty / titleOf 原来每次调用都 `endpoints.find`
+   *（O(标签数 × 接口数)），此处随列表刷新重建一次，查询 O(1)。
+   */
+  const savedIndex = computed(() => new Map(endpoints.value.map((e) => [e.id, e] as const)))
+
   const isDirty = (id: string): boolean => {
     void dirtyTick.value // 建立响应式依赖：定版推进后调用方重新求值
     const draft = drafts.value.get(id)
     if (!draft) return false
-    const saved = endpoints.value.find((e) => e.id === id)
+    const saved = savedIndex.value.get(id)
     if (!saved) return true
     const cached = dirtyCache.get(id)
     if (cached && cached[0] === dirtyTick.value) return cached[1]
@@ -177,7 +184,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const d = drafts.value.get(id)
     if (d?.name) return d.name
     if (d) return `${d.method} ${d.path}`
-    const saved = endpoints.value.find((e) => e.id === id)
+    const saved = savedIndex.value.get(id)
     if (saved) return saved.name || `${saved.method} ${saved.path}`
     return '未保存'
   }
@@ -415,11 +422,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!openTabs.value.includes(endpoint.id)) {
       openTabs.value.push(endpoint.id)
       drafts.value.set(endpoint.id, { ...endpoint, request: JSON.parse(JSON.stringify(endpoint.request)) })
-      loadExamples(endpoint.id)
-      loadRequestExamples(endpoint.id)
-      loadTestCases(endpoint.id)
     }
     activeTabId.value = endpoint.id
+    // 缓存命中跳过：切 Tab 原来无条件触发三 IPC（示例/用例/测试用例各一次）。
+    if (!examples.value.has(endpoint.id)) void loadExamples(endpoint.id)
+    if (!requestExamples.value.has(endpoint.id)) void loadRequestExamples(endpoint.id)
+    if (!testCases.value.has(endpoint.id)) void loadTestCases(endpoint.id)
   }
 
   /** 加载接口的响应示例（懒加载 + 缓存）。 */
@@ -683,13 +691,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeView.value = 'debug'
   }
 
-  /** 运行单个用例：拼 URL 执行请求，回写运行状态。返回响应或 null。 */
-  async function runTestCase(endpointId: string, testCase: TestCase, environmentId: string | null): Promise<ExecuteResponse | null> {
-    try {
-      const isAbs = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(testCase.url_path)
-      const path = testCase.url_path.startsWith('/') ? testCase.url_path : `/${testCase.url_path}`
-      const url = isAbs ? testCase.url_path : `${urlDomain.value}${path}`
-      const spec = {
+  /** 用例快照 → 可发送请求（URL + spec），单跑与集合跑共用。 */
+  function buildCaseRequest(testCase: TestCase): { url: string; spec: Endpoint['request'] } {
+    const isAbs = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(testCase.url_path)
+    const path = testCase.url_path.startsWith('/') ? testCase.url_path : `/${testCase.url_path}`
+    return {
+      url: isAbs ? testCase.url_path : `${urlDomain.value}${path}`,
+      spec: {
         params: testCase.params,
         headers: testCase.headers,
         path_variables: [] as KeyValue[],
@@ -699,7 +707,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         timeout_ms: null,
         follow_redirects: true,
         tests: null,
-      }
+      },
+    }
+  }
+
+  /** 运行单个用例：拼 URL 执行请求，回写运行状态。返回响应或 null。 */
+  async function runTestCase(endpointId: string, testCase: TestCase, environmentId: string | null): Promise<ExecuteResponse | null> {
+    try {
+      const { url, spec } = buildCaseRequest(testCase)
       const response = await api.executeRequest({
         url,
         method: testCase.method,
@@ -760,19 +775,70 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 顺序运行接口的全部用例。返回 {total, success}。 */
-  async function runAllTestCases(endpointId: string): Promise<{ total: number; success: number }> {
+  /**
+   * 运行接口的全部用例：一次 IPC 跑完整个集合（后端并发 5 + 可取消）。
+   *
+   * 原来前端串行 `for + await runTestCase`：N 个用例 = N 次 IPC ×（变量加载 +
+   * 串行等待），且中途不可取消。结果与用例同序回填，可按序更新状态列。
+   */
+  async function runAllTestCases(
+    endpointId: string,
+    opts?: { runId?: string; onProgress?: (done: number, total: number) => void },
+  ): Promise<{ total: number; success: number; cancelled: boolean }> {
     const cases = testCases.value.get(endpointId) ?? []
+    if (cases.length === 0) return { total: 0, success: 0, cancelled: false }
+    const endpoint = savedIndex.value.get(endpointId) ?? drafts.value.get(endpointId)
+    const runId = opts?.runId ?? crypto.randomUUID()
+    const result = await api.testCollection({
+      items: cases.map((c) => {
+        const { url, spec } = buildCaseRequest(c)
+        return {
+          endpoint: endpoint ?? {
+            id: endpointId,
+            project_id: project.value?.id ?? '',
+            folder_id: null,
+            name: c.name,
+            method: c.method,
+            path: c.url_path,
+            description: '',
+            status: 'designing',
+            sort_order: 0,
+            request: spec,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          url,
+          spec,
+        }
+      }),
+      environment_id: activeEnvId.value,
+      concurrency: 5,
+      run_id: runId,
+    })
+    opts?.onProgress?.(result.results.length, cases.length)
+    // 按序回填：results 与输入 cases 同序（取消时只含已完成项）。
     let success = 0
-    for (const c of cases) {
-      try {
-        const res = await runTestCase(endpointId, c, activeEnvId.value)
-        if (res && res.status >= 200 && res.status < 400) success += 1
-      } catch {
-        /* 单个失败继续后续 */
-      }
+    result.results.forEach((r, i) => {
+      const c = cases[i]
+      if (!c) return
+      const status: TestCaseStatus = r.ok ? 'Success' : 'Failed'
+      if (r.ok) success += 1
+      caseRunMeta.value.set(c.id, {
+        status: r.status ?? 0,
+        durationMs: r.duration_ms ?? 0,
+      })
+      void updateCaseStatusLocally(endpointId, c.id, status)
+    })
+    return { total: cases.length, success, cancelled: result.cancelled }
+  }
+
+  /** 取消在途的集合测试（runId 由调用方持有）。 */
+  async function cancelAllTestCases(runId: string): Promise<boolean> {
+    try {
+      return await api.cancelTestCollection(runId)
+    } catch {
+      return false
     }
-    return { total: cases.length, success }
   }
 
   /** 打开「新建接口」草稿标签页（未持久化，保存时生成 id）；默认标题「未命名接口」，创建后自动聚焦全选便于输入。 */
@@ -815,6 +881,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     drafts.value.delete(id)
     // 示例缓存随标签释放（每条含完整响应 body），重开标签时懒加载重建。
     examples.value.delete(id)
+    requestExamples.value.delete(id)
+    testCases.value.delete(id)
+    caseRunMeta.value.delete(id)
     if (activeTabId.value === id) {
       activeTabId.value = openTabs.value[idx] ?? openTabs.value[idx - 1] ?? null
     }
@@ -849,11 +918,75 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
+  /**
+   * 删除撤销（单级）：删除前快照对象，Toast 提供「撤销」动作。
+   * 文件夹含整棵子树（子文件夹 + 其下全部接口），撤销时按原 id 恢复。
+   */
+  interface DeletedSnapshot {
+    kind: 'endpoint' | 'folder'
+    label: string
+    folders: Folder[]
+    endpoints: Endpoint[]
+  }
+  const lastDeleted = ref<DeletedSnapshot | null>(null)
+
+  /** 撤销上一次删除（快照整体回写 + 刷新列表）。 */
+  async function undoDelete(): Promise<boolean> {
+    const snap = lastDeleted.value
+    if (!snap) return false
+    lastDeleted.value = null
+    try {
+      for (const f of snap.folders) {
+        await api.saveFolder({ ...f })
+      }
+      for (const e of snap.endpoints) {
+        await api.saveEndpoint({ ...e })
+      }
+      await refresh()
+      toast.success(`已撤销删除：${snap.label}`)
+      return true
+    } catch (err) {
+      toast.error('撤销删除失败', { message: err instanceof Error ? err.message : String(err) })
+      return false
+    }
+  }
+
+  function collectSubtree(folderId: string): { folders: Folder[]; endpoints: Endpoint[] } {
+    const outFolders: Folder[] = []
+    const outEndpoints: Endpoint[] = []
+    const walk = (fid: string): void => {
+      const f = folders.value.find((x) => x.id === fid)
+      if (f) outFolders.push({ ...f })
+      for (const e of endpoints.value.filter((e) => e.folder_id === fid)) {
+        outEndpoints.push({ ...e })
+      }
+      for (const child of folders.value.filter((x) => x.parent_id === fid)) {
+        walk(child.id)
+      }
+    }
+    walk(folderId)
+    return { folders: outFolders, endpoints: outEndpoints }
+  }
+
   async function deleteEndpoint(endpointId: string): Promise<void> {
+    const snapshot = endpoints.value.find((e) => e.id === endpointId)
     await api.deleteEndpoint(endpointId)
     closeTab(endpointId)
     await refresh()
-    toast.info('接口已删除')
+    if (snapshot) {
+      lastDeleted.value = {
+        kind: 'endpoint',
+        label: snapshot.name || snapshot.path,
+        folders: [],
+        endpoints: [{ ...snapshot }],
+      }
+      toast.info(`接口已删除：${snapshot.name || snapshot.path}`, {
+        duration: 8000,
+        action: { label: '撤销', run: () => void undoDelete() },
+      })
+    } else {
+      toast.info('接口已删除')
+    }
   }
 
   async function duplicateEndpoint(endpointId: string): Promise<void> {
@@ -931,49 +1064,72 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toast.success('环境已删除')
   }
 
-  /** 导入接口落地：按 folder_hint 复用/新建文件夹，逐接口保存并附带示例。 */
+  /**
+   * 导入接口落地：按 folder_hint 复用/新建文件夹，保存接口并附带示例。
+   *
+   * 原来全串行（N 接口 ×（1 文件夹 + 1 接口 + E 示例）次 IPC 顺序等待）；
+   * 现在限并发 4 的 worker 池并行落库，sort_order 预分配保证顺序语义，
+   * 结束时一次 refresh 对齐列表（避免中途多次重渲染）。
+   */
   async function importEndpoints(
     items: Array<{ name: string; method: string; path: string; description?: string; request: Endpoint['request']; examples?: Array<{ name: string; status: number; content_type: string; headers: Record<string, string>; body: string }>; folder_hint?: string | null }>,
   ): Promise<{ endpoints: number; examples: number }> {
     if (!project.value) return { endpoints: 0, examples: 0 }
+    const projectId = project.value.id
     const now = new Date().toISOString()
-    let exampleCount = 0
+    const baseSort = endpoints.value.length
+    const baseFolderSort = folders.value.length
+    // folder_hint → id（预扫本地 + 本次新建，避免并发重复建同名文件夹）。
+    const folderCache = new Map<string, string>()
+    for (const f of folders.value) folderCache.set(`\0${f.name}`, f.id)
+    let folderSeq = 0
+    const folderMutex = { locked: false }
 
-    for (const item of items) {
-      let folderId: string | null = null
-      if (item.folder_hint?.trim()) {
-        const existing = folders.value.find((f) => f.name === item.folder_hint)
-        if (existing) {
-          folderId = existing.id
-        } else {
-          const folder = await api.saveFolder({
-            id: crypto.randomUUID(),
-            project_id: project.value.id,
-            parent_id: null,
-            name: item.folder_hint,
-            sort_order: folders.value.length,
-            created_at: now,
-            updated_at: now,
-          })
-          folders.value.push(folder)
-          folderId = folder.id
-        }
+    async function resolveFolder(hint: string | null | undefined): Promise<string | null> {
+      const name = hint?.trim()
+      if (!name) return null
+      const key = `\0${name}`
+      const hit = folderCache.get(key)
+      if (hit) return hit
+      // 建文件夹串行化（同名并发只建一次；文件夹数量少，串行无压力）。
+      while (folderMutex.locked) await new Promise((r) => setTimeout(r, 5))
+      folderMutex.locked = true
+      try {
+        const recheck = folderCache.get(key)
+        if (recheck) return recheck
+        const folder = await api.saveFolder({
+          id: crypto.randomUUID(),
+          project_id: projectId,
+          parent_id: null,
+          name,
+          sort_order: baseFolderSort + folderSeq++,
+          created_at: now,
+          updated_at: now,
+        })
+        folderCache.set(key, folder.id)
+        return folder.id
+      } finally {
+        folderMutex.locked = false
       }
+    }
+
+    let exampleCount = 0
+    async function saveOne(item: (typeof items)[number], index: number): Promise<void> {
+      const folderId = await resolveFolder(item.folder_hint)
       const endpoint = await api.saveEndpoint({
         id: crypto.randomUUID(),
-        project_id: project.value.id,
+        project_id: projectId,
         folder_id: folderId,
         name: item.name,
         method: item.method as Endpoint['method'],
         path: item.path,
         description: item.description ?? '',
         request: item.request,
-        sort_order: endpoints.value.length,
+        sort_order: baseSort + index,
         status: 'designing',
         created_at: now,
         updated_at: now,
       })
-      endpoints.value.push(endpoint)
       for (const ex of item.examples ?? []) {
         await api.saveExample({
           id: crypto.randomUUID(),
@@ -989,12 +1145,36 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         exampleCount++
       }
     }
+
+    // 限并发 worker 池（4 路 IPC 并行，大导入不再线性等待）。
+    const CONCURRENCY = 4
+    let next = 0
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
+        for (;;) {
+          const i = next++
+          if (i >= items.length) return
+          await saveOne(items[i], i)
+        }
+      }),
+    )
+    await refresh()
     return { endpoints: items.length, examples: exampleCount }
   }
 
-  /** 发送草稿请求（url 为拼接后的完整地址；环境变量由后端按 environment_id 注入）。
-   *  提供 requestId 后该请求可被「取消」（后端中止连接并返回 CANCELLED）。 */
-  async function send(endpoint: Endpoint, url: string, requestId?: string): Promise<ExecuteResponse> {
+  /**
+   * 发送草稿请求（url 为拼接后的完整地址；环境变量由后端按 environment_id 注入）。
+   * 提供 requestId 后该请求可被「取消」（后端中止连接并返回 CANCELLED）。
+   *
+   * 前端超时联动：后端超时是最后兜底；前端到时主动 cancel，避免弱网下
+   * 请求挂起无反馈。超时未配置时不设 timer（行为与原来一致）。
+   */
+  async function send(
+    endpoint: Endpoint,
+    url: string,
+    requestId?: string,
+    timeoutMs?: number | null,
+  ): Promise<ExecuteResponse> {
     let spec = endpoint.request
     const auth = spec.auth as AuthSpec | undefined
     if (auth?.type === 'oauth2' && (auth.auth_url?.trim() || auth.token_url?.trim())) {
@@ -1002,15 +1182,35 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const base = (auth.token ?? {}) as Partial<Pick<OAuth2Token, 'token_type' | 'refresh_token' | 'expires_at'>>
       spec = { ...spec, auth: { ...auth, token: { ...base, access_token: token } as OAuth2Token } }
     }
-    return api.executeRequest({
-      url,
-      method: endpoint.method,
-      spec,
-      environment_id: activeEnvId.value,
-      project_id: project.value?.id ?? null,
-      endpoint_id: endpoint.id,
-      request_id: requestId ?? null,
-    })
+    const rid = requestId ?? crypto.randomUUID()
+    const ms = timeoutMs ?? endpoint.request.timeout_ms ?? null
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+    if (ms && ms > 0) {
+      timer = setTimeout(() => {
+        timedOut = true
+        void api.cancelRequest(rid)
+      }, ms)
+    }
+    try {
+      return await api.executeRequest({
+        url,
+        method: endpoint.method,
+        spec,
+        environment_id: activeEnvId.value,
+        project_id: project.value?.id ?? null,
+        endpoint_id: endpoint.id,
+        request_id: rid,
+      })
+    } catch (err) {
+      if (timedOut) {
+        const e = err as Error & { code?: string }
+        if (e?.code === 'CANCELLED') throw new Error(`请求超时（>${ms}ms），已自动取消`)
+      }
+      throw err
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   /** 树内重命名接口：保存 + 同步列表与打开中的草稿。 */
@@ -1095,12 +1295,114 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await refresh()
   }
 
+  /**
+   * 批量删除：接口 + 文件夹混合选中。
+   * 归一化：选中文件夹子树内的接口/子文件夹不再单独处理（随文件夹级联）；
+   * 快照整体可经 `undoDelete` 一次撤销。
+   */
+  async function batchDelete(epIds: string[], folderIds: string[]): Promise<void> {
+    const folderById = new Map(folders.value.map((f) => [f.id, f]))
+    const selectedFolders = new Set(folderIds.filter((id) => folderById.has(id)))
+    // 去掉被祖先选中的文件夹（随祖先级联删除）。
+    const isUnderSelected = (id: string): boolean => {
+      let cur = folderById.get(id)?.parent_id ?? null
+      while (cur) {
+        if (selectedFolders.has(cur)) return true
+        cur = folderById.get(cur)?.parent_id ?? null
+      }
+      return false
+    }
+    const topFolders = [...selectedFolders].filter((id) => !isUnderSelected(id))
+    const topSet = new Set(topFolders)
+    // 文件夹子树覆盖的接口（随文件夹级联，不再单独删除）。
+    const coveredEps = new Set<string>()
+    for (const e of endpoints.value) {
+      let cur = e.folder_id
+      while (cur) {
+        if (topSet.has(cur)) {
+          coveredEps.add(e.id)
+          break
+        }
+        cur = folderById.get(cur)?.parent_id ?? null
+      }
+    }
+    const directEps = epIds.filter(
+      (id) => !coveredEps.has(id) && endpoints.value.some((e) => e.id === id),
+    )
+    if (!topFolders.length && !directEps.length) return
+
+    const snapFolders = topFolders.flatMap((id) => collectSubtree(id).folders)
+    const snapEndpoints = [
+      ...topFolders.flatMap((id) => collectSubtree(id).endpoints),
+      ...directEps.flatMap((id) => {
+        const e = endpoints.value.find((x) => x.id === id)
+        return e ? [{ ...e }] : []
+      }),
+    ]
+    for (const id of topFolders) {
+      for (const e of endpoints.value.filter((x) => {
+        let cur: string | null = x.folder_id
+        while (cur) {
+          if (cur === id) return true
+          cur = folderById.get(cur)?.parent_id ?? null
+        }
+        return false
+      })) {
+        closeTab(e.id)
+      }
+      await api.deleteFolder(id)
+    }
+    for (const id of directEps) {
+      await api.deleteEndpoint(id)
+      closeTab(id)
+    }
+    await refresh()
+    const total = snapFolders.length + snapEndpoints.length
+    lastDeleted.value = {
+      kind: topFolders.length ? 'folder' : 'endpoint',
+      label: `${total} 项`,
+      folders: snapFolders,
+      endpoints: snapEndpoints,
+    }
+    toast.info(`已删除 ${total} 项`, {
+      duration: 8000,
+      action: { label: '撤销', run: () => void undoDelete() },
+    })
+  }
+
+  /** 批量移动接口到目标文件夹（末尾追加，单次刷新）。 */
+  async function batchMoveEndpoints(ids: string[], folderId: string | null): Promise<void> {
+    const list = endpoints.value.filter((e) => ids.includes(e.id))
+    if (!list.length) return
+    const siblings = endpoints.value.filter((e) => e.folder_id === folderId)
+    let order = siblings.reduce((m, e) => Math.max(m, e.sort_order), -1) + 1
+    await Promise.all(
+      list.map((e) => api.saveEndpoint({ ...e, folder_id: folderId, sort_order: order++ })),
+    )
+    await refresh()
+    toast.success(`已移动 ${list.length} 个接口`)
+  }
+
   async function deleteFolder(folderId: string): Promise<void> {
-    const removed = endpoints.value.filter((e) => e.folder_id === folderId)
-    removed.forEach((e) => closeTab(e.id))
+    const folder = folders.value.find((f) => f.id === folderId)
+    const snap = collectSubtree(folderId)
+    for (const e of snap.endpoints) closeTab(e.id)
     await api.deleteFolder(folderId)
     await refresh()
-    toast.info('文件夹已删除（含子项）')
+    if (folder && (snap.folders.length || snap.endpoints.length)) {
+      lastDeleted.value = {
+        kind: 'folder',
+        label: folder.name,
+        folders: snap.folders,
+        endpoints: snap.endpoints,
+      }
+      toast.info(`文件夹已删除：${folder.name}（含 ${snap.endpoints.length} 个接口）`, {
+        duration: 8000,
+        action: { label: '撤销', run: () => void undoDelete() },
+      })
+    } else {
+      toast.info('文件夹已删除（含子项）')
+    }
   }
 
   /** cURL 导入：打开为默认标题「未命名接口」的草稿（不落库），保存时生成 id；会话 Base URL 预填为 URL origin。 */
@@ -1258,6 +1560,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     closeTab,
     saveActiveDraft,
     deleteEndpoint,
+    undoDelete,
+    batchDelete,
+    batchMoveEndpoints,
     duplicateEndpoint,
     renameEndpoint,
     moveFolder,
@@ -1298,6 +1603,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     updateTestCaseContent,
     runTestCase,
     runAllTestCases,
+    cancelAllTestCases,
     histories,
     historyOnlyCurrent,
     loadHistories,

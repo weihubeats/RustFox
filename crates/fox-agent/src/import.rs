@@ -88,6 +88,7 @@ pub fn endpoint_from_curl(
             timeout_ms: None,
             follow_redirects: true,
             tests: None,
+            disable_cookies: false,
         },
         created_at: now,
         updated_at: now,

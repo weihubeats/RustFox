@@ -21,6 +21,14 @@ const BUILTIN_SEQ: &str = "$seq";
 
 /// 自增计数器存储：key → 下一次输出值。key 为空字符串表示全局 `{{$seq}}`。
 static SEQ_COUNTERS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+/// 脏标记：计数器被推进/设置/删除后置位；请求热路径仅变脏才回写磁盘，
+///
+/// 避免每次请求一次 settings 查询 + 一次写入（`{{$seq}}` 未使用时纯浪费）。
+static SEQ_DIRTY: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
+
+fn seq_dirty() -> &'static std::sync::atomic::AtomicBool {
+    SEQ_DIRTY.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
+}
 
 /// 惰性初始化计数器表（MSRV 1.79，`LazyLock` 需 1.80，故用 `OnceLock`）。
 fn seq_counters() -> &'static Mutex<HashMap<String, u64>> {
@@ -65,7 +73,13 @@ fn seq_value(key: &str) -> String {
     let cur = map.get(key).copied().unwrap_or(0);
     let out = if cur == 0 { 1 } else { cur };
     map.insert(key.to_string(), out + 1);
+    seq_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
     out.to_string()
+}
+
+/// 取走脏标记（true = 自上次取走后计数器变过，调用方据此决定是否落盘）。
+pub fn take_seq_dirty() -> bool {
+    seq_dirty().swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// 列出全部自增序列（key + 下一次输出值，按 key 排序；含全局 `$seq`，其 key 为空串）。
@@ -82,6 +96,7 @@ pub fn set_seq_counter(key: &str, value: u64) {
         .lock()
         .expect("seq counters poisoned")
         .insert(key.to_string(), value);
+    seq_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// 删除自增序列（删除后再使用从 1 重新开始）。
@@ -90,6 +105,7 @@ pub fn delete_seq_counter(key: &str) {
         .lock()
         .expect("seq counters poisoned")
         .remove(key);
+    seq_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// 导出全部计数（用于持久化）。

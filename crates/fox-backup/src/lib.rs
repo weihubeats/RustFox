@@ -7,7 +7,8 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use fox_core::model::{
-    Endpoint, Environment, Folder, MockRule, Project, RequestExample, ResponseExample,
+    Endpoint, Environment, EnvironmentVariable, Folder, GlobalParam, MockRule, Project,
+    RequestExample, ResponseExample,
 };
 use fox_core::AppError;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,15 @@ pub struct BackupFile {
     /// 请求用例（旧版本备份无此字段，缺失时按空处理）。
     #[serde(default)]
     pub request_examples: Vec<RequestExample>,
+    /// 全局设置快照（白名单键：代理/超时/自增序列；旧备份缺失按空处理）。
+    #[serde(default)]
+    pub settings: HashMap<String, String>,
+    /// 全局变量（旧备份缺失按空处理；恢复时按 key 合并，缺失才补）。
+    #[serde(default)]
+    pub global_variables: Vec<EnvironmentVariable>,
+    /// 全局参数（旧备份缺失按空处理；恢复时按 key 合并，缺失才补）。
+    #[serde(default)]
+    pub global_params: Vec<GlobalParam>,
 }
 
 /// 备份格式标识。
@@ -133,26 +143,36 @@ fn upgrade_v1(value: &mut serde_json::Value) {
 }
 
 /// 构建备份文件。
-pub fn build_backup(
-    project: &Project,
-    folders: &[Folder],
-    endpoints: &[Endpoint],
-    environments: &[Environment],
-    mock_rules: &[MockRule],
-    response_examples: &[ResponseExample],
-    request_examples: &[RequestExample],
-) -> BackupFile {
+/// 备份输入（参数过多时收敛为结构体，避免“函数参数过多” lint）。
+#[derive(Debug)]
+pub struct BackupInput<'a> {
+    pub project: &'a Project,
+    pub folders: &'a [Folder],
+    pub endpoints: &'a [Endpoint],
+    pub environments: &'a [Environment],
+    pub mock_rules: &'a [MockRule],
+    pub response_examples: &'a [ResponseExample],
+    pub request_examples: &'a [RequestExample],
+    pub settings: &'a HashMap<String, String>,
+    pub global_variables: &'a [EnvironmentVariable],
+    pub global_params: &'a [GlobalParam],
+}
+
+pub fn build_backup(input: &BackupInput) -> BackupFile {
     BackupFile {
         format: FORMAT.to_string(),
         schema_version: SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
-        project: project.clone(),
-        folders: folders.to_vec(),
-        endpoints: endpoints.to_vec(),
-        environments: environments.to_vec(),
-        mock_rules: mock_rules.to_vec(),
-        response_examples: response_examples.to_vec(),
-        request_examples: request_examples.to_vec(),
+        project: input.project.clone(),
+        folders: input.folders.to_vec(),
+        endpoints: input.endpoints.to_vec(),
+        environments: input.environments.to_vec(),
+        mock_rules: input.mock_rules.to_vec(),
+        response_examples: input.response_examples.to_vec(),
+        request_examples: input.request_examples.to_vec(),
+        settings: input.settings.clone(),
+        global_variables: input.global_variables.to_vec(),
+        global_params: input.global_params.to_vec(),
     }
 }
 
@@ -325,6 +345,8 @@ mod tests {
             response_headers: HashMap::new(),
             response_body_template: "{}".into(),
             delay_ms: 0,
+            fault_rate_pct: 0,
+            fault_status: 500,
             enabled: true,
             priority: 0,
             created_at: Utc::now(),
@@ -351,15 +373,18 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        build_backup(
-            &project,
-            &[folder],
-            &[ep],
-            &[env],
-            &[rule],
-            &[example],
-            &[req_example],
-        )
+        build_backup(&BackupInput {
+            project: &project,
+            folders: &[folder],
+            endpoints: &[ep],
+            environments: &[env],
+            mock_rules: &[rule],
+            response_examples: &[example],
+            request_examples: &[req_example],
+            settings: &HashMap::from([("http_timeout_ms".into(), "30000".into())]),
+            global_variables: &[],
+            global_params: &[],
+        })
     }
 
     #[test]
@@ -383,6 +408,27 @@ mod tests {
         let parsed = BackupFile::parse(&text).unwrap();
         assert!(parsed.request_examples.is_empty());
         assert_eq!(parsed.response_examples.len(), 1);
+    }
+
+    #[test]
+    fn new_settings_fields_roundtrip_and_old_backup_defaults_empty() {
+        let data = sample_data();
+        assert_eq!(
+            data.settings.get("http_timeout_ms").map(String::as_str),
+            Some("30000")
+        );
+        let text = data.serialize().unwrap();
+        let parsed = BackupFile::parse(&text).unwrap();
+        assert_eq!(parsed.settings, data.settings);
+        // 旧备份（无新字段）按空处理。
+        let mut v = serde_json::json!(data);
+        for key in ["settings", "global_variables", "global_params"] {
+            v.as_object_mut().unwrap().remove(key);
+        }
+        let old = BackupFile::parse(&v.to_string()).unwrap();
+        assert!(old.settings.is_empty());
+        assert!(old.global_variables.is_empty());
+        assert!(old.global_params.is_empty());
     }
 
     #[test]

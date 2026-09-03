@@ -63,6 +63,20 @@ const authView = computed(() => {
       }
     case 'oauth2':
       return { label: 'OAuth2', detail: `client_id: ${a.client_id || '（未填写）'}` }
+    case 'digest':
+      return { label: 'Digest 认证', detail: `${a.username || '（用户名未填写）'} : ${'•'.repeat(8)}` }
+    case 'hawk':
+      return { label: 'Hawk 认证', detail: `id: ${a.key_id || '（未填写）'}（发送时实时计算 mac）` }
+    case 'awsv4':
+      return {
+        label: 'AWS Signature V4',
+        detail: `${a.access_key || '（AK 未填写）'} / ${a.region || '（区域未填写）'} / ${a.service || '（服务未填写）'}`,
+      }
+    case 'hmac':
+      return {
+        label: 'HMAC (AK-SK)',
+        detail: `${a.access_key || '（AK 未填写）'}（发送时实时计算 X-Signature）`,
+      }
     default:
       return { label: '无', detail: '' }
   }

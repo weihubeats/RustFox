@@ -33,7 +33,24 @@ pub enum OAuth2Error {
 static AUTHORIZE_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 
 /// 每 key 刷新互斥：并发请求时只发一次刷新请求，其余等待结果。
+///
+/// 无人持有后惰性摘除（`refresh_with_dedupe` 末尾检查引用计数），
+/// 避免长期运行的 key 常驻增长。
 static REFRESH_LOCKS: OnceLock<Mutex<HashMap<Key, Arc<AsyncMutex<()>>>>> = OnceLock::new();
+
+/// token 端点共享客户端：连接池复用（原来每次刷新/换码都 `Client::new()`，
+/// 高频刷新时多出 TLS 握手；fox-http 侧已有全局池，但 fox-http 依赖本 crate，
+/// 为避循环依赖此处自建等价单例）。
+static TOKEN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn token_client() -> &'static reqwest::Client {
+    TOKEN_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("OAuth token 客户端构建不应失败")
+    })
+}
 
 type Key = (String, String);
 
@@ -45,6 +62,23 @@ fn refresh_lock(client_id: &str, token_url: &str) -> Arc<AsyncMutex<()>> {
     map.entry((client_id.to_string(), token_url.to_string()))
         .or_insert_with(|| Arc::new(AsyncMutex::new(())))
         .clone()
+}
+
+/// 刷新完成后若无其他持有者，从表中摘除（调用时锁已释放）。
+fn evict_refresh_lock(client_id: &str, token_url: &str, lock: &Arc<AsyncMutex<()>>) {
+    // map 自身 1 + 本次调用 1：无并发等待者时摘除。
+    if Arc::strong_count(lock) > 2 {
+        return;
+    }
+    if let Ok(mut map) = REFRESH_LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+    {
+        let key = (client_id.to_string(), token_url.to_string());
+        if map.get(&key).is_some_and(|v| Arc::ptr_eq(v, lock)) && Arc::strong_count(lock) <= 2 {
+            map.remove(&key);
+        }
+    }
 }
 
 /// 从 AuthSpec 提取 OAuth2 配置。
@@ -133,20 +167,25 @@ async fn refresh_with_dedupe(
     expired: OAuth2Token,
 ) -> Result<String, OAuth2Error> {
     let lock = refresh_lock(&fields.client_id, &fields.token_url);
-    let _guard = lock.lock().await;
-    // 抢到锁后复查：可能前一个调用者已刷新完成。
-    if let Some(t) = cache::cached_token(&fields.client_id, &fields.token_url) {
-        if !t.is_expired() && !t.expires_within(REFRESH_AHEAD) {
-            return Ok(t.access_token);
+    let result = async {
+        let _guard = lock.lock().await;
+        // 抢到锁后复查：可能前一个调用者已刷新完成。
+        if let Some(t) = cache::cached_token(&fields.client_id, &fields.token_url) {
+            if !t.is_expired() && !t.expires_within(REFRESH_AHEAD) {
+                return Ok(t.access_token);
+            }
         }
+        let refresh_token = expired.refresh_token.clone().ok_or_else(|| {
+            OAuth2Error::Unauthorized("缺少 refresh_token，请重新授权".to_string())
+        })?;
+        let fresh = exchange_refresh(fields, &refresh_token).await?;
+        cache::store_token(&fields.client_id, &fields.token_url, fresh.clone());
+        Ok(fresh.access_token)
     }
-    let refresh_token = expired
-        .refresh_token
-        .clone()
-        .ok_or_else(|| OAuth2Error::Unauthorized("缺少 refresh_token，请重新授权".to_string()))?;
-    let fresh = exchange_refresh(fields, &refresh_token).await?;
-    cache::store_token(&fields.client_id, &fields.token_url, fresh.clone());
-    Ok(fresh.access_token)
+    .await;
+    // 锁已释放：无等待者时摘除表项，防 key 常驻增长。
+    evict_refresh_lock(&fields.client_id, &fields.token_url, &lock);
+    result
 }
 
 /// 刷新令牌：POST token_url（form：grant_type=refresh_token）。
@@ -154,7 +193,7 @@ async fn exchange_refresh(
     fields: &OAuth2Fields,
     refresh_token: &str,
 ) -> Result<OAuth2Token, OAuth2Error> {
-    let resp = reqwest::Client::new()
+    let resp = token_client()
         .post(&fields.token_url)
         .form(&[
             ("grant_type", "refresh_token"),
@@ -375,7 +414,7 @@ async fn bind_callback_listener(
 
 /// 用授权码换取令牌：POST token_url（form：grant_type=authorization_code）。
 async fn exchange_code(fields: &OAuth2Fields, code: &str) -> Result<OAuth2Token, OAuth2Error> {
-    let resp = reqwest::Client::new()
+    let resp = token_client()
         .post(&fields.token_url)
         .form(&[
             ("grant_type", "authorization_code"),

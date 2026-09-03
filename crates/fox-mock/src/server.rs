@@ -42,6 +42,9 @@ pub struct MockDefinition {
     pub headers: HashMap<String, String>,
     pub body_template: String,
     pub delay_ms: u64,
+    /// 故障注入：百分之多少的命中请求返回 fault_status（0 = 关闭）。
+    pub fault_rate_pct: u8,
+    pub fault_status: u16,
     pub priority: i64,
     pub source: MockSource,
 }
@@ -57,6 +60,8 @@ impl MockDefinition {
             headers: rule.response_headers.clone(),
             body_template: rule.response_body_template.clone(),
             delay_ms: rule.delay_ms,
+            fault_rate_pct: rule.fault_rate_pct,
+            fault_status: rule.fault_status,
             priority: rule.priority,
             source: MockSource::Rule,
         }
@@ -79,6 +84,8 @@ impl MockDefinition {
                 },
                 body_template: ex.body.clone(),
                 delay_ms: 0,
+                fault_rate_pct: 0,
+                fault_status: 500,
                 priority: 0,
                 source: MockSource::Example,
             }
@@ -92,6 +99,8 @@ impl MockDefinition {
                 headers: HashMap::from([("content-type".into(), "application/json".into())]),
                 body_template: "{\"message\":\"Mock 默认响应\"}".into(),
                 delay_ms: 0,
+                fault_rate_pct: 0,
+                fault_status: 500,
                 priority: -10,
                 source: MockSource::Default,
             }
@@ -99,28 +108,162 @@ impl MockDefinition {
     }
 }
 
+/// 预编译路径段：字面量精确匹配，`{name}` 捕获路径参数。
+#[derive(Debug, Clone)]
+enum PathSeg {
+    Literal(String),
+    Param(String),
+}
+
+fn compile_path(template: &str) -> Vec<PathSeg> {
+    template
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if let Some(name) = s.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                PathSeg::Param(name.to_string())
+            } else {
+                PathSeg::Literal(s.to_string())
+            }
+        })
+        .collect()
+}
+
+/// 预编译后的路由：方法大写归一 + 路径段预切分，请求时零分配复用。
+#[derive(Debug, Clone)]
+struct CompiledRoute {
+    def: MockDefinition,
+    method_upper: String,
+    segments: Vec<PathSeg>,
+}
+
+#[derive(Default)]
+struct StoreInner {
+    routes: Vec<CompiledRoute>,
+    /// (METHOD, 段数) → 路由下标（保持插入顺序，优先级语义不变）。
+    index: HashMap<(String, usize), Vec<usize>>,
+}
+
+/// 索引匹配命中：（定义，路径参数，预解析 query map）。
+pub type MatchHit = (
+    MockDefinition,
+    HashMap<String, String>,
+    HashMap<String, String>,
+);
+
 /// Mock 定义存储（可随时整体替换）。
 ///
-/// 读多写少：请求路径走读锁借用匹配，避免每次请求克隆整个定义列表。
+/// 读多写少：`set_definitions` 时预编译 + 建索引；请求路径走读锁，
+/// 按 (method, 段数) 只匹配候选分组，避免 N 条全扫与逐条切分 path。
 #[derive(Clone, Default)]
 pub struct MockStore {
-    defs: Arc<RwLock<Vec<MockDefinition>>>,
+    inner: Arc<RwLock<StoreInner>>,
 }
 
 impl MockStore {
     pub fn new() -> Self {
         MockStore {
-            defs: Arc::new(RwLock::new(Vec::new())),
+            inner: Arc::new(RwLock::new(StoreInner::default())),
         }
     }
 
     pub fn set_definitions(&self, defs: Vec<MockDefinition>) {
-        *self.defs.write().unwrap() = defs;
+        let mut inner = StoreInner {
+            routes: Vec::with_capacity(defs.len()),
+            index: HashMap::new(),
+        };
+        for def in defs {
+            let route = CompiledRoute {
+                method_upper: def.method.to_ascii_uppercase(),
+                segments: compile_path(&def.path),
+                def,
+            };
+            let key = (route.method_upper.clone(), route.segments.len());
+            inner.index.entry(key).or_default().push(inner.routes.len());
+            inner.routes.push(route);
+        }
+        *self.inner.write().unwrap() = inner;
     }
 
-    fn with_defs<R>(&self, f: impl FnOnce(&[MockDefinition]) -> R) -> R {
-        f(&self.defs.read().unwrap())
+    /// 索引化匹配：每请求只切分一次 path、解析一次 query；
+    /// 连同解析后的 query map 一并返回，渲染阶段直接复用。
+    pub fn match_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: &str,
+        headers: &HeaderMap,
+    ) -> Option<MatchHit> {
+        let guard = self.inner.read().unwrap();
+        let req_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let query_map = parse_query(query);
+        let candidates = guard
+            .index
+            .get(&(method.to_ascii_uppercase(), req_segs.len()))?;
+        let mut best: Option<(usize, HashMap<String, String>)> = None;
+        for &idx in candidates {
+            let route = &guard.routes[idx];
+            let Some(vars) = match_compiled(&route.segments, &req_segs) else {
+                continue;
+            };
+            if !query_match_map(&route.def.match_query, &query_map) {
+                continue;
+            }
+            if !headers_match(&route.def.match_headers, headers) {
+                continue;
+            }
+            match &best {
+                None => best = Some((idx, vars)),
+                Some((b, _)) => {
+                    if picks(&route.def, &guard.routes[*b].def) {
+                        best = Some((idx, vars));
+                    }
+                }
+            }
+        }
+        // 读锁内只做下标选择；命中体 clone 一次（读锁不互斥，无写锁竞争）。
+        best.map(|(idx, vars)| (guard.routes[idx].def.clone(), vars, query_map))
     }
+}
+
+/// 请求 query 解析一次，多处复用（条件匹配 + 模板渲染）。
+fn parse_query(query: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for kv in query.split('&').filter(|s| !s.is_empty()) {
+        let mut it = kv.splitn(2, '=');
+        let k = it.next().unwrap_or("");
+        let v = it.next().unwrap_or("");
+        map.entry(k.to_string()).or_insert_with(|| v.to_string());
+    }
+    map
+}
+
+fn match_compiled(template: &[PathSeg], path: &[&str]) -> Option<HashMap<String, String>> {
+    if template.len() != path.len() {
+        return None;
+    }
+    let mut vars = HashMap::new();
+    for (t, p) in template.iter().zip(path.iter()) {
+        match t {
+            PathSeg::Param(name) => {
+                vars.insert(name.clone(), (*p).to_string());
+            }
+            PathSeg::Literal(lit) => {
+                if lit != p {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(vars)
+}
+
+/// 基于预解析 query map 的条件匹配（`query_match` 的零重复解析版）。
+fn query_match_map(items: &[MockMatchItem], pairs: &HashMap<String, String>) -> bool {
+    items.iter().all(|item| match pairs.get(&item.key) {
+        Some(v) => item.value.is_empty() || *v == item.value,
+        None => false,
+    })
 }
 
 /// 路径模板匹配：`/users/{id}` vs `/users/1`，返回捕获的参数。
@@ -143,18 +286,7 @@ pub fn match_path(template: &str, path: &str) -> Option<HashMap<String, String>>
 
 /// 检查 query 条件（key=value，value 为空表示仅要求存在 key）。
 pub fn query_match(items: &[MockMatchItem], query: &str) -> bool {
-    let pairs: HashMap<&str, &str> = query
-        .split('&')
-        .filter(|s| !s.is_empty())
-        .map(|kv| {
-            let mut it = kv.splitn(2, '=');
-            (it.next().unwrap_or(""), it.next().unwrap_or(""))
-        })
-        .collect();
-    items.iter().all(|item| match pairs.get(item.key.as_str()) {
-        Some(v) => item.value.is_empty() || *v == item.value,
-        None => false,
-    })
+    query_match_map(items, &parse_query(query))
 }
 
 /// 检查 header 条件（大小写不敏感）。
@@ -217,6 +349,18 @@ pub fn render_template(
     query: &str,
     headers: &HeaderMap,
 ) -> String {
+    // query 预解析一次：模板含 V 个 {{query.x}} 时原来是 O(V×Q) 重复切分。
+    let query_map = parse_query(query);
+    render_template_with_query(template, params, &query_map, headers)
+}
+
+/// 预解析 query map 版渲染（请求路径与 `render_template` 同语义，零重复解析）。
+pub fn render_template_with_query(
+    template: &str,
+    params: &HashMap<String, String>,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find("{{") {
@@ -235,25 +379,17 @@ pub fn render_template(
     out
 }
 
-fn lookup(key: &str, params: &HashMap<String, String>, query: &str, headers: &HeaderMap) -> String {
+fn lookup(
+    key: &str,
+    params: &HashMap<String, String>,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+) -> String {
     if let Some(name) = key.strip_prefix("params.") {
         return params.get(name).cloned().unwrap_or_default();
     }
     if let Some(name) = key.strip_prefix("query.") {
-        return query
-            .split('&')
-            .filter(|s| !s.is_empty())
-            .find_map(|kv| {
-                let mut it = kv.splitn(2, '=');
-                let k = it.next().unwrap_or("");
-                let v = it.next().unwrap_or("");
-                if k == name {
-                    Some(v.to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
+        return query.get(name).cloned().unwrap_or_default();
     }
     if let Some(name) = key.strip_prefix("headers.") {
         return headers
@@ -298,9 +434,9 @@ async fn mock_handler(
     let headers = req.headers().clone();
     let started = Instant::now();
 
-    let hit = store.with_defs(|defs| resolve(defs, method.as_str(), &path, &query, &headers));
+    let hit = store.match_request(method.as_str(), &path, &query, &headers);
 
-    let Some((def, params)) = hit else {
+    let Some((def, params, query_map)) = hit else {
         tracing::info!("[mock] {} {} → 404 未匹配", method, path);
         return (
             StatusCode::NOT_FOUND,
@@ -321,7 +457,27 @@ async fn mock_handler(
         tokio::time::sleep(Duration::from_millis(def.delay_ms)).await;
     }
 
-    let body = render_template(&def.body_template, &params, &query, &headers);
+    // 故障注入：按命中比例返回故障状态码（延迟之后判定，模拟"慢且失败"）。
+    if def.fault_rate_pct > 0 && rand::thread_rng().gen_range(0..100) < def.fault_rate_pct as u32 {
+        tracing::info!(
+            "[mock] {} {} → 故障注入 {}（{}% 比例）",
+            method,
+            path,
+            def.fault_status,
+            def.fault_rate_pct
+        );
+        return (
+            StatusCode::from_u16(def.fault_status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            [(header::CONTENT_TYPE, "application/json")],
+            format!(
+                "{{\"message\":\"Mock 故障注入（{}% 比例）\"}}",
+                def.fault_rate_pct
+            ),
+        )
+            .into_response();
+    }
+
+    let body = render_template_with_query(&def.body_template, &params, &query_map, &headers);
     let mut builder = AxumResponse::builder().status(def.status);
     for (k, v) in &def.headers {
         let Ok(kn) = header::HeaderName::from_bytes(k.as_bytes()) else {
@@ -355,6 +511,7 @@ async fn mock_handler(
 /// 正在运行的 Mock 服务句柄。
 pub struct MockServer {
     pub port: u16,
+    store: MockStore,
     shutdown: tokio::sync::oneshot::Sender<()>,
     handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -362,6 +519,11 @@ pub struct MockServer {
 impl MockServer {
     pub fn address(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
+    }
+
+    /// 运行中的定义存储：热重载时整体替换定义（读锁内 swap，在途请求不受影响）。
+    pub fn store(&self) -> &MockStore {
+        &self.store
     }
 
     /// 停止 Mock 服务（幂等）。
@@ -395,6 +557,7 @@ pub async fn start(store: MockStore) -> Result<MockServer, AppError> {
         tracing::info!("[mock] Mock 服务已启动：http://127.0.0.1:{port}");
         return Ok(MockServer {
             port,
+            store,
             shutdown: tx,
             handle: Some(handle),
         });
@@ -420,6 +583,8 @@ mod tests {
             headers: HashMap::new(),
             body_template: "body".into(),
             delay_ms: 0,
+            fault_rate_pct: 0,
+            fault_status: 500,
             priority: 0,
             source,
         }

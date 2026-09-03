@@ -68,6 +68,7 @@ fn request_spec() -> RequestSpec {
         timeout_ms: Some(30_000),
         follow_redirects: true,
         tests: None,
+        disable_cookies: false,
     }
 }
 
@@ -194,6 +195,8 @@ fn ipc_models_serialize_snake_case_keys() {
             response_headers: HashMap::new(),
             response_body_template: "{}".into(),
             delay_ms: 0,
+            fault_rate_pct: 0,
+            fault_status: 500,
             enabled: true,
             priority: 0,
             created_at: now,

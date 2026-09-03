@@ -7,6 +7,7 @@
 import { onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
+import { useToast } from '../composables/useToast'
 import type { Endpoint, MockRule } from '../types/foxApi'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
@@ -16,8 +17,10 @@ const emit = defineEmits<{ openManager: [] }>()
 
 const store = useWorkspaceStore()
 const api = useFoxApi()
+const toast = useToast()
 
 const rules = ref<MockRule[]>([])
+const reloading = ref(false)
 
 async function load(): Promise<void> {
   if (!store.project) return
@@ -29,6 +32,20 @@ async function load(): Promise<void> {
 }
 
 onMounted(load)
+
+/** 热重载：运行中原子替换定义，无需重启服务（未运行会提示先启动）。 */
+async function reload(): Promise<void> {
+  if (reloading.value) return
+  reloading.value = true
+  try {
+    const n = await api.mockReload()
+    toast.success(`Mock 定义已热重载（${n} 条），无需重启`)
+  } catch (err) {
+    toast.error('热重载失败', { message: err instanceof Error ? err.message : String(err) })
+  } finally {
+    reloading.value = false
+  }
+}
 
 /** 与当前接口关联的规则（endpoint_id 匹配）。 */
 const related = (): MockRule[] =>
@@ -42,9 +59,20 @@ const others = (): MockRule[] =>
   <div class="mkp">
     <div class="mkp-bar">
       <span class="mkp-title">Mock 规则（{{ rules.length }}）</span>
-      <button class="rf-btn rf-btn-sm" type="button" @click="emit('openManager')">
-        <Icon name="settings" :size="13" /> 打开 Mock 管理
-      </button>
+      <span class="mkp-actions">
+        <button
+          class="rf-btn rf-btn-sm"
+          type="button"
+          :disabled="reloading"
+          title="运行中原子替换路由与模板，无需重启服务"
+          @click="reload"
+        >
+          <Icon name="refresh" :size="13" /> {{ reloading ? '重载中…' : '热重载' }}
+        </button>
+        <button class="rf-btn rf-btn-sm" type="button" @click="emit('openManager')">
+          <Icon name="settings" :size="13" /> 打开 Mock 管理
+        </button>
+      </span>
     </div>
 
     <div v-if="related().length" class="mkp-sec">
@@ -94,6 +122,11 @@ const others = (): MockRule[] =>
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.mkp-actions {
+  display: inline-flex;
+  gap: 8px;
 }
 
 .mkp-title {

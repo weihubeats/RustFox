@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-mock-reload"
+description = "Enables the mock_reload command without any pre-configured scope."
+commands.allow = ["mock_reload"]
+
+[[permission]]
+identifier = "deny-mock-reload"
+description = "Denies the mock_reload command without any pre-configured scope."
+commands.deny = ["mock_reload"]

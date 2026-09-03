@@ -6,14 +6,41 @@
  * - 点击记录调用 store.restoreFromHistory：Method/URL/Headers/Body 恢复到主编辑器。
  * 数据源为 workspace store（发送成功后由 EndpointEditor 触发刷新）。
  */
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { formatDuration } from '../utils/format'
 import EmptyState from './ui/EmptyState.vue'
+import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 
 const store = useWorkspaceStore()
+
+/**
+ * 本地搜索 + 状态筛选：原来仅「仅当前接口」复选，无关键字/状态码检索。
+ * 历史上限 50 条，前端过滤足够（无需后端改接口）。
+ */
+const keyword = ref('')
+const statusFilter = ref<'all' | '2xx' | '4xx5xx'>('all')
+
+const filtered = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return store.histories.filter((h) => {
+    if (statusFilter.value === '2xx' && !(h.status != null && h.status < 400)) return false
+    if (statusFilter.value === '4xx5xx' && !(h.status != null && h.status >= 400)) return false
+    if (!q) return true
+    return (
+      h.url.toLowerCase().includes(q) ||
+      h.method.toLowerCase().includes(q) ||
+      String(h.status ?? '').includes(q)
+    )
+  })
+})
+
+function cycleStatusFilter(): void {
+  statusFilter.value =
+    statusFilter.value === 'all' ? '2xx' : statusFilter.value === '2xx' ? '4xx5xx' : 'all'
+}
 
 onMounted(() => {
   void store.loadHistories()
@@ -60,7 +87,7 @@ function shortTime(iso: string): string {
         />
         仅当前接口
       </label>
-      <span class="hp-count">{{ store.histories.length }} 条</span>
+      <span class="hp-count">{{ filtered.length }}/{{ store.histories.length }}</span>
       <Popconfirm
         title="清空请求历史？该操作不可恢复。"
         confirm-text="清空"
@@ -71,9 +98,28 @@ function shortTime(iso: string): string {
       </Popconfirm>
     </div>
 
+    <div class="hp-search-row">
+      <Icon name="search" :size="12" class="hp-search-icon" />
+      <input
+        v-model="keyword"
+        class="hp-search"
+        type="text"
+        placeholder="搜索 URL / 方法 / 状态码…"
+        spellcheck="false"
+      />
+      <button
+        class="hp-status-filter"
+        type="button"
+        :title="`状态筛选：${statusFilter === 'all' ? '全部' : statusFilter}`"
+        @click="cycleStatusFilter"
+      >
+        {{ statusFilter === 'all' ? '全部' : statusFilter }}
+      </button>
+    </div>
+
     <div class="hp-list">
       <button
-        v-for="h in store.histories"
+        v-for="h in filtered"
         :key="h.id"
         class="hp-row"
         type="button"
@@ -98,6 +144,9 @@ function shortTime(iso: string): string {
         title="暂无请求历史"
         description="发送请求后，最近 50 条记录会显示在这里"
       />
+      <p v-else-if="!filtered.length" class="hp-no-match">
+        无匹配记录{{ keyword.trim() ? `：${keyword.trim()}` : '' }}
+      </p>
     </div>
   </div>
 </template>
@@ -141,6 +190,49 @@ function shortTime(iso: string): string {
   font-size: 11px;
   color: var(--text-3);
   text-align: right;
+}
+
+/* ---- 搜索行：关键字 + 状态筛选 ---- */
+.hp-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 6px;
+  flex-shrink: 0;
+}
+.hp-search-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.hp-search {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 11.5px;
+}
+.hp-status-filter {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.hp-status-filter:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.hp-no-match {
+  padding: 12px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: center;
 }
 
 /* ---- 列表 ---- */

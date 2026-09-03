@@ -1,0 +1,289 @@
+<script setup lang="ts">
+/**
+ * CookiePanel：Cookie 管理面板（侧栏「Cookie」页签）。
+ * - 按域名分组展示 Jar 中的登录态：名称 / 值（截断）/ 路径 / 过期 / Secure / HttpOnly；
+ * - 域名搜索过滤 + 按域清理 / 全部清理（Popconfirm 二次确认）；
+ * - 打开页签时加载（静默 IPC，无全局进度条抖动）。
+ *
+ * 背景：原来 reqwest 内建 jar 是黑盒，登录态问题只能重启应用；
+ * 自管 Jar（fox-http::cookie）保持自动回放语义，本面板为其管理面。
+ */
+import { computed, onMounted, ref } from 'vue'
+import { useFoxApi } from '../composables/useFoxApi'
+import { useToast } from '../composables/useToast'
+import EmptyState from './ui/EmptyState.vue'
+import Icon from './ui/Icon.vue'
+import IconButton from './ui/IconButton.vue'
+import Popconfirm from './ui/Popconfirm.vue'
+import type { CookieEntry } from '../types/foxApi'
+
+const api = useFoxApi()
+const toast = useToast()
+
+const cookies = ref<CookieEntry[]>([])
+const filter = ref('')
+const loading = ref(false)
+
+async function reload(): Promise<void> {
+  loading.value = true
+  try {
+    cookies.value = (await api.cookieList(filter.value.trim() || null)) ?? []
+  } catch (err) {
+    toast.error('加载 Cookie 失败', { message: err instanceof Error ? err.message : String(err) })
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  void reload()
+})
+
+let filterTimer: ReturnType<typeof setTimeout> | undefined
+function onFilterInput(): void {
+  if (filterTimer) clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => void reload(), 200)
+}
+
+const grouped = computed(() => {
+  const map = new Map<string, CookieEntry[]>()
+  for (const c of cookies.value) {
+    const list = map.get(c.domain)
+    if (list) list.push(c)
+    else map.set(c.domain, [c])
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+})
+
+async function clearDomain(domain: string): Promise<void> {
+  try {
+    const n = await api.cookieClear(domain)
+    toast.success(`已清理 ${domain} 的 ${n} 条 Cookie`)
+    await reload()
+  } catch (err) {
+    toast.error('清理失败', { message: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+async function clearAll(): Promise<void> {
+  try {
+    const n = await api.cookieClear(null)
+    toast.success(`已清理全部 ${n} 条 Cookie`)
+    await reload()
+  } catch (err) {
+    toast.error('清理失败', { message: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+/** 值过长截断展示（悬浮 title 看全文）。 */
+function shortValue(v: string): string {
+  return v.length > 48 ? `${v.slice(0, 48)}…` : v
+}
+</script>
+
+<template>
+  <div class="cookie-panel">
+    <div class="cp-head">
+      <div class="cp-search">
+        <Icon name="search" :size="13" class="cp-search-icon" />
+        <input
+          v-model="filter"
+          class="cp-input"
+          type="text"
+          placeholder="过滤域名…"
+          spellcheck="false"
+          @input="onFilterInput"
+        />
+      </div>
+      <span class="cp-count">{{ cookies.length }} 条</span>
+      <button class="cp-reload" type="button" title="刷新" @click="reload">
+        <Icon name="refresh" :size="13" />
+      </button>
+      <Popconfirm
+        title="清理全部 Cookie？登录态将失效，需重新登录。"
+        confirm-text="清理"
+        danger
+        @confirm="clearAll"
+      >
+        <IconButton name="trash" :size="14" tone="danger" title="清理全部 Cookie" />
+      </Popconfirm>
+    </div>
+
+    <div v-if="loading && !cookies.length" class="cp-hint">加载中…</div>
+    <EmptyState
+      v-else-if="!cookies.length"
+      title="暂无 Cookie"
+      description="发送请求后，服务端的 Set-Cookie 会自动收纳于此，同域请求自动回放"
+    />
+
+    <div v-else class="cp-list">
+      <div v-for="[domain, items] in grouped" :key="domain" class="cp-group">
+        <div class="cp-group-head">
+          <span class="cp-domain" :title="domain">{{ domain }}</span>
+          <span class="cp-group-count">{{ items.length }}</span>
+          <Popconfirm
+            :title="`清理 ${domain} 的 Cookie？`"
+            confirm-text="清理"
+            danger
+            @confirm="clearDomain(domain)"
+          >
+            <IconButton name="trash" :size="12" tone="danger" :title="`清理 ${domain}`" />
+          </Popconfirm>
+        </div>
+        <div v-for="c in items" :key="`${c.domain}/${c.name}/${c.path}`" class="cp-row" :title="`${c.name}=${c.value}`">
+          <span class="cp-name">{{ c.name }}</span>
+          <span class="cp-value">{{ shortValue(c.value) }}</span>
+          <span class="cp-flags">
+            <span v-if="c.http_only" class="cp-flag" title="HttpOnly：JS 不可读">H</span>
+            <span v-if="c.secure" class="cp-flag" title="Secure：仅 HTTPS">S</span>
+            <span v-if="c.expires_at" class="cp-exp" :title="`过期：${c.expires_at}`">⏱</span>
+            <span v-else class="cp-exp" title="会话 Cookie：关闭应用后失效">○</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <p class="cp-foot">同域请求自动回放；单请求可在 Headers 页关闭「Cookie 自动回放」。</p>
+  </div>
+</template>
+
+<style scoped>
+.cookie-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.cp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cp-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cp-search-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.cp-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+}
+.cp-count {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.cp-reload {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.cp-reload:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.cp-hint {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.cp-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0 12px;
+}
+.cp-group {
+  margin-bottom: 4px;
+}
+.cp-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 2px;
+}
+.cp-domain {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cp-group-count {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.cp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px 4px 16px;
+  font-size: 11.5px;
+}
+.cp-row:hover {
+  background: var(--bg-hover);
+}
+.cp-name {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-1);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-flags {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.cp-flag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--info-tint, var(--bg-hover));
+  color: var(--info);
+}
+.cp-exp {
+  font-size: 10px;
+  color: var(--text-3);
+}
+.cp-foot {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-3);
+}
+</style>

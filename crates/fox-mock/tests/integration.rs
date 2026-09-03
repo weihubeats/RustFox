@@ -27,6 +27,8 @@ fn rule_def() -> MockDefinition {
         headers: HashMap::from([("x-mock".into(), "yes".into())]),
         body_template: "{\"message\":\"rule hit\"}".into(),
         delay_ms: 0,
+        fault_rate_pct: 0,
+        fault_status: 500,
         priority: 5,
         source: server::MockSource::Rule,
     }
@@ -92,6 +94,22 @@ async fn mock_delays_response() {
         .unwrap();
     assert_eq!(res.status(), 200);
     assert!(started.elapsed().as_millis() >= 120);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn mock_fault_injection_returns_fault_status() {
+    let mut d = users_def();
+    d.fault_rate_pct = 100;
+    d.fault_status = 503;
+    let store = MockStore::new();
+    store.set_definitions(vec![d]);
+    let server = server::start(store).await.expect("start mock server");
+    let res = reqwest::get(format!("{}/users/1", server.address()))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 503);
+    assert!(res.text().await.unwrap().contains("故障注入"));
     server.stop().await;
 }
 

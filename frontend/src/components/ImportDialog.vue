@@ -39,6 +39,7 @@ const projectName = ref('')
 
 const FORMAT_LABEL: Record<ImportFormat, string> = {
   openapi30: 'OpenAPI 3.0',
+  openapi31: 'OpenAPI 3.1（已转换为 3.0 子集）',
   swagger20: 'Swagger 2.0',
   postman21: 'Postman 集合 v2.1',
   unknown: '无法识别',

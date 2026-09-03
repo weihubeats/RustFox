@@ -14,12 +14,11 @@ use crate::state::AppState;
 
 /// 启动 Mock 服务（重复启动返回 409 语义错误码 MOCK_RUNNING）。
 ///
-/// 全程持有 `state.mock` 写锁：check-then-act 若分两段加锁，两个并发
-/// `mock_start` 都能通过检查、各自 bind 成功，先启动的服务句柄被覆盖泄漏。
+/// 并发安全：先做快速读检查，DB 查询 + 端口 bind 全程不持写锁；
+/// bind 成功后写锁 CAS，竞输者关闭刚启动的服务再报错，避免句柄泄漏。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mock_start(state: State<'_, AppState>) -> CommandResult<String> {
-    let mut guard = state.mock.write().await;
-    if guard.is_some() {
+    if state.mock.read().await.is_some() {
         return Err(CommandError::with_code(
             "MOCK_RUNNING",
             "Mock 服务已在运行，请先停止",
@@ -30,20 +29,43 @@ pub async fn mock_start(state: State<'_, AppState>) -> CommandResult<String> {
         .active_project()
         .await?
         .ok_or_else(|| CommandError::validation("未选择项目，无法启动 Mock 服务"))?;
-    let project_id: Uuid = project.id;
 
-    // 1. 加载规则与接口示例，构建定义（规则 > 示例 > 默认，与 Dioxus 版一致）。
-    let rules = repo::list_mock_rules(&state.db, project_id).await?;
-    let endpoints = repo::list_endpoints(&state.db, project_id).await?;
-    let mut examples_by_ep: HashMap<Uuid, Vec<fox_core::model::ResponseExample>> = HashMap::new();
-    for ep in endpoints
+    // 1. 构建定义（规则 > 示例 > 默认），批量一次查询（去 N+1）。
+    let defs = build_definitions(&state.db, project.id).await?;
+
+    // 2. 启动并 CAS 托管句柄（临提交前才加写锁）。
+    let store = fox_mock::server::MockStore::new();
+    store.set_definitions(defs);
+    let server = fox_mock::server::start(store).await?;
+    let address = server.address();
+    let mut guard = state.mock.write().await;
+    if guard.is_some() {
+        server.stop().await;
+        return Err(CommandError::with_code(
+            "MOCK_RUNNING",
+            "Mock 服务已在运行，请先停止",
+        ));
+    }
+    *guard = Some(server);
+    Ok(address)
+}
+
+/// 从数据库构建 Mock 定义（规则 > 接口示例 > 默认；与 Dioxus 版一致）。
+async fn build_definitions(
+    db: &sqlx::SqlitePool,
+    project_id: Uuid,
+) -> CommandResult<Vec<fox_mock::server::MockDefinition>> {
+    let rules = repo::list_mock_rules(db, project_id).await?;
+    let endpoints = repo::list_endpoints(db, project_id).await?;
+    let active_ids: Vec<Uuid> = endpoints
         .iter()
         .filter(|e| e.status != EndpointStatus::Deprecated)
-    {
-        if let Ok(list) = repo::list_response_examples(&state.db, ep.id).await {
-            examples_by_ep.insert(ep.id, list);
-        }
-    }
+        .map(|e| e.id)
+        .collect();
+    let examples_by_ep: HashMap<Uuid, Vec<fox_core::model::ResponseExample>> =
+        repo::list_response_examples_by_endpoints(db, &active_ids)
+            .await
+            .unwrap_or_default();
 
     let mut defs: Vec<fox_mock::server::MockDefinition> = Vec::new();
     for rule in rules.iter().filter(|r| r.enabled) {
@@ -60,14 +82,30 @@ pub async fn mock_start(state: State<'_, AppState>) -> CommandResult<String> {
             example,
         ));
     }
+    Ok(defs)
+}
 
-    // 2. 启动并托管句柄（复用函数入口取得的写锁，避免二次加锁间隙）。
-    let store = fox_mock::server::MockStore::new();
-    store.set_definitions(defs);
-    let server = fox_mock::server::start(store).await?;
-    let address = server.address();
-    *guard = Some(server);
-    Ok(address)
+/// 热重载 Mock 定义：运行中直接替换路由与模板，无需重启服务。
+///
+/// 原来修改接口/规则后必须"关闭再启动"Mock 才生效；现在运行中调用即
+/// 原子替换（读锁内整体 swap，在途请求不受影响），返回定义条数。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mock_reload(state: State<'_, AppState>) -> CommandResult<u64> {
+    let project = state
+        .active_project()
+        .await?
+        .ok_or_else(|| CommandError::validation("未选择项目，无法重载 Mock 定义"))?;
+    let defs = build_definitions(&state.db, project.id).await?;
+    let count = defs.len() as u64;
+    let guard = state.mock.read().await;
+    let Some(server) = guard.as_ref() else {
+        return Err(CommandError::with_code(
+            "MOCK_NOT_RUNNING",
+            "Mock 服务未运行，请先启动",
+        ));
+    };
+    server.store().set_definitions(defs);
+    Ok(count)
 }
 
 /// 停止 Mock 服务（幂等）。

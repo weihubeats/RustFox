@@ -6,7 +6,7 @@
  * - Tab 焦点陷阱：焦点始终圈定在对话框内，不穿透遮罩到背景内容；
  * - 打开期间锁定 body 滚动；Teleport 到 body，双主题。
  */
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import IconButton from './IconButton.vue'
 
 const props = withDefaults(
@@ -104,6 +104,13 @@ watch(
     }
   },
 )
+
+// 打开中卸载兜底：原来只在 watch(open=false) 时清理，打开状态下直接卸载
+// 会泄漏 document keydown 监听 + body 锁定（Drawer.vue 已有正确示范）。
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  if (props.open) document.body.style.overflow = ''
+})
 </script>
 
 <template>

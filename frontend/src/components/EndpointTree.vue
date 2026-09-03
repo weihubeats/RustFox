@@ -19,6 +19,20 @@ export const dndState = reactive({
   target: null as DndTarget | null,
 })
 
+/**
+ * 多选状态（模块级 reactive，递归实例间共享）：
+ * Ctrl/⌘ 点击多选，Shift 连选同层，批量删除 / 批量移动。
+ */
+export const treeSelection = reactive({
+  endpoints: new Set<string>(),
+  folders: new Set<string>(),
+})
+
+export function clearTreeSelection(): void {
+  treeSelection.endpoints.clear()
+  treeSelection.folders.clear()
+}
+
 /** 拖拽结束后抑制紧随其后的 click（避免误打开接口/文件夹）。 */
 let suppressClick = false
 
@@ -47,6 +61,20 @@ const TREE_EDIT_STATE: InjectionKey<{
   editing: Ref<TreeEditState | null>
   editValue: Ref<string>
 }> = Symbol('endpoint-tree-edit')
+
+/**
+ * 共享子索引的类型（实例见 <script setup>）。
+ * parentId / folderId → 直属子项：每层子树原来各自
+ * `store.folders.filter + store.endpoints.filter` 全表扫描，
+ * O(层数 × (F+E))；索引后每层 O(1) 取直属子项。
+ */
+export interface TreeChildIndex {
+  foldersByParent: Map<string | null, import('../types/foxApi').Folder[]>
+  endpointsByFolder: Map<string | null, import('../types/foxApi').Endpoint[]>
+}
+
+const TREE_INDEX: InjectionKey<import('vue').ComputedRef<TreeChildIndex>> =
+  Symbol('endpoint-tree-index')
 </script>
 
 <script setup lang="ts">
@@ -68,6 +96,7 @@ import { escapeHtml } from '../utils/highlight'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Menu from './ui/Menu.vue'
+import Popconfirm from './ui/Popconfirm.vue'
 import type { MenuItem } from './ui/Menu.vue'
 import type { Endpoint, Folder } from '../types/foxApi'
 
@@ -102,6 +131,29 @@ if (!inheritedEdit) {
   provide(TREE_EDIT_STATE, { editing, editValue })
 }
 
+// ---------- 共享子索引（根实例构建，递归子树注入复用） ----------
+function buildChildIndex(): TreeChildIndex {
+  const foldersByParent = new Map<string | null, Folder[]>()
+  for (const f of store.folders) {
+    const arr = foldersByParent.get(f.parent_id)
+    if (arr) arr.push(f)
+    else foldersByParent.set(f.parent_id, [f])
+  }
+  const endpointsByFolder = new Map<string | null, Endpoint[]>()
+  for (const e of store.endpoints) {
+    const arr = endpointsByFolder.get(e.folder_id)
+    if (arr) arr.push(e)
+    else endpointsByFolder.set(e.folder_id, [e])
+  }
+  return { foldersByParent, endpointsByFolder }
+}
+const inheritedIndex = inject(TREE_INDEX, null)
+/** computed 迭代数组即建立深依赖：原地改名/移动/增删都会触发重建。 */
+const childIndex = inheritedIndex ?? computed(buildChildIndex)
+if (!inheritedIndex) {
+  provide(TREE_INDEX, childIndex)
+}
+
 // ---------- 接口搜索（实时过滤） ----------
 const query = computed(() => props.search.trim().toLowerCase())
 const searchActive = computed(() => query.value.length > 0)
@@ -112,10 +164,11 @@ function endpointMatches(e: Endpoint): boolean {
   return name.includes(query.value) || e.path.toLowerCase().includes(query.value)
 }
 
-/** 文件夹（或其子孙）是否包含匹配的接口。 */
+/** 文件夹（或其子孙）是否包含匹配的接口（经索引取直属子项，逐层 O(子项数)）。 */
 function folderHasMatch(folderId: string): boolean {
-  if (store.endpoints.some((e) => e.folder_id === folderId && endpointMatches(e))) return true
-  return store.folders.some((f) => f.parent_id === folderId && folderHasMatch(f.id))
+  const idx = childIndex.value
+  if ((idx.endpointsByFolder.get(folderId) ?? []).some(endpointMatches)) return true
+  return (idx.foldersByParent.get(folderId) ?? []).some((f) => folderHasMatch(f.id))
 }
 
 /** 命中子串包 <mark> 高亮（已转义，安全注入 v-html）。 */
@@ -138,12 +191,12 @@ function highlightName(text: string): string {
 }
 
 const childFolders = computed(() =>
-  store.folders.filter(
-    (f) => f.parent_id === props.folderId && (!searchActive.value || folderHasMatch(f.id)),
+  (childIndex.value.foldersByParent.get(props.folderId) ?? []).filter(
+    (f) => !searchActive.value || folderHasMatch(f.id),
   ),
 )
 const childEndpoints = computed(() =>
-  store.endpoints.filter((e) => e.folder_id === props.folderId && endpointMatches(e)),
+  (childIndex.value.endpointsByFolder.get(props.folderId) ?? []).filter(endpointMatches),
 )
 
 function toggleFolder(id: string): void {
@@ -156,12 +209,11 @@ function toggleFolder(id: string): void {
 // ---------- 全部展开 / 折叠（tick 信号驱动，递归子树各自响应） ----------
 function descendantFolderIds(): string[] {
   const out: string[] = []
+  const idx = childIndex.value
   const walk = (parentId: string | null): void => {
-    for (const f of store.folders) {
-      if (f.parent_id === parentId) {
-        out.push(f.id)
-        walk(f.id)
-      }
+    for (const f of idx.foldersByParent.get(parentId) ?? []) {
+      out.push(f.id)
+      walk(f.id)
     }
   }
   walk(props.folderId)
@@ -403,6 +455,8 @@ async function removeFolder(id: string): Promise<void> {
     await store.deleteFolder(id)
   } catch (err) {
     console.error('[EndpointTree.removeFolder]', err)
+  } finally {
+    treeSelection.folders.delete(id)
   }
 }
 
@@ -411,6 +465,8 @@ async function removeEndpoint(e: Endpoint): Promise<void> {
     await store.deleteEndpoint(e.id)
   } catch (err) {
     console.error('[EndpointTree.removeEndpoint]', err)
+  } finally {
+    treeSelection.endpoints.delete(e.id)
   }
 }
 
@@ -487,6 +543,81 @@ function onMenuConfirm(item: MenuItem): void {
     if (ep) removeEndpoint(ep)
   }
 }
+
+// ---------- 多选（Ctrl/⌘ 点选、Shift 同层连选） ----------
+/** 接口行点击：修饰键走多选，否则清空选择并打开。 */
+function onEndpointClick(e: Endpoint, index: number, event: MouseEvent): void {
+  if (event.metaKey || event.ctrlKey) {
+    if (treeSelection.endpoints.has(e.id)) treeSelection.endpoints.delete(e.id)
+    else treeSelection.endpoints.add(e.id)
+    return
+  }
+  if (event.shiftKey) {
+    const ids = childEndpoints.value.map((x) => x.id)
+    const anchor = [...treeSelection.endpoints].map((id) => ids.indexOf(id)).find((i) => i !== -1)
+    const from = anchor ?? index
+    const [lo, hi] = from < index ? [from, index] : [index, from]
+    for (let i = lo; i <= hi; i++) treeSelection.endpoints.add(ids[i])
+    return
+  }
+  clearTreeSelection()
+  store.openEndpoint(e)
+}
+
+/** 文件夹名点击：修饰键走多选，否则展开/收起（原行为）。 */
+function onFolderClick(f: Folder, event: MouseEvent): void {
+  if (event.metaKey || event.ctrlKey) {
+    if (treeSelection.folders.has(f.id)) treeSelection.folders.delete(f.id)
+    else treeSelection.folders.add(f.id)
+    return
+  }
+  toggleFolder(f.id)
+}
+
+const selectionCount = computed(
+  () => treeSelection.endpoints.size + treeSelection.folders.size,
+)
+
+/** 批量删除选中（含文件夹子树归一化）：快照整体可撤销（store.undoDelete）。 */
+async function batchDelete(): Promise<void> {
+  const epIds = [...treeSelection.endpoints]
+  const folderIds = [...treeSelection.folders]
+  clearTreeSelection()
+  try {
+    await store.batchDelete(epIds, folderIds)
+  } catch (err) {
+    console.error('[EndpointTree.batchDelete]', err)
+  }
+}
+
+/** 批量移动选中接口到目标文件夹（文件夹选中项不动，仅移动接口）。 */
+async function batchMove(targetFolderId: string | null): Promise<void> {
+  const epIds = [...treeSelection.endpoints]
+  if (!epIds.length) return
+  clearTreeSelection()
+  try {
+    await store.batchMoveEndpoints(epIds, targetFolderId)
+  } catch (err) {
+    console.error('[EndpointTree.batchMove]', err)
+  }
+}
+
+/** 移动目标菜单：根目录 + 全部文件夹（按名称）。 */
+function openMoveMenu(event: MouseEvent): void {
+  const items: MenuItem[] = [
+    { key: '__root__', label: '根目录', icon: 'folder' },
+    ...[...store.folders]
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+      .map((f) => ({ key: f.id, label: f.name, icon: 'folder' as const })),
+  ]
+  batchMenu.value?.openAt(event.currentTarget as HTMLElement, items, 'left')
+}
+
+const batchMenu = ref<InstanceType<typeof Menu> | null>(null)
+
+function onBatchMenuSelect(item: MenuItem): void {
+  void batchMove(item.key === '__root__' ? null : item.key)
+}
 </script>
 
 <template>
@@ -494,7 +625,7 @@ function onMenuConfirm(item: MenuItem): void {
     <template v-for="f in childFolders" :key="f.id">
       <div
         class="tree-row"
-        :class="{ 'dnd-over': isOverFolder(f.id) }"
+        :class="{ 'dnd-over': isOverFolder(f.id), selected: treeSelection.folders.has(f.id) }"
         data-dnd-kind="folder"
         :data-dnd-id="f.id"
         @pointerdown="onRowPointerDown($event, 'folder', f.id)"
@@ -521,7 +652,7 @@ function onMenuConfirm(item: MenuItem): void {
           <span class="tree-folder-icon" @click="toggleFolder(f.id)">
             <Icon :name="expanded.has(f.id) || searchActive ? 'folder-open' : 'folder'" :size="15" />
           </span>
-          <span class="tree-name folder" @click="toggleFolder(f.id)">{{ f.name }}</span>
+          <span class="tree-name folder" @click="onFolderClick(f, $event)">{{ f.name }}</span>
           <span class="tree-actions">
             <IconButton name="more-horizontal" :size="13" title="更多操作" @click="openFolderMenu($event, f)" />
           </span>
@@ -555,6 +686,7 @@ function onMenuConfirm(item: MenuItem): void {
         class="tree-row"
         :class="{
           active: store.activeTabId === e.id,
+          selected: treeSelection.endpoints.has(e.id),
           'insert-before': isInsertBefore(e.id),
           'insert-after': isInsertAfter(e.id),
           'dragging-src': isDraggingSrc(e.id),
@@ -578,7 +710,7 @@ function onMenuConfirm(item: MenuItem): void {
         <template v-else>
           <span class="tree-chevron spacer"></span>
           <span class="tree-method" :class="`method-${e.method.toLowerCase()}`">{{ e.method }}</span>
-          <span class="tree-name" :class="{ dirty: store.isDirty(e.id) }" @click="store.openEndpoint(e)">
+          <span class="tree-name" :class="{ dirty: store.isDirty(e.id) }" @click="onEndpointClick(e, i, $event)">
             <span class="tree-name-text" v-html="highlightName(e.name || e.path)"></span>
             <Icon v-if="store.isDirty(e.id)" class="tree-dirty" name="dot" :size="6" />
           </span>
@@ -597,7 +729,25 @@ function onMenuConfirm(item: MenuItem): void {
     </p>
   </div>
 
-  <Menu ref="menu" @select="onMenuSelect" @confirm="onMenuConfirm" />
+    <!-- 批量操作条（仅根实例渲染）：多选后出现 -->
+    <div v-if="folderId === null && selectionCount > 0" class="tree-batch">
+      <span class="tree-batch-count">已选 {{ selectionCount }} 项</span>
+      <button class="rf-btn rf-btn-sm" type="button" @click="openMoveMenu($event)">移到…</button>
+      <Popconfirm
+        :title="`删除选中的 ${selectionCount} 项？删除后可撤销。`"
+        confirm-text="删除"
+        danger
+        @confirm="batchDelete"
+      >
+        <button class="rf-btn rf-btn-sm rf-btn-danger" type="button">删除</button>
+      </Popconfirm>
+      <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="clearTreeSelection">
+        清除选择
+      </button>
+    </div>
+
+    <Menu ref="menu" @select="onMenuSelect" @confirm="onMenuConfirm" />
+    <Menu ref="batchMenu" @select="onBatchMenuSelect" />
 
   <Teleport to="body">
     <div
@@ -642,6 +792,27 @@ function onMenuConfirm(item: MenuItem): void {
   background: rgba(124, 58, 237, 0.15);
   border-right: 2px solid #a855f7;
   padding-right: 4px;
+}
+/* 多选态：淡蓝底（与激活态可叠加，激活优先显示） */
+.tree-row.selected {
+  background: rgba(56, 139, 248, 0.16);
+}
+/* 批量操作条（根实例，多选时出现） */
+.tree-batch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  font-size: 12px;
+}
+.tree-batch-count {
+  flex: 1;
+  color: var(--text-2);
+  white-space: nowrap;
 }
 /* 拖入文件夹：细虚线描边 + 浅色高亮 */
 .tree-row.dnd-over {

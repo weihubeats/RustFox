@@ -3,12 +3,13 @@
  *
  * 输出与后端 parse_curl_command 的 CurlParsed 同形状，导入路径复用
  * store.openCurlDraft。解析为启发式最佳努力：覆盖常见写法
- * （JS fetch/axios、Python requests、Java OkHttp/HttpURLConnection、Go net/http），
+ * （JS fetch/axios、Python requests、Java OkHttp/HttpURLConnection、
+ * Go net/http、Rust reqwest、PHP cURL/Guzzle），
  * 无法识别的部分（变量引用等）跳过而不是报错；仅「找不到 URL」视为失败。
  */
 import type { AuthSpec, BodySpec, CurlParsed, HttpMethod, KeyValue } from '../types/foxApi'
 
-export type SnippetLang = 'curl' | 'java' | 'python' | 'javascript' | 'go'
+export type SnippetLang = 'curl' | 'java' | 'python' | 'javascript' | 'go' | 'rust' | 'php'
 
 export const SNIPPET_LANGS: Array<{ value: SnippetLang | 'auto'; label: string }> = [
   { value: 'auto', label: '自动检测' },
@@ -17,6 +18,8 @@ export const SNIPPET_LANGS: Array<{ value: SnippetLang | 'auto'; label: string }
   { value: 'python', label: 'Python (requests)' },
   { value: 'javascript', label: 'JavaScript (fetch / axios)' },
   { value: 'go', label: 'Go (net/http)' },
+  { value: 'rust', label: 'Rust (reqwest)' },
+  { value: 'php', label: 'PHP (cURL / Guzzle)' },
 ]
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
@@ -158,6 +161,8 @@ export function detectLang(src: string): SnippetLang | null {
   if (/\brequests\s*[.(]\s*(get|post|put|patch|delete|head|request)\b/.test(src) || /^import requests\b/m.test(src)) return 'python'
   if (/\bfetch\s*\(|\baxios\s*[.(]|XMLHttpRequest/.test(src)) return 'javascript'
   if (/http\.NewRequest|["']net\/http["']/.test(src)) return 'go'
+  if (/reqwest::|Client::builder|Client::new/.test(src)) return 'rust'
+  if (/curl_setopt|CURLOPT_|new Client\(\[|GuzzleHttp/.test(src)) return 'php'
   return null
 }
 
@@ -196,6 +201,8 @@ type PartialParsed = {
   headers: KeyValue[]
   bodyRaw: string | null
   bodyFromObject: string | null
+  /** `user:pass` 原文（Rust basic_auth 等可还原凭据的写法）。 */
+  basicAuth?: string
 }
 
 function parseHeadersObject(src: string, key: string): KeyValue[] {
@@ -361,6 +368,173 @@ function parseGo(src: string): PartialParsed {
   return { url, method: detectMethod(src), headers, bodyRaw, bodyFromObject: null }
 }
 
+/**
+ * Rust (reqwest)：`client.post("URL")` / `.header("K", "V")` /
+ * `.body("…")` / `.json(payload)` / `.bearer_auth("…")`（token 记为 Bearer 头）。
+ */
+function parseRust(src: string): PartialParsed {
+  const url = findUrl(src)
+  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  const headers: KeyValue[] = []
+  const headerRe = /\.header\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/g
+  let m: RegExpExecArray | null
+  while ((m = headerRe.exec(src)) !== null) {
+    headers.push(kv(unescapeLiteral(m[1].slice(1, -1)), unescapeLiteral(m[2].slice(1, -1))))
+  }
+  // .bearer_auth("tok") → Authorization: Bearer 头（导入后即用，无需二次配置）。
+  const bearer = /\.bearer_auth\s*\(\s*("(?:[^"\\]|\\.)*")\s*\)/.exec(src)
+  if (bearer) headers.push(kv('Authorization', `Bearer ${unescapeLiteral(bearer[1].slice(1, -1))}`))
+  // .basic_auth("user", "pass") → 还原为 user:pass（parseCodeSnippet 后续转 Basic）。
+  const basic = /\.basic_auth\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")?\s*\)/.exec(src)
+  let basicAuth: string | null = null
+  if (basic) {
+    basicAuth = `${unescapeLiteral(basic[1].slice(1, -1))}:${basic[2] ? unescapeLiteral(basic[2].slice(1, -1)) : ''}`
+  }
+  let bodyRaw: string | null = null
+  let bodyFromObject: string | null = null
+  // .body("…") 字面量优先；.json(&x)/.json(payload) 取对象字面量。
+  const bodyLit = /\.body\s*\(\s*("(?:[^"\\]|\\.)*")\s*\)/.exec(src)
+  if (bodyLit) {
+    bodyRaw = unescapeLiteral(bodyLit[1].slice(1, -1))
+  } else {
+    // `.json(&x)` / `.json(payload)` / `.json(&serde_json::json!({...}))`：
+    // 跳过 `&` 与 `json!(` 宏包裹，直取内层对象字面量。
+    const jsonCall = /\.json\s*\(\s*&?\s*(?:[A-Za-z_][\w:]*!\s*\(\s*)?/.exec(src)
+    if (jsonCall) {
+      const v = readValue(src, jsonCall.index + jsonCall[0].length)
+      if (v && !v.quoted) bodyFromObject = v.text
+      else if (v?.quoted) bodyRaw = v.text
+    }
+  }
+  // reqwest::Method::POST / Method::PUT 显式形式。
+  const methodEnum = /Method::(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)/.exec(src)
+  const out: PartialParsed = {
+    url,
+    method: methodEnum ? (methodEnum[1] as HttpMethod) : detectMethod(src),
+    headers,
+    bodyRaw,
+    bodyFromObject,
+  }
+  if (basicAuth) out.basicAuth = basicAuth
+  return out
+}
+
+/**
+ * PHP：原生 `curl_setopt($ch, CURLOPT_*, …)` 与 Guzzle `$client->post("URL", […])`。
+ * 数组字面量 `[...]` / `array(...)` 内取字符串对；`CURLOPT_HTTPHEADER` 的
+ * `"K: V"` 条目按首个冒号拆分。
+ */
+function parsePhp(src: string): PartialParsed {
+  const url = findUrl(src)
+  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  const headers: KeyValue[] = []
+  // PHP 数组转 JSON（`=>` → `:` 后取字符串对；嵌套仅最佳努力）。
+  function phpArrayToJson(text: string): string | null {
+    const pairs = parseObjectPairs(text.replace(/=>/g, ':'))
+    if (!pairs.length) return null
+    const obj: Record<string, string> = {}
+    for (const [k, val] of pairs) obj[k] = val
+    return JSON.stringify(obj)
+  }
+  /**
+   * 读取 `array(...)` / `[...]` 的完整跨度（含引号感知，避免逗号误切）。
+   * 返回跨度文本；括号不平衡时返回 null。
+   */
+  function readArraySpan(from: number): string | null {
+    let i = from
+    while (i < src.length && /\s/.test(src[i])) i += 1
+    let open = ''
+    let close = ''
+    if (src.startsWith('array', i)) {
+      const p = src.indexOf('(', i + 5)
+      if (p === -1) return null
+      i = p
+      open = '('
+      close = ')'
+    } else if (src[i] === '[') {
+      open = '['
+      close = ']'
+    } else {
+      return null
+    }
+    let depth = 0
+    let quote: string | null = null
+    for (let j = i; j < src.length; j += 1) {
+      const ch = src[j]
+      if (quote) {
+        if (ch === '\\') j += 1
+        else if (ch === quote) quote = null
+        continue
+      }
+      if (ch === '"' || ch === "'") quote = ch
+      else if (ch === open) depth += 1
+      else if (ch === close) {
+        depth -= 1
+        if (depth === 0) return src.slice(i, j + 1)
+      }
+    }
+    return null
+  }
+  // CURLOPT_HTTPHEADER, ["K: V", ...] / array("K: V")
+  const hhRe = /CURLOPT_HTTPHEADER\s*,\s*/g
+  let hm: RegExpExecArray | null
+  while ((hm = hhRe.exec(src)) !== null) {
+    const span = readArraySpan(hm.index + hm[0].length)
+    if (!span) continue
+    const litRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g
+    let lm: RegExpExecArray | null
+    while ((lm = litRe.exec(span)) !== null) {
+      const entry = unescapeLiteral(lm[1] ?? lm[2] ?? '')
+      const colon = entry.indexOf(':')
+      if (colon > 0) headers.push(kv(entry.slice(0, colon).trim(), entry.slice(colon + 1).trim()))
+    }
+  }
+  // Guzzle: ['headers' => [...]]（`=>` 形式，parseHeadersObject 只认 :/= 故单写）。
+  const gzRe = /['"]headers['"]\s*=>\s*/g
+  let gm: RegExpExecArray | null
+  while ((gm = gzRe.exec(src)) !== null) {
+    const v = readValue(src, gm.index + gm[0].length)
+    if (v && !v.quoted) {
+      for (const [k, val] of parseObjectPairs(v.text.replace(/=>/g, ':')))
+        headers.push(kv(k, val))
+    }
+  }
+  let bodyRaw: string | null = null
+  let bodyFromObject: string | null = null
+  // CURLOPT_POSTFIELDS, "…" / '…'。
+  const pf = /CURLOPT_POSTFIELDS\s*,\s*/.exec(src)
+  if (pf) {
+    const v = readValue(src, pf.index + pf[0].length)
+    if (v?.quoted) bodyRaw = v.text
+    else if (v) bodyFromObject = v.text
+  }
+  // Guzzle: 'body' => "…" / 'json' => [...]（`=>` 数组先转 JSON）。
+  if (bodyRaw === null && bodyFromObject === null) {
+    for (const key of ['body', 'json', 'form_params']) {
+      const re = new RegExp(`['"]${key}['"]\\s*=>\\s*`)
+      const mm = re.exec(src)
+      if (!mm) continue
+      const v = readValue(src, mm.index + mm[0].length)
+      if (!v) continue
+      if (v.quoted) {
+        bodyRaw = v.text
+        break
+      }
+      bodyFromObject = phpArrayToJson(v.text) ?? v.text
+      break
+    }
+  }
+  // CURLOPT_CUSTOMREQUEST, "PUT" 显式方法。
+  const custom = /CURLOPT_CUSTOMREQUEST\s*,\s*['"`](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)['"`]/i.exec(src)
+  return {
+    url,
+    method: custom ? (custom[1].toUpperCase() as HttpMethod) : detectMethod(src),
+    headers,
+    bodyRaw,
+    bodyFromObject,
+  }
+}
+
 // ---------- 汇总 ----------
 
 const PARSERS: Record<Exclude<SnippetLang, 'curl'>, (src: string) => PartialParsed> = {
@@ -368,6 +542,8 @@ const PARSERS: Record<Exclude<SnippetLang, 'curl'>, (src: string) => PartialPars
   python: parsePython,
   java: parseJava,
   go: parseGo,
+  rust: parseRust,
+  php: parsePhp,
 }
 
 function dedupeHeaders(headers: KeyValue[]): KeyValue[] {
@@ -392,7 +568,16 @@ export function parseCodeSnippet(lang: SnippetLang, src: string): CurlParsed {
   if (raw !== null && raw.trim()) {
     body = inferBody(partial.bodyFromObject !== null ? normalizeObjectLiteral(raw) : raw, ct)
   }
-  const auth: AuthSpec = { type: 'none' }
+  // Rust .basic_auth("u", "p") 等可还原凭据的写法 → Basic 认证（其余仍为 none）。
+  let auth: AuthSpec = { type: 'none' }
+  if (partial.basicAuth) {
+    const colon = partial.basicAuth.indexOf(':')
+    auth = {
+      type: 'basic',
+      username: colon === -1 ? partial.basicAuth : partial.basicAuth.slice(0, colon),
+      password: colon === -1 ? '' : partial.basicAuth.slice(colon + 1),
+    }
+  }
   return { url: partial.url, method: partial.method, headers, body, auth }
 }
 

@@ -186,9 +186,16 @@ function currentThemeExtension() {
   ]
 }
 
+/**
+ * 大文档降级：超 200k 字符时跳过实时 JSON lint（每次变更全量 parse），
+ * 与 JsonEditor 的 LARGE_DOC_CHARS 对齐；Lezer 增量高亮本身保留。
+ */
+const LARGE_DOC_CHARS = 200_000
+
 onMounted(() => {
   window.addEventListener(THEME_EVENT, onThemeEvent)
   if (!host.value) return
+  const largeDoc = props.modelValue.length > LARGE_DOC_CHARS
   view = new EditorView({
     parent: host.value,
     doc: props.modelValue,
@@ -206,12 +213,13 @@ onMounted(() => {
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
       json(),
       themeCompartment.of(currentThemeExtension()),
-      linter(jsonParseLinter()),
+      // 大文档跳过实时 lint（见 LARGE_DOC_CHARS 说明）。
+      ...(largeDoc ? [] : [linter(jsonParseLinter())]),
       readOnlyCompartment.of(EditorState.readOnly.of(props.readonly)),
       placeholder(props.placeholderText),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-          emit('update:modelValue', update.state.doc.toString())
+          scheduleEmit(update.state.doc.toString())
         }
       }),
     ],
@@ -245,6 +253,36 @@ watch(
   },
 )
 
+/**
+ * 回写防抖：每键即时 emit 会经父级 v-model 触发全文档回写检查
+ *（`modelValue` watcher 做全量替换，大 JSON 下光标跳 + 全量重解析）。
+ * 编辑态保留在 CodeMirror 本地（Lezer 增量解析本来就快），120ms 后
+ * 一次性同步给父级；卸载前强制刷出 pending 值，避免"键入即关"丢数据。
+ */
+let emitTimer: ReturnType<typeof setTimeout> | undefined
+let pendingEmit: string | null = null
+function scheduleEmit(value: string): void {
+  pendingEmit = value
+  if (emitTimer) clearTimeout(emitTimer)
+  emitTimer = setTimeout(() => {
+    emitTimer = undefined
+    if (pendingEmit !== null) {
+      emit('update:modelValue', pendingEmit)
+      pendingEmit = null
+    }
+  }, 120)
+}
+function flushEmit(): void {
+  if (emitTimer) {
+    clearTimeout(emitTimer)
+    emitTimer = undefined
+  }
+  if (pendingEmit !== null) {
+    emit('update:modelValue', pendingEmit)
+    pendingEmit = null
+  }
+}
+
 function requestMeasure(): void {
   view?.requestMeasure()
 }
@@ -253,6 +291,7 @@ defineExpose({ requestMeasure, focus: () => view?.focus() })
 
 onBeforeUnmount(() => {
   window.removeEventListener(THEME_EVENT, onThemeEvent)
+  flushEmit()
   view?.destroy()
   view = null
 })

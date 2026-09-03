@@ -35,6 +35,8 @@ pub struct AssertionSpec {
     #[serde(default)]
     pub path: Option<String>,
     /// eq | neq | contains | not_contains | gt | gte | lt | lte | exists | not_exists
+    /// | matches | not_matches（正则） | empty | not_empty。
+    /// type 扩展：graphql_errors（body.errors 数组）与 length（path 处值的长度，走数字比较）。
     #[serde(default)]
     pub op: Option<String>,
     #[serde(default)]

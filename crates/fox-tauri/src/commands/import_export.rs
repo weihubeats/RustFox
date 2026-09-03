@@ -54,16 +54,16 @@ pub async fn export_openapi(state: State<'_, AppState>, project_id: Uuid) -> Com
     let project = repo::get_project(&state.db, project_id).await?;
     let endpoints = repo::list_endpoints(&state.db, project_id).await?;
 
-    let mut examples_by_endpoint: HashMap<Uuid, Vec<fox_core::model::ResponseExample>> =
-        HashMap::new();
-    for ep in endpoints
+    // 批量一次查询（去 N+1）。
+    let active_ids: Vec<Uuid> = endpoints
         .iter()
         .filter(|e| e.status != EndpointStatus::Deprecated)
-    {
-        if let Ok(list) = repo::list_response_examples(&state.db, ep.id).await {
-            examples_by_endpoint.insert(ep.id, list);
-        }
-    }
+        .map(|e| e.id)
+        .collect();
+    let examples_by_endpoint: HashMap<Uuid, Vec<fox_core::model::ResponseExample>> =
+        repo::list_response_examples_by_endpoints(&state.db, &active_ids)
+            .await
+            .unwrap_or_default();
 
     fox_openapi::export::export_project(&project.name, &endpoints, &examples_by_endpoint)
         .map_err(CommandError::from)
@@ -195,14 +195,13 @@ pub async fn export_docs(
         }
     }
 
-    let mut examples_by_endpoint: HashMap<Uuid, Vec<ResponseExample>> = HashMap::new();
-    for ep in &endpoints {
-        if let Ok(list) = repo::list_response_examples(&state.db, ep.id).await {
-            if !list.is_empty() {
-                examples_by_endpoint.insert(ep.id, list);
-            }
-        }
-    }
+    // 批量一次查询（去 N+1）；空列表不上 map，保持原有"无示例不占位"语义。
+    let all_ids: Vec<Uuid> = endpoints.iter().map(|e| e.id).collect();
+    let mut examples_by_endpoint: HashMap<Uuid, Vec<ResponseExample>> =
+        repo::list_response_examples_by_endpoints(&state.db, &all_ids)
+            .await
+            .unwrap_or_default();
+    examples_by_endpoint.retain(|_, v| !v.is_empty());
 
     let content = render_docs(format, &project.name, &endpoints, &examples_by_endpoint)?;
 
@@ -235,12 +234,11 @@ fn render_docs(
             fox_openapi::export::export_project(project_name, endpoints, examples)
                 .map_err(CommandError::from)
         }
-        // OpenAPI 结构 → serde_json::Value → YAML（避免重复维护两份序列化）
+        // 结构值直转 YAML（原来 JSON 文本 → Value → YAML 双重编解码）。
         ExportFormat::OpenapiYaml => {
-            let json = fox_openapi::export::export_project(project_name, endpoints, examples)
-                .map_err(CommandError::from)?;
-            let value: serde_json::Value =
-                serde_json::from_str(&json).map_err(|e| CommandError::validation(e.to_string()))?;
+            let value =
+                fox_openapi::export::export_project_value(project_name, endpoints, examples)
+                    .map_err(CommandError::from)?;
             serde_norway::to_string(&value)
                 .map_err(|e| CommandError::with_code("EXPORT", e.to_string()))
         }

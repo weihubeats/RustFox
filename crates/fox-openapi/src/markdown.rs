@@ -74,6 +74,29 @@ pub fn export_markdown(
                 out.push_str("### 认证\n\n");
                 out.push_str("- OAuth 2.0：授权码流（Bearer Token）\n\n");
             }
+            AuthSpec::Digest { username, .. } => {
+                out.push_str("### 认证\n\n");
+                out.push_str(&format!("- Digest 认证：`{username}`\n\n"));
+            }
+            AuthSpec::Hawk { key_id, .. } => {
+                out.push_str("### 认证\n\n");
+                out.push_str(&format!("- Hawk 认证：id `{key_id}`\n\n"));
+            }
+            AuthSpec::AwsV4 {
+                access_key,
+                region,
+                service,
+                ..
+            } => {
+                out.push_str("### 认证\n\n");
+                out.push_str(&format!(
+                    "- AWS Signature V4：`{access_key}` / `{region}` / `{service}`\n\n"
+                ));
+            }
+            AuthSpec::Hmac { access_key, .. } => {
+                out.push_str("### 认证\n\n");
+                out.push_str(&format!("- HMAC (AK-SK)：`{access_key}`\n\n"));
+            }
         }
 
         let body_text = match &ep.request.body {

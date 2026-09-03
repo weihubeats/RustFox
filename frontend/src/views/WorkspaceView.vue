@@ -14,12 +14,14 @@ import Brand from '../components/Brand.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import EndpointTree from '../components/EndpointTree.vue'
 import EnvironmentBar from '../components/EnvironmentBar.vue'
+import CookiePanel from '../components/CookiePanel.vue'
 import HistoryPanel from '../components/HistoryPanel.vue'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
 import Menu, { type MenuItem } from '../components/ui/Menu.vue'
 import Modal from '../components/ui/Modal.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
+import ShortcutsHelp from '../components/ShortcutsHelp.vue'
 import TabBar from '../components/TabBar.vue'
 import Tabs, { type TabItem } from '../components/ui/Tabs.vue'
 import Tooltip from '../components/ui/Tooltip.vue'
@@ -27,6 +29,7 @@ import EndpointEditor from '../components/EndpointEditor.vue'
 import CurlImportDialog from '../components/CurlImportDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import MockRuleDialog from '../components/MockRuleDialog.vue'
+import { useShortcuts } from '../composables/useShortcuts'
 import { useWindowDrag } from '../composables/useWindowDrag'
 
 const store = useWorkspaceStore()
@@ -40,6 +43,20 @@ const curlFolderId = ref<string | null>(null)
 const showDocImport = ref(false)
 const showMockRules = ref(false)
 const showSettings = ref(false)
+const showShortcuts = ref(false)
+
+/** 快捷键帮助（Ctrl+/）：集中注册表驱动，列表自动生成。 */
+useShortcuts([
+  {
+    id: 'workspace.shortcuts-help',
+    key: '/',
+    group: '通用',
+    description: '打开快捷键帮助',
+    handler: () => {
+      showShortcuts.value = true
+    },
+  },
+])
 
 /**
  * 侧栏搜索：输入即时回显（v-model），过滤词经 200ms 防抖下发。
@@ -105,11 +122,12 @@ function onSidebarResizeUp(): void {
 }
 
 // ---------- 侧栏页签：接口目录 / 请求历史 ----------
-type SidebarTab = 'collections' | 'history'
+type SidebarTab = 'collections' | 'history' | 'cookies'
 const sidebarTab = ref<SidebarTab>('collections')
 const sidebarTabs = computed<TabItem[]>(() => [
   { key: 'collections', label: '接口目录' },
   { key: 'history', label: '请求历史', count: store.histories.length || undefined },
+  { key: 'cookies', label: 'Cookie' },
 ])
 
 // ---------- Mock 服务 ----------
@@ -415,6 +433,20 @@ onBeforeUnmount(() => {
           title="GraphQL 工作台"
           @click="router.push('/graphql')"
         />
+        <IconButton
+          class="tb-settings"
+          name="zap"
+          :size="15"
+          title="实时调试（WebSocket / SSE）"
+          @click="router.push('/realtime')"
+        />
+        <IconButton
+          class="tb-settings"
+          name="keyboard"
+          :size="15"
+          title="快捷键（Ctrl+/）"
+          @click="showShortcuts = true"
+        />
         <IconButton class="tb-settings" name="settings" :size="15" title="设置" @click="showSettings = true" />
       </div>
     </div>
@@ -482,6 +514,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <HistoryPanel v-if="sidebarTab === 'history'" class="sidebar-history" />
+        <CookiePanel v-if="sidebarTab === 'cookies'" class="sidebar-history" />
       </aside>
       <div
         class="sidebar-resizer"
@@ -570,6 +603,7 @@ onBeforeUnmount(() => {
     <ImportDialog v-if="showDocImport" @close="showDocImport = false" />
     <MockRuleDialog v-if="showMockRules" @close="showMockRules = false" />
     <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+    <ShortcutsHelp :open="showShortcuts" @update:open="showShortcuts = $event" />
   </div>
 </template>
 

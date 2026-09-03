@@ -21,6 +21,11 @@ const router = createRouter({
       component: () => import('../views/GraphQLView.vue'),
     },
     {
+      path: '/realtime',
+      name: 'realtime',
+      component: () => import('../views/RealtimeView.vue'),
+    },
+    {
       path: '/workspace',
       name: 'workspace',
       component: () => import('../views/WorkspaceView.vue'),

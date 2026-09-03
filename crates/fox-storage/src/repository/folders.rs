@@ -122,7 +122,10 @@ pub async fn delete_folder(db: &SqlitePool, folder_id: Uuid) -> Result<()> {
 }
 
 /// 带 id：原样写入文件夹（upsert，同一 id 重复保存时更新而非报主键冲突）。
-pub async fn save_folder(db: &SqlitePool, folder: &Folder) -> Result<()> {
+pub async fn save_folder<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    folder: &Folder,
+) -> Result<()> {
     let row = FolderRow::from_model(folder);
     sqlx::query(
         "INSERT INTO folders (id, project_id, parent_id, name, sort_order, created_at, updated_at)
@@ -141,7 +144,7 @@ pub async fn save_folder(db: &SqlitePool, folder: &Folder) -> Result<()> {
     .bind(row.sort_order)
     .bind(row.created_at.clone())
     .bind(row.updated_at.clone())
-    .execute(db)
+    .execute(executor)
     .await?;
     Ok(())
 }

@@ -5,7 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RustFox — 轻量跨平台 API 调试工具</title>
 <meta name="description" content="约 10 MB 的轻量跨平台 API 调试工具。请求、Mock、自动化测试、压测，一个安装包开箱即用。本地优先，数据自己掌握。">
+<link rel="canonical" href="https://weihubeats.github.io/RustFox/">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RustFox">
+<meta property="og:title" content="RustFox — 轻量跨平台 API 调试工具">
+<meta property="og:description" content="约 10 MB 的轻量跨平台 API 调试工具。请求、Mock、自动化测试、压测，一个安装包开箱即用。">
+<meta property="og:image" content="https://weihubeats.github.io/RustFox/assets/home.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RustFox — 轻量跨平台 API 调试工具">
+<meta name="twitter:description" content="约 10 MB 的轻量跨平台 API 调试工具，一个安装包开箱即用。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦊</text></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RustFox","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","offers":{"@type":"Offer","price":"0"},"license":"https://github.com/weihubeats/RustFox/blob/main/LICENSE"}
+</script>
 <style>
 :root {
   --bg: #0d1117;
@@ -121,7 +134,22 @@ footer a:hover { color: var(--text); }
 @media (max-width: 720px) {
   .nav-links { display: none; }
   .hero { padding: 56px 0 40px; }
+  .mobile-menu { display: block; }
 }
+.mobile-menu { display: none; position: relative; }
+.mobile-menu summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 14px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.mobile-menu summary::-webkit-details-marker { display: none; }
+.mobile-menu .menu { position: absolute; right: 0; top: 44px; min-width: 180px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; }
+.mobile-menu .menu a { color: var(--muted); padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.mobile-menu .menu a:hover { color: var(--text); background: rgba(255,255,255,.04); text-decoration: none; }
+/* faq */
+.faq { display: flex; flex-direction: column; gap: 12px; max-width: 760px; margin: 0 auto; }
+.faq details { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+.faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.faq details p { margin-top: 10px; font-size: 14px; color: var(--muted); }
+.faq code { background: rgba(255,255,255,.06); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+/* code block */
+.codeblock { background: #0a0d12; border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-x: auto; max-width: 760px; margin: 24px auto 0; color: #c9d1d9; white-space: pre; }
 </style>
 </head>
 <body>
@@ -132,11 +160,26 @@ footer a:hover { color: var(--text); }
     <div class="nav-links">
       <a href="#features">功能</a>
       <a href="#compare">对比</a>
+      <a href="#agent">AI 集成</a>
       <a href="#screenshots">截图</a>
+      <a href="#faq">FAQ</a>
       <a href="#download">下载</a>
       <a href="./en/index.html">English</a>
       <a href="https://github.com/weihubeats/RustFox">GitHub</a>
     </div>
+    <details class="mobile-menu">
+      <summary aria-label="打开导航菜单">菜单 ☰</summary>
+      <div class="menu">
+        <a href="#features">功能</a>
+        <a href="#compare">对比</a>
+        <a href="#agent">AI 集成</a>
+        <a href="#screenshots">截图</a>
+        <a href="#faq">FAQ</a>
+        <a href="#download">下载</a>
+        <a href="./en/index.html">English</a>
+        <a href="https://github.com/weihubeats/RustFox">GitHub</a>
+      </div>
+    </details>
   </div>
 </nav>
 
@@ -174,9 +217,13 @@ footer a:hover { color: var(--text); }
     <p class="section-sub">Rust LTO 优化 + 单进程模型 + SQLite 零拷贝本地存储。</p>
     <div class="features">
       <div class="feature"><div class="icon">🚀</div><h3>请求与编辑</h3><p>8 种 HTTP 方法、6 种请求体格式；cURL 一键粘贴导入；环境变量 {{name}} 全局自动解析；多标签独立草稿。</p></div>
-      <div class="feature"><div class="icon">🔐</div><h3>认证与安全</h3><p>API Key / Basic / Bearer / OAuth2 四模式；环境变量值 AES-256-GCM 加密存储。</p></div>
+      <div class="feature"><div class="icon">🔐</div><h3>认证与安全</h3><p>API Key / Basic / Bearer / OAuth2 四模式；环境变量值 AES-256-GCM 加密存储；Cookie 自动回放 + 全局代理。</p></div>
       <div class="feature"><div class="icon">🧪</div><h3>Mock Server</h3><p>本地 axum Mock，端口自动探测无需联网；规则匹配优先，模板变量渲染动态响应。</p></div>
-      <div class="feature"><div class="icon">✅</div><h3>自动化测试与压测</h3><p>JSON 测试脚本：注入变量、提取传递、断言；压测输出 QPS 与 P50/P90/P99 图表。</p></div>
+      <div class="feature"><div class="icon">✅</div><h3>自动化测试与压测</h3><p>JSON 测试脚本 + 多用例 Drawer：注入变量、提取传递、断言；压测输出 QPS 与 P50/P90/P99 图表。</p></div>
+      <div class="feature"><div class="icon">🎨</div><h3>外观与偏好</h3><p>跟随系统 / 深色 / 浅色三档主题；请求超时可配；自增序列管理；多项目标签切换草稿不丢。</p></div>
+      <div class="feature"><div class="icon">📡</div><h3>GraphQL 工作台</h3><p>独立调试视图：Query / Variables / OperationName，data 与 errors 按语义区分展示。</p></div>
+      <div class="feature"><div class="icon">⚡</div><h3>实时调试</h3><p>WebSocket 收发 / Ping / 自动重连 + SSE 订阅与帧解析，可弹出独立窗口边工作边监控。</p></div>
+      <div class="feature"><div class="icon">🔁</div><h3>环境互通</h3><p>环境导入导出（RustFox 原生 / Postman）；OpenAPI 3.1 自动归一化导入；Rust / PHP 代码片段也能反向导入。</p></div>
       <div class="feature"><div class="icon">🔄</div><h3>导入导出</h3><p>OpenAPI 3.x / Swagger 2.0 / Postman v2.1 互通；导出 Markdown 文档；生成 cURL / JavaScript / Java / Go / Rust / Python / PHP 客户端代码（带语法高亮）。</p></div>
       <div class="feature"><div class="icon">🤖</div><h3>AI Agent 集成</h3><p>内置 MCP Server 与本机 HTTP 控制面：一句话把 cURL 或 Java 代码保存为接口，桌面端实时刷新。</p></div>
     </div>
@@ -201,6 +248,23 @@ footer a:hover { color: var(--text); }
   </div>
 </section>
 
+<section id="agent">
+  <div class="container">
+    <h2>AI Agent 集成</h2>
+    <p class="section-sub">应用启动自动拉起本机控制面，一句话把 cURL 或后端代码存为接口。完整指南见 <a href="https://github.com/weihubeats/RustFox/blob/main/docs/AGENT.md">docs/AGENT.md</a>。</p>
+    <div class="features">
+      <div class="feature"><div class="icon">🤖</div><h3>MCP Server（推荐）</h3><p>Claude Code / Cursor 配一次安装包内 <code>rustfox-mcp</code> 绝对路径，即得 save_curl / list_projects / list_endpoints / agent_info 四个工具。</p></div>
+      <div class="feature"><div class="icon">🔌</div><h3>直接 HTTP</h3><p>任意能发 HTTP 的工具调 <code>127.0.0.1:4110</code> 控制面：POST /agent/curl 导入，GET /agent/projects、/agent/endpoints、/agent/health 查询。</p></div>
+      <div class="feature"><div class="icon">🔒</div><h3>本地安全</h3><p>只绑回环地址；随机 UUID 令牌（0600）；写操作仅限导入；不覆盖已有 base_url；不读加密变量明文。</p></div>
+    </div>
+    <div class="codeblock">{
+  "mcpServers": {
+    "rustfox": { "command": "/Applications/RustFox.app/Contents/MacOS/rustfox-mcp" }
+  }
+}</div>
+  </div>
+</section>
+
 <section id="screenshots">
   <div class="container">
     <h2>界面一览</h2>
@@ -214,6 +278,21 @@ footer a:hover { color: var(--text); }
         <img src="./assets/api-home.png" alt="RustFox 工作区" loading="lazy">
         <figcaption>工作区 — 请求编辑 / 语法高亮 / Mock / 测试 / 压测</figcaption>
       </figure>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container">
+    <h2>常见问题</h2>
+    <p class="section-sub">更多见 <a href="https://github.com/weihubeats/RustFox/blob/main/docs/USER_GUIDE.md">用户手册 FAQ</a>。</p>
+    <div class="faq">
+      <details open><summary>macOS 提示「已损坏，无法打开」？</summary><p>应用本身没有损坏，这是 Gatekeeper 对未公证应用的拦截。拖入「应用程序」后执行 <code>xattr -cr /Applications/RustFox.app</code>，再右键 → 打开。</p></details>
+      <details><summary>Windows SmartScreen 警告？</summary><p>点击「更多信息 → 仍要运行」。安装包暂无代码签名证书，开源项目正常现象。</p></details>
+      <details><summary>环境变量显示乱码？</summary><p>数据目录的 <code>master.key</code> 丢失导致无法解密。用备份 JSON 恢复（设置页 → 恢复）。</p></details>
+      <details><summary>MCP 报 spawn ENOENT？</summary><p>二进制不在 PATH。v0.0.10+ 安装包填写包内绝对路径（macOS 如上 agent 章节），不要写裸 <code>rustfox-mcp</code>。</p></details>
+      <details><summary>dev 构建看不到正式版数据？</summary><p>符合预期：dev 使用 <code>RustFox-dev</code> 目录隔离。用备份 JSON 在两侧互导。</p></details>
+      <details><summary>如何反馈问题？</summary><p>顶栏「反馈」按钮生成本机诊断报告，附到 GitHub Issues 即可。</p></details>
     </div>
   </div>
 </section>
@@ -242,17 +321,17 @@ footer a:hover { color: var(--text); }
     <h2>文档</h2>
     <p class="section-sub">中英双语，仓库内随版本同步更新。</p>
     <div class="download-cards">
-      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/README.md">
-        <div class="os">📖</div><h3>README（中文）</h3><p>功能总览 / 下载 / 构建</p>
-      </a>
-      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/README_EN.md">
-        <div class="os">📘</div><h3>README (English)</h3><p>Features / Downloads / Building</p>
+      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/USER_GUIDE.md">
+        <div class="os">📖</div><h3>用户手册（中文）</h3><p>安装 / 请求 / Mock / 测试 / 偏好</p>
       </a>
       <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/en/USER_GUIDE.md">
-        <div class="os">📗</div><h3>User Guide</h3><p>安装 / 请求 / Mock / 测试（English）</p>
+        <div class="os">📘</div><h3>User Guide (English)</h3><p>Install / requests / mock / testing</p>
       </a>
-      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/en/AGENT.md">
-        <div class="os">🤖</div><h3>Agent Integration</h3><p>MCP / HTTP 控制面（English）</p>
+      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/docs/AGENT.md">
+        <div class="os">🤖</div><h3>Agent 集成</h3><p>MCP / HTTP 控制面</p>
+      </a>
+      <a class="dl-card" href="https://github.com/weihubeats/RustFox/blob/main/CHANGELOG.md">
+        <div class="os">📗</div><h3>更新日志</h3><p>各版本变化速览</p>
       </a>
     </div>
   </div>
@@ -260,7 +339,7 @@ footer a:hover { color: var(--text); }
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/weihubeats/RustFox">GitHub</a> · <a href="https://github.com/weihubeats/RustFox/releases">Releases</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/LICENSE">Apache-2.0 License</a></p>
+    <p><a href="https://github.com/weihubeats/RustFox">GitHub</a> · <a href="https://github.com/weihubeats/RustFox/releases">Releases</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/docs/USER_GUIDE.md">用户手册</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/docs/AGENT.md">Agent 集成</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/CHANGELOG.md">更新日志</a> · <a href="https://github.com/weihubeats/RustFox/blob/main/LICENSE">Apache-2.0 License</a></p>
     <p>Built with 🦊 &amp; Rust</p>
   </div>
 </footer>

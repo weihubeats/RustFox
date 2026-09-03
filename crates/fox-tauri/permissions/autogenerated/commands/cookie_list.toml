@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cookie-list"
+description = "Enables the cookie_list command without any pre-configured scope."
+commands.allow = ["cookie_list"]
+
+[[permission]]
+identifier = "deny-cookie-list"
+description = "Denies the cookie_list command without any pre-configured scope."
+commands.deny = ["cookie_list"]

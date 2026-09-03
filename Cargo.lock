@@ -636,9 +636,11 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "fox-core",
+ "fox-sign",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "url",
 ]
 
 [[package]]
@@ -667,6 +669,7 @@ dependencies = [
  "chrono",
  "fox-core",
  "fox-oauth",
+ "fox-sign",
  "fox-storage",
  "futures",
  "reqwest",
@@ -759,6 +762,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fox-sign"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "hmac",
+ "md5",
+ "rand 0.8.7",
+ "serde",
+ "sha2",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "fox-smoke"
 version = "0.0.1"
 dependencies = [
@@ -808,6 +827,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -1489,6 +1509,12 @@ dependencies = [
  "cfg-if",
  "digest 0.10.7",
 ]
+
+[[package]]
+name = "md5"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "memchr"

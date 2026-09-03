@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cookie-clear"
+description = "Enables the cookie_clear command without any pre-configured scope."
+commands.allow = ["cookie_clear"]
+
+[[permission]]
+identifier = "deny-cookie-clear"
+description = "Denies the cookie_clear command without any pre-configured scope."
+commands.deny = ["cookie_clear"]

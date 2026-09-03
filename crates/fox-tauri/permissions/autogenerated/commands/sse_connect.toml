@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sse-connect"
+description = "Enables the sse_connect command without any pre-configured scope."
+commands.allow = ["sse_connect"]
+
+[[permission]]
+identifier = "deny-sse-connect"
+description = "Denies the sse_connect command without any pre-configured scope."
+commands.deny = ["sse_connect"]

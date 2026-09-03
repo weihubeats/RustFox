@@ -86,17 +86,47 @@ fn append_query(url: &mut Url, params: &[KeyValue]) {
 }
 
 /// 渲染后的请求载荷（body 与 content-type）。
-#[derive(Debug)]
+///
+/// `Stream` 为文件流式上传：磁盘文件不再全量读入内存，
+/// 以 chunked 方式边读边发（总长度未知，不设 Content-Length）。
+/// 注：`reqwest::Body` 未实现 `Debug`，故手写实现（不打印 body 内容）。
 enum Payload {
     None,
     Bytes(Vec<u8>, Option<String>),
+    Stream {
+        body: reqwest::Body,
+        content_type: Option<String>,
+        /// 已知总长度时附带（如 binary 单文件），服务端可据此做进度与校验。
+        content_length: Option<u64>,
+    },
+}
+
+impl std::fmt::Debug for Payload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Payload::None => write!(f, "None"),
+            Payload::Bytes(b, ct) => write!(f, "Bytes({} bytes, {:?})", b.len(), ct),
+            Payload::Stream {
+                content_type,
+                content_length,
+                ..
+            } => write!(f, "Stream({:?}, {:?})", content_type, content_length),
+        }
+    }
+}
+
+fn upload_file_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("upload")
+        .to_string()
 }
 
 /// 构建 multipart/form-data 请求体。
 ///
-/// Text 字段直接作为文本 part；FilePath 字段异步读取文件内容作为 part。
-/// 编码后的 body 由 `Form::into_stream` 收集为字节，content-type 由
-/// `Form::boundary` 拼出（含 boundary）。
+/// Text 字段直接作为文本 part；FilePath 字段以文件流作为 part，
+/// 表单整体同样流式发送。content-type 由 `Form::boundary` 拼出（含 boundary）。
 async fn build_multipart(fields: &[MultipartField]) -> Result<Payload, AppError> {
     let mut form = reqwest::multipart::Form::new();
     for field in fields {
@@ -113,17 +143,12 @@ async fn build_multipart(fields: &[MultipartField]) -> Result<Payload, AppError>
             }
             MultipartValueType::FilePath => {
                 let path = Path::new(&field.value);
-                let data = tokio::fs::read(path).await.map_err(|e| {
+                let file = tokio::fs::File::open(path).await.map_err(|e| {
                     AppError::Validation(format!("读取文件 {} 失败：{e}", path.display()))
                 })?;
-                let file_name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .filter(|n| !n.is_empty())
-                    .unwrap_or("upload")
-                    .to_string();
-                let part = reqwest::multipart::Part::bytes(data)
-                    .file_name(file_name)
+                let stream = tokio_util::io::ReaderStream::new(file);
+                let part = reqwest::multipart::Part::stream(reqwest::Body::wrap_stream(stream))
+                    .file_name(upload_file_name(path))
                     .mime_str("application/octet-stream")
                     .map_err(|e| AppError::Validation(format!("multipart 构建失败：{e}")))?;
                 form = form.part(key.to_string(), part);
@@ -131,12 +156,14 @@ async fn build_multipart(fields: &[MultipartField]) -> Result<Payload, AppError>
         }
     }
     let content_type = format!("multipart/form-data; boundary={}", form.boundary());
-    let mut body = Vec::new();
-    let mut stream = form.into_stream();
-    while let Some(chunk) = stream.next().await {
-        body.extend_from_slice(&chunk.map_err(AppError::from_reqwest)?);
-    }
-    Ok(Payload::Bytes(body, Some(content_type)))
+    // 表单编码流直接作为请求体：文本 part 常驻内存不可避免，
+    // 文件 part 边读边发，大文件不再物化。
+    let stream = form.into_stream();
+    Ok(Payload::Stream {
+        body: reqwest::Body::wrap_stream(stream),
+        content_type: Some(content_type),
+        content_length: None,
+    })
 }
 
 async fn build_payload(spec: &RequestSpec) -> Result<Payload, AppError> {
@@ -170,16 +197,20 @@ async fn build_payload(spec: &RequestSpec) -> Result<Payload, AppError> {
                 Some("application/json".into()),
             ))
         }
-        // 二进制模式：读取文件原始字节作为请求体；Content-Type 默认
-        // octet-stream，用户显式设置的请求头优先（见 send_request_inner）。
+        // 二进制模式：文件流作为请求体（边读边发）；
+        // Content-Length 取文件元信息（用户显式设置的请求头优先）。
         BodySpec::Binary { path } => {
-            let data = tokio::fs::read(Path::new(path))
+            let fs_path = Path::new(path);
+            let file = tokio::fs::File::open(fs_path)
                 .await
                 .map_err(|e| AppError::Validation(format!("读取文件 {path} 失败：{e}")))?;
-            Ok(Payload::Bytes(
-                data,
-                Some("application/octet-stream".into()),
-            ))
+            let len = file.metadata().await.map(|m| m.len()).unwrap_or_default();
+            let stream = tokio_util::io::ReaderStream::new(file);
+            Ok(Payload::Stream {
+                body: reqwest::Body::wrap_stream(stream),
+                content_type: Some("application/octet-stream".into()),
+                content_length: if len > 0 { Some(len) } else { None },
+            })
         }
     }
 }
@@ -269,10 +300,14 @@ fn has_header(headers: &[(String, String)], name: &str) -> bool {
 /// 应用认证到请求头 / 查询参数。
 ///
 /// OAuth2：取 access token（过期自动静默刷新），未授权时返回中文错误。
+/// 签名类（Hawk / AWS SigV4 / HMAC）：按 `ctx`（方法 + 最终 URL + 载荷摘要）
+/// 实时计算并写入请求头；字段值视为已做变量渲染。
+/// Digest：首次不发送（等待服务端 401 质询，由发送循环自动重发）。
 async fn apply_auth(
     headers: &mut Vec<(String, String)>,
     query: &mut Vec<KeyValue>,
     auth: &AuthSpec,
+    ctx: &AuthSignCtx<'_>,
 ) -> Result<(), AppError> {
     match auth {
         AuthSpec::None => {}
@@ -309,8 +344,125 @@ async fn apply_auth(
                 .map_err(|e| AppError::OAuth2(e.to_string()))?;
             headers.push(("Authorization".into(), format!("Bearer {access}")));
         }
+        AuthSpec::Digest { .. } => {
+            // 挑战-应答式：首轮不带凭据，401 后由发送循环补发（见 `digest_retry_header`）。
+        }
+        AuthSpec::Hawk { key_id, key } => {
+            let ts: u64 = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let nonce = fox_sign::random_nonce_hex(4);
+            let header = fox_sign::hawk_authorization(&fox_sign::HawkParams {
+                id: key_id,
+                key,
+                method: &ctx.method.to_string(),
+                url: ctx.url.as_str(),
+                body: ctx.body,
+                ts,
+                nonce: &nonce,
+            })
+            .map_err(|e| AppError::Validation(format!("Hawk 加签失败：{e}")))?;
+            headers.push(("Authorization".into(), header));
+        }
+        AuthSpec::AwsV4 {
+            access_key,
+            secret_key,
+            region,
+            service,
+            session_token,
+        } => {
+            let signed = fox_sign::sign_aws_v4(&fox_sign::AwsV4Params {
+                access_key,
+                secret_key,
+                session_token: session_token.as_deref(),
+                region,
+                service,
+                method: &ctx.method.to_string(),
+                url: ctx.url.as_str(),
+                payload_hash: ctx.payload_hash,
+                amz_date: &fox_sign::aws_amz_date_now(),
+            })
+            .map_err(|e| AppError::Validation(format!("AWS SigV4 加签失败：{e}")))?;
+            headers.push(("x-amz-date".into(), signed.amz_date));
+            if let Some(token) = session_token {
+                if !token.trim().is_empty() {
+                    headers.push(("x-amz-security-token".into(), token.clone()));
+                }
+            }
+            headers.push(("Authorization".into(), signed.authorization));
+        }
+        AuthSpec::Hmac {
+            access_key,
+            secret_key,
+        } => {
+            let mut path_query = ctx.url.path().to_string();
+            if let Some(q) = ctx.url.query() {
+                path_query.push('?');
+                path_query.push_str(q);
+            }
+            let timestamp = fox_sign::utc_timestamp_secs();
+            let nonce = fox_sign::random_nonce_hex(4);
+            let (signed, _) = fox_sign::aksk_headers(&fox_sign::AkSkParams {
+                access_key,
+                secret_key,
+                method: &ctx.method.to_string(),
+                path_query: &path_query,
+                timestamp: &timestamp,
+                nonce: &nonce,
+            })
+            .map_err(|e| AppError::Validation(format!("HMAC 加签失败：{e}")))?;
+            headers.extend(signed);
+        }
     }
     Ok(())
+}
+
+/// 加签上下文：签名类认证计算所需的请求快照。
+struct AuthSignCtx<'a> {
+    method: HttpMethod,
+    /// 已拼接显式 params 的最终 URL（ApiKey-query 附加项除外，见下）。
+    url: &'a Url,
+    /// 载荷摘要（hex；流式 body 为 `UNSIGNED-PAYLOAD`）。
+    payload_hash: &'a str,
+    /// Hawk payload hash 用（content-type + 原始字节；无 body 为 `None`）。
+    body: Option<(&'a str, &'a [u8])>,
+}
+
+/// Digest 重试：401 首轮响应携带合法 Digest 质询时，计算应答头（否则返回 `None` 不重试）。
+fn digest_retry_header(
+    resp: &Response,
+    auth: &AuthSpec,
+    method: HttpMethod,
+    url: &Url,
+) -> Option<String> {
+    if resp.status().as_u16() != 401 {
+        return None;
+    }
+    let AuthSpec::Digest { username, password } = auth else {
+        return None;
+    };
+    let challenge = resp
+        .headers()
+        .get_all("www-authenticate")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(fox_sign::parse_www_authenticate)?;
+    let mut uri = url.path().to_string();
+    if let Some(q) = url.query() {
+        uri.push('?');
+        uri.push_str(q);
+    }
+    fox_sign::digest_authorization(&fox_sign::DigestParams {
+        username,
+        password,
+        method: &method.to_string(),
+        uri: &uri,
+        challenge: &challenge,
+        nc: 1,
+        cnonce: &fox_sign::random_nonce_hex(4),
+    })
+    .ok()
 }
 
 /// 重定向策略是 Client 级配置，故按 `RequestSpec::follow_redirects`
@@ -322,29 +474,81 @@ async fn apply_auth(
 struct ClientPair {
     follow: Client,
     no_follow: Client,
+    follow_no_cookies: Client,
+    no_follow_no_cookies: Client,
 }
 
 fn build_pair(proxy: Option<&str>) -> Result<ClientPair, String> {
-    let build = |policy: reqwest::redirect::Policy| -> Result<Client, String> {
-        let mut b = Client::builder()
-            .cookie_store(true)
+    // 自管 jar：cookies=true 时自动回放 + 可查看/清理；
+    // false（单请求禁用）时走空 jar，登录态不附带。
+    // jar 全局共享：代理切换不再丢弃登录态（原来随旧客户端一起丢弃）。
+    let build = |policy: reqwest::redirect::Policy, cookies: bool| -> Result<Client, String> {
+        // TCP/TLS 握手阶段的独立上限：总超时留给请求本身，
+        // 避免对死地址长时间挂起无反馈
+        let base = Client::builder()
             .redirect(policy)
-            // TCP/TLS 握手阶段的独立上限：总超时留给请求本身，
-            // 避免对死地址长时间挂起无反馈
             .connect_timeout(Duration::from_secs(10));
-        b = match proxy {
+        let with_proxy = match proxy {
             Some(url) => {
-                b.proxy(reqwest::Proxy::all(url).map_err(|e| format!("代理地址无效：{e}"))?)
+                base.proxy(reqwest::Proxy::all(url).map_err(|e| format!("代理地址无效：{e}"))?)
             }
             // 无代理配置时禁用系统代理：本地开发（127.0.0.1）不受环境变量干扰。
-            None => b.no_proxy(),
+            None => base.no_proxy(),
         };
-        b.build().map_err(|e| e.to_string())
+        if cookies {
+            with_proxy
+                .cookie_provider(std::sync::Arc::new(SharedJarRef))
+                .build()
+                .map_err(|e| e.to_string())
+        } else {
+            with_proxy
+                .cookie_provider(std::sync::Arc::new(EmptyJar))
+                .build()
+                .map_err(|e| e.to_string())
+        }
     };
     Ok(ClientPair {
-        follow: build(reqwest::redirect::Policy::default())?,
-        no_follow: build(reqwest::redirect::Policy::none())?,
+        follow: build(reqwest::redirect::Policy::default(), true)?,
+        no_follow: build(reqwest::redirect::Policy::none(), true)?,
+        follow_no_cookies: build(reqwest::redirect::Policy::default(), false)?,
+        no_follow_no_cookies: build(reqwest::redirect::Policy::none(), false)?,
     })
+}
+
+/// 指向全局共享 jar 的 provider（`cookie_provider` 要求 `Arc<dyn CookieStore>`，
+/// 不能直接传 `&'static ManagedJar`，故包一层）。
+#[derive(Debug)]
+struct SharedJarRef;
+
+impl reqwest::cookie::CookieStore for SharedJarRef {
+    fn set_cookies(
+        &self,
+        cookie_headers: &mut dyn Iterator<Item = &reqwest::header::HeaderValue>,
+        url: &Url,
+    ) {
+        crate::cookie::shared_jar().set_cookies(cookie_headers, url)
+    }
+
+    fn cookies(&self, url: &Url) -> Option<reqwest::header::HeaderValue> {
+        crate::cookie::shared_jar().cookies(url)
+    }
+}
+
+/// 空 jar：禁用回放的请求专用（不收纳、不附带）。
+#[derive(Debug, Default)]
+struct EmptyJar;
+
+impl reqwest::cookie::CookieStore for EmptyJar {
+    fn set_cookies(
+        &self,
+        _cookie_headers: &mut dyn Iterator<Item = &reqwest::header::HeaderValue>,
+        _url: &Url,
+    ) {
+    }
+
+    fn cookies(&self, _url: &Url) -> Option<reqwest::header::HeaderValue> {
+        None
+    }
 }
 
 fn client_pair() -> &'static std::sync::RwLock<ClientPair> {
@@ -356,12 +560,13 @@ fn client_pair() -> &'static std::sync::RwLock<ClientPair> {
 }
 
 /// 全局共享的 reqwest::Client（克隆廉价，内部为 Arc 连接池）。
-fn shared_client(follow_redirects: bool) -> Result<Client, AppError> {
+fn shared_client(follow_redirects: bool, use_cookies: bool) -> Result<Client, AppError> {
     let pair = client_pair().read().unwrap_or_else(|e| e.into_inner());
-    Ok(if follow_redirects {
-        pair.follow.clone()
-    } else {
-        pair.no_follow.clone()
+    Ok(match (follow_redirects, use_cookies) {
+        (true, true) => pair.follow.clone(),
+        (false, true) => pair.no_follow.clone(),
+        (true, false) => pair.follow_no_cookies.clone(),
+        (false, false) => pair.no_follow_no_cookies.clone(),
     })
 }
 
@@ -397,7 +602,30 @@ pub async fn send_request(
     spec: &RequestSpec,
     timeout_ms: Option<u64>,
 ) -> Result<HttpResponseData, AppError> {
-    send_request_inner(method, url, spec, timeout_ms, None).await
+    send_request_inner(method, url, spec, timeout_ms, None, MAX_BODY_BYTES).await
+}
+
+///  capped 发送：响应体超过 `body_cap_bytes` 即停止读取并标记截断。
+///
+/// 压测等只关心状态码 / 耗时的场景用小上限（如 64KB），避免 500 并发 ×
+/// 20MB 的内存爆炸；注意耗时口径变为"到截断为止"，调用方应在结果中说明。
+pub async fn send_request_capped(
+    method: HttpMethod,
+    url: &str,
+    spec: &RequestSpec,
+    timeout_ms: Option<u64>,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+    body_cap_bytes: usize,
+) -> Result<HttpResponseData, AppError> {
+    send_request_inner(
+        method,
+        url,
+        spec,
+        timeout_ms,
+        cancel,
+        body_cap_bytes.max(1024),
+    )
+    .await
 }
 
 /// 带取消能力的发送（用户点击「取消请求」时返回 [`AppError::Cancelled`]）。
@@ -412,7 +640,7 @@ pub async fn send_request_cancel(
     timeout_ms: Option<u64>,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<HttpResponseData, AppError> {
-    send_request_inner(method, url, spec, timeout_ms, Some(cancel)).await
+    send_request_inner(method, url, spec, timeout_ms, Some(cancel), MAX_BODY_BYTES).await
 }
 
 async fn send_request_inner(
@@ -421,13 +649,34 @@ async fn send_request_inner(
     spec: &RequestSpec,
     timeout_ms: Option<u64>,
     cancel: Option<&tokio_util::sync::CancellationToken>,
+    body_cap: usize,
 ) -> Result<HttpResponseData, AppError> {
     let timeout_ms = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-    let client = shared_client(spec.follow_redirects)?;
+    let client = shared_client(spec.follow_redirects, !spec.disable_cookies)?;
 
     let mut url = Url::parse(url).map_err(|e| AppError::Validation(format!("URL 无效：{e}")))?;
 
-    // Query：显式 params + ApiKey(query) 认证。
+    // Query：先拼显式 params（签名类认证按最终 URL 计算，须在加签前就位）；
+    // ApiKey(query) 附加项在加签后拼接（与 AWS 联用时不计入签名，属极小众组合）。
+    append_query(&mut url, &spec.params);
+
+    let payload = build_payload(spec).await?;
+    // 加签上下文：Bytes 计算真实摘要；流式 body（multipart / binary / 大表单）
+    // 无法预读，按 AWS S3 风格记 `UNSIGNED-PAYLOAD`；Hawk 无 body 时不带 hash。
+    let (payload_hash, hawk_body) = match &payload {
+        Payload::None => (fox_sign::sha256_hex(&[]), None),
+        Payload::Bytes(body, content_type) => (
+            fox_sign::sha256_hex(body),
+            Some((
+                content_type
+                    .as_deref()
+                    .unwrap_or("application/octet-stream"),
+                body.as_slice(),
+            )),
+        ),
+        Payload::Stream { .. } => ("UNSIGNED-PAYLOAD".to_string(), None),
+    };
+
     let mut query_extra: Vec<KeyValue> = Vec::new();
     let mut headers: Vec<(String, String)> = spec
         .headers
@@ -435,45 +684,87 @@ async fn send_request_inner(
         .filter(|kv| kv.enabled)
         .map(|kv| (kv.key.trim().to_string(), kv.value.clone()))
         .collect();
-    apply_auth(&mut headers, &mut query_extra, &spec.auth).await?;
-    append_query(&mut url, &spec.params);
+    let sign_ctx = AuthSignCtx {
+        method,
+        url: &url,
+        payload_hash: &payload_hash,
+        body: hawk_body,
+    };
+    apply_auth(&mut headers, &mut query_extra, &spec.auth, &sign_ctx).await?;
     append_query(&mut url, &query_extra);
 
-    let payload = build_payload(spec).await?;
-    let mut req = client
-        .request(reqwest_method(method), url.clone())
-        .timeout(Duration::from_millis(timeout_ms));
-
-    for (k, v) in &headers {
-        if k.is_empty() {
-            continue;
-        }
-        req = req.header(k, v);
-    }
-    // payload 之后不再使用，按值解构直接 move body，避免整包克隆
-    if let Payload::Bytes(body, content_type) = payload {
-        if let Some(ct) = &content_type {
-            if !has_header(&headers, "content-type") {
-                req = req.header("content-type", ct.as_str());
-            }
-        }
-        req = req.body(body);
-    }
-
     let start = std::time::Instant::now();
-    let resp: Response = match cancel {
-        Some(token) => {
-            let fut = req.send();
-            tokio::select! {
-                // 取消分支胜出即丢弃请求 future：底层 hyper 连接随之中止
-                //（hyper 官方文档：丢弃返回的 future 是取消在途请求的支持方式）。
-                _ = token.cancelled() => {
-                    return Err(AppError::Cancelled("request aborted by user".to_string()));
+    // Digest 挑战-应答：首轮无凭据 → 401 携质询 → 补 Authorization 重发一次。
+    // payload 按值 move 进请求，重试时重新构建（文件流重新打开，语义一致）。
+    let mut digest_authz: Option<String> = None;
+    let resp: Response = loop {
+        let payload = build_payload(spec).await?;
+        let mut req = client
+            .request(reqwest_method(method), url.clone())
+            .timeout(Duration::from_millis(timeout_ms));
+
+        for (k, v) in &headers {
+            if k.is_empty() {
+                continue;
+            }
+            req = req.header(k, v);
+        }
+        if let Some(authz) = &digest_authz {
+            req = req.header("Authorization", authz);
+        }
+        // payload 之后不再使用，按值解构直接 move body，避免整包克隆
+        match payload {
+            Payload::None => {}
+            Payload::Bytes(body, content_type) => {
+                if let Some(ct) = &content_type {
+                    if !has_header(&headers, "content-type") {
+                        req = req.header("content-type", ct.as_str());
+                    }
                 }
-                r = fut => r.map_err(AppError::from_reqwest)?,
+                req = req.body(body);
+            }
+            Payload::Stream {
+                body,
+                content_type,
+                content_length,
+            } => {
+                if let Some(ct) = &content_type {
+                    if !has_header(&headers, "content-type") {
+                        req = req.header("content-type", ct.as_str());
+                    }
+                }
+                if let Some(len) = content_length {
+                    if !has_header(&headers, "content-length") {
+                        req = req.header("content-length", len);
+                    }
+                }
+                req = req.body(body);
             }
         }
-        None => req.send().await.map_err(AppError::from_reqwest)?,
+
+        let one: Response = match cancel {
+            Some(token) => {
+                let fut = req.send();
+                tokio::select! {
+                    // 取消分支胜出即丢弃请求 future：底层 hyper 连接随之中止
+                    //（hyper 官方文档：丢弃返回的 future 是取消在途请求的支持方式）。
+                    _ = token.cancelled() => {
+                        return Err(AppError::Cancelled("request aborted by user".to_string()));
+                    }
+                    r = fut => r.map_err(AppError::from_reqwest)?,
+                }
+            }
+            None => req.send().await.map_err(AppError::from_reqwest)?,
+        };
+        // 仅 Digest 首轮 401 且质询可解析时重试；算法不支持 / 密码错误等情况
+        // 直接返回服务端响应（用户可见真实 401，而不是客户端报错）。
+        if digest_authz.is_none() {
+            if let Some(authz) = digest_retry_header(&one, &spec.auth, method, &url) {
+                digest_authz = Some(authz);
+                continue;
+            }
+        }
+        break one;
     };
 
     let status = resp.status().as_u16();
@@ -502,7 +793,8 @@ async fn send_request_inner(
         })
         .collect();
 
-    // 读取响应体，超过 MAX_BODY_BYTES 截断并标记；期间可被取消。
+    // 读取响应体，超过上限截断并标记后即丢弃后续字节（连接不复用，
+    // 由调用方按场景选上限）；期间可被取消。
     let mut body: Vec<u8> = Vec::new();
     let mut truncated = false;
     let mut chunks = resp.bytes_stream();
@@ -511,8 +803,8 @@ async fn send_request_inner(
             return Err(AppError::Cancelled("request aborted by user".to_string()));
         }
         let chunk = chunk.map_err(AppError::from_reqwest)?;
-        if body.len() + chunk.len() > MAX_BODY_BYTES {
-            let remaining = MAX_BODY_BYTES - body.len();
+        if body.len() + chunk.len() > body_cap {
+            let remaining = body_cap - body.len();
             body.extend_from_slice(&chunk[..remaining]);
             truncated = true;
             break;
@@ -558,13 +850,53 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
+                // 流式上传分多次写：循环读到完整请求（chunked 读到终止块，
+                // 定长读到声明长度），单次 read 在流式场景下必然截断。
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                let mut raw: Vec<u8> = Vec::new();
                 let mut buf = [0u8; 8192];
-                let _ = stream.read(&mut buf);
-                let request = String::from_utf8_lossy(&buf).to_string();
+                while let Ok(n) = stream.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    raw.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&raw).to_string();
+                    if let Some(hend) = text.find("\r\n\r\n") {
+                        let head = text[..hend].to_ascii_lowercase();
+                        if head.contains("transfer-encoding: chunked") {
+                            if text.contains("\r\n0\r\n\r\n") {
+                                break;
+                            }
+                        } else if let Some(len) = head.lines().find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            if k.trim() == "content-length" {
+                                v.trim().parse::<usize>().ok()
+                            } else {
+                                None
+                            }
+                        }) {
+                            if raw.len() >= hend + 4 + len {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    if raw.len() > 4 * 1024 * 1024 {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&raw).to_string();
                 let head = request.split("\r\n").next().unwrap_or("").to_string();
                 let (status, ctype, body) = handler(&head, &request);
+                // Digest 端到端用例：401 自动附带质询头（其余测试只用 200/201，不受影响）。
+                let challenge = if status == 401 {
+                    "WWW-Authenticate: Digest realm=\"test\", nonce=\"abc123\", qop=\"auth\", algorithm=MD5\r\n"
+                } else {
+                    ""
+                };
                 let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\n{challenge}Content-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
@@ -574,6 +906,58 @@ mod tests {
     }
 
     use std::io::{Read, Write};
+
+    /// 还原请求载荷原文供断言：chunked 传输去分帧，
+    /// 定长 body（Content-Length）按长度截取（忽略 8KB 读缓冲的零填充）。
+    fn dechunk(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len());
+        let head_end = raw.find("\r\n\r\n").map(|i| i + 4).unwrap_or(0);
+        let head = &raw[..head_end];
+        let mut rest = &raw[head_end..];
+        if !head
+            .to_ascii_lowercase()
+            .contains("transfer-encoding: chunked")
+        {
+            // 定长：按声明长度截取（若缺失则整体返回）。
+            let len = head
+                .lines()
+                .find_map(|l| {
+                    let (k, v) = l.split_once(':')?;
+                    if k.trim().eq_ignore_ascii_case("content-length") {
+                        v.trim().parse::<usize>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(rest.len());
+            // from_utf8_lossy 下多字节字符不会被长度截断劈裂到 panic：
+            // 按字符边界安全截取。
+            let mut acc = 0usize;
+            for (i, ch) in rest.char_indices() {
+                if acc + ch.len_utf8() > len {
+                    return rest[..i].to_string();
+                }
+                acc += ch.len_utf8();
+            }
+            return rest.to_string();
+        }
+        loop {
+            let Some(line_end) = rest.find("\r\n") else {
+                out.push_str(rest);
+                break;
+            };
+            let size = usize::from_str_radix(rest[..line_end].trim(), 16).unwrap_or(0);
+            if size == 0 {
+                break;
+            }
+            rest = &rest[line_end + 2..];
+            let take = size.min(rest.len());
+            out.push_str(&rest[..take]);
+            rest = &rest[take..];
+            rest = rest.strip_prefix("\r\n").unwrap_or(rest);
+        }
+        out
+    }
 
     #[tokio::test]
     async fn send_get_with_query() {
@@ -775,6 +1159,161 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status, 200);
+    }
+
+    // ---------- 签名类认证：Hawk / AWS SigV4 / HMAC / Digest ----------
+
+    /// 取请求原文中指定头的值（hyper 发出的头名为小写，此处大小写不敏感）。
+    fn auth_header_of(request: &str, name: &str) -> String {
+        request
+            .lines()
+            .find(|l| l.to_ascii_lowercase().starts_with(&format!("{name}:")))
+            .and_then(|l| l.split_once(':'))
+            .map(|(_, v)| v.trim().to_string())
+            .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn send_hawk_auth_header() {
+        let base = start_server(|_, request| {
+            let value = auth_header_of(request, "authorization");
+            assert!(value.starts_with("Hawk "), "意外：{value}");
+            assert!(value.contains("id=\"kid\""), "缺 id：{value}");
+            assert!(value.contains("mac=\""), "缺 mac：{value}");
+            (200, "text/plain".to_string(), "hawk-ok".to_string())
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::Hawk {
+                key_id: "kid".into(),
+                key: "k".into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::GET, &format!("{base}/r"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[tokio::test]
+    async fn send_aws_v4_auth_headers() {
+        let base = start_server(|_, request| {
+            let auth = auth_header_of(request, "authorization");
+            assert!(
+                auth.starts_with("AWS4-HMAC-SHA256 Credential=AK/20"),
+                "意外：{auth}"
+            );
+            assert!(
+                auth.contains("SignedHeaders=host;x-amz-date"),
+                "缺 SignedHeaders：{auth}"
+            );
+            assert!(auth.contains("Signature="), "缺 Signature：{auth}");
+            let date = auth_header_of(request, "x-amz-date");
+            assert!(!date.is_empty(), "缺 x-amz-date");
+            (200, "text/plain".to_string(), "aws-ok".to_string())
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::AwsV4 {
+                access_key: "AK".into(),
+                secret_key: "SK".into(),
+                region: "us-east-1".into(),
+                service: "iam".into(),
+                session_token: None,
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::GET, &format!("{base}/?A=1"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[tokio::test]
+    async fn send_hmac_aksk_headers() {
+        let base = start_server(|_, request| {
+            let lower = request.to_ascii_lowercase();
+            assert!(lower.contains("x-access-key: ak-1"), "缺 X-Access-Key");
+            assert!(lower.contains("x-timestamp: "), "缺 X-Timestamp");
+            assert!(lower.contains("x-nonce: "), "缺 X-Nonce");
+            let sig = auth_header_of(request, "x-signature");
+            assert_eq!(sig.len(), 64, "签名应为 64 位 hex：{sig}");
+            assert!(sig.chars().all(|c| c.is_ascii_hexdigit()));
+            (200, "text/plain".to_string(), "hmac-ok".to_string())
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::Hmac {
+                access_key: "ak-1".into(),
+                secret_key: "sk-1".into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::POST, &format!("{base}/sign"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[tokio::test]
+    async fn digest_auth_retries_after_challenge() {
+        let unauthorized = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = unauthorized.clone();
+        let base = start_server(move |_, request| {
+            let value = auth_header_of(request, "authorization");
+            if value.starts_with("Digest ") {
+                assert!(value.contains("username=\"u\""), "缺 username：{value}");
+                assert!(
+                    value.contains("nonce=\"abc123\""),
+                    "应答质询 nonce：{value}"
+                );
+                assert!(value.contains("response=\""), "缺 response：{value}");
+                assert!(value.contains("nc=00000001"), "缺 nc：{value}");
+                (200, "text/plain".to_string(), "digest-ok".to_string())
+            } else {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                (401, "text/plain".to_string(), "unauthorized".to_string())
+            }
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::Digest {
+                username: "u".into(),
+                password: "p".into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::GET, &format!("{base}/private"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body_text(), "digest-ok");
+        assert_eq!(
+            unauthorized.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "应恰好经历一次 401 质询"
+        );
+    }
+
+    #[tokio::test]
+    async fn digest_wrong_password_returns_401() {
+        // 质询不可复用固定 response：服务端校验失败 → 第二次仍 401，直接返回响应。
+        let base = start_server(|_, request| {
+            let value = auth_header_of(request, "authorization");
+            if value.starts_with("Digest ") {
+                // 故意不认可任何应答（模拟密码错误）。
+                return (401, "text/plain".to_string(), "bad".to_string());
+            }
+            (401, "text/plain".to_string(), "unauthorized".to_string())
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::Digest {
+                username: "u".into(),
+                password: "wrong".into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::GET, &format!("{base}/private"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 401);
     }
 
     #[tokio::test]
@@ -1034,20 +1573,23 @@ mod tests {
             },
             ..Default::default()
         };
+        // 纯文本表单：流式载荷（文件 part 边读边发，大表单不物化），
+        // content-type 仍携带 boundary；正文内容由端到端用例校验。
         let payload = build_payload(&spec).await.unwrap();
         match payload {
-            Payload::Bytes(body, ct) => {
-                let ct = ct.unwrap();
+            Payload::Stream {
+                content_type,
+                content_length,
+                ..
+            } => {
+                let ct = content_type.unwrap();
                 assert!(
                     ct.starts_with("multipart/form-data; boundary="),
                     "意外 content-type：{ct}"
                 );
-                let body = String::from_utf8(body).unwrap();
-                assert!(body.contains("name=\"note\""));
-                assert!(body.contains("hello"));
-                assert!(!body.contains("skip"), "禁用的字段不应发送");
+                assert_eq!(content_length, None, "流式表单总长度未知");
             }
-            _ => panic!("期望 Multipart payload"),
+            _ => panic!("期望 Multipart 流式 payload"),
         }
     }
 
@@ -1062,11 +1604,16 @@ mod tests {
 
         let base = start_server(|_, request| {
             assert!(request.contains("content-type: multipart/form-data; boundary="));
-            assert!(request.contains("name=\"note\""));
-            assert!(request.contains("hello from text"));
-            assert!(request.contains("name=\"file\""));
-            assert!(request.contains("filename=\"fox_http_upload_test.txt\""));
-            assert!(request.contains("hello multipart file"));
+            // 流式上传走 chunked：去分帧后再断言载荷原文。
+            let body = dechunk(request);
+            assert!(body.contains("name=\"note\""), "缺文本字段：{body}");
+            assert!(body.contains("hello from text"), "缺文本内容");
+            assert!(body.contains("name=\"file\""), "缺文件字段");
+            assert!(
+                body.contains("filename=\"fox_http_upload_test.txt\""),
+                "缺文件名"
+            );
+            assert!(body.contains("hello multipart file"), "缺文件内容");
             (200, "text/plain".to_string(), "uploaded".to_string())
         });
         let spec = RequestSpec {
@@ -1131,14 +1678,111 @@ mod tests {
             },
             ..Default::default()
         };
+        // binary 走文件流：不断言字节内容（端到端用例覆盖），
+        // 只校验流式变体 + 已知长度 + 默认 content-type。
         let payload = build_payload(&spec).await.unwrap();
         match payload {
-            Payload::Bytes(body, ct) => {
-                assert_eq!(body, b"\x00\x01raw-bytes\xff".to_vec());
-                assert_eq!(ct.as_deref(), Some("application/octet-stream"));
+            Payload::Stream {
+                content_type,
+                content_length,
+                ..
+            } => {
+                assert_eq!(content_type.as_deref(), Some("application/octet-stream"));
+                assert_eq!(content_length, Some(12), "应为文件实际长度");
             }
-            _ => panic!("期望 Binary payload"),
+            _ => panic!("期望 Binary 流式 payload"),
         }
+        tokio::fs::remove_file(&file_path).await.unwrap();
+    }
+
+    // ---------- Cookie Jar：自动回放 + 单请求禁用 ----------
+
+    #[tokio::test]
+    async fn cookie_jar_replays_and_disable_cookies_skips() {
+        use std::sync::{Arc, Mutex};
+        // 首个请求下发 Set-Cookie；第二个请求应自动携带 Cookie。
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen2 = seen.clone();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(3) {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let request = String::from_utf8_lossy(&buf).to_string();
+                seen2.lock().unwrap().push(request.clone());
+                let cookie_line = request
+                    .lines()
+                    .find(|l| l.to_lowercase().starts_with("cookie:"))
+                    .unwrap_or("")
+                    .to_string();
+                let body = format!("got:{cookie_line}");
+                let response = format!(
+                    "HTTP/1.1 200\r\nContent-Type: text/plain\r\nSet-Cookie: sid=abc123; Path=/\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        let spec = RequestSpec::default();
+        let url = format!("http://{addr}/login");
+        send_request(HttpMethod::GET, &url, &spec, None)
+            .await
+            .unwrap();
+        let second = send_request(HttpMethod::GET, &url, &spec, None)
+            .await
+            .unwrap();
+        assert!(
+            second.body_text().contains("sid=abc123"),
+            "第二次请求应自动回放 Cookie，实际：{}",
+            second.body_text()
+        );
+
+        // 单请求禁用：jar 不附带（服务端看到无 Cookie 头）。
+        let disabled = RequestSpec {
+            disable_cookies: true,
+            ..Default::default()
+        };
+        let third = send_request(HttpMethod::GET, &url, &disabled, None)
+            .await
+            .unwrap();
+        assert!(
+            third.body_text() == "got:",
+            "禁用后不应附带 Cookie，实际：{}",
+            third.body_text()
+        );
+        let log = seen.lock().unwrap();
+        assert_eq!(log.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn send_binary_streams_file_with_length() {
+        let dir = std::env::temp_dir();
+        let file_path = dir.join("fox_http_binary_e2e.bin");
+        tokio::fs::write(&file_path, b"\x00\x01raw-bytes\xff")
+            .await
+            .unwrap();
+        let base = start_server(|_, request| {
+            // binary 单文件已知长度：应带 Content-Length（非 chunked）。
+            assert!(
+                request.contains("content-length: 12"),
+                "应声明长度：{request}"
+            );
+            let body = dechunk(request);
+            assert!(body.contains("raw-bytes"), "文件字节应原样送达");
+            (200, "text/plain".to_string(), "ok".to_string())
+        });
+        let spec = RequestSpec {
+            body: BodySpec::Binary {
+                path: file_path.to_str().unwrap().into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::POST, &format!("{base}/bin"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
         tokio::fs::remove_file(&file_path).await.unwrap();
     }
 
@@ -1161,6 +1805,14 @@ mod tests {
     async fn auth_api_key_query_appends() {
         let mut headers = Vec::new();
         let mut query = Vec::new();
+        let url = Url::parse("https://api.example.com/v1").unwrap();
+        let empty_hash = fox_sign::sha256_hex(&[]);
+        let ctx = AuthSignCtx {
+            method: HttpMethod::GET,
+            url: &url,
+            payload_hash: &empty_hash,
+            body: None,
+        };
         apply_auth(
             &mut headers,
             &mut query,
@@ -1169,6 +1821,7 @@ mod tests {
                 value: "secret".into(),
                 location: ApiKeyLocation::Query,
             },
+            &ctx,
         )
         .await
         .unwrap();

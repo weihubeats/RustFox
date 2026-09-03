@@ -36,7 +36,7 @@ const filtered = computed<TestCase[]>(() =>
   filter.value === '全部' ? cases.value : cases.value.filter((c) => c.category === filter.value),
 )
 
-/** 分类计数（全部 (N) + 各分类）。 */
+/** 分类计数（全部 (N) + 各分类）：单遍聚合（原来每分类 filter 一遍，O(5N)）。 */
 const counts = computed<Record<FilterKey, number>>(() => {
   const all: Record<FilterKey, number> = {
     全部: cases.value.length,
@@ -46,8 +46,9 @@ const counts = computed<Record<FilterKey, number>>(() => {
     安全性: 0,
     其他: 0,
   }
-  for (const c of TEST_CASE_CATEGORIES) {
-    all[c] = cases.value.filter((x) => x.category === c).length
+  for (const c of cases.value) {
+    if (c.category in all) all[c.category as TestCaseCategory] += 1
+    else all['其他'] += 1
   }
   return all
 })
@@ -201,22 +202,48 @@ async function runOne(c: TestCase): Promise<void> {
   }
 }
 
+/** 在途集合运行标识（取消按钮持有）。 */
+const activeCollectionRunId = ref<string | null>(null)
+/** 集合运行进度（done/total，已完成数由后端事件推进，此处取整）。 */
+const collectionProgress = ref<{ done: number; total: number } | null>(null)
+
 async function runAll(): Promise<void> {
   const d = props.draft
   if (!d || runningAll.value) return
   runningAll.value = true
+  collectionProgress.value = { done: 0, total: store.testCases.get(d.id)?.length ?? 0 }
+  const runId = crypto.randomUUID()
+  activeCollectionRunId.value = runId
   try {
-    const r = await store.runAllTestCases(d.id)
-    toast[r.success === r.total ? 'success' : 'info'](
-      `全部运行完成：${r.success}/${r.total} 通过`,
-    )
+    const r = await store.runAllTestCases(d.id, {
+      runId,
+      onProgress: (done, total) => {
+        collectionProgress.value = { done, total }
+      },
+    })
+    if (r.cancelled) {
+      toast.info(`集合运行已取消：${r.success}/${r.total} 通过（部分完成）`)
+    } else {
+      toast[r.success === r.total ? 'success' : 'info'](
+        `全部运行完成：${r.success}/${r.total} 通过`,
+      )
+    }
   } catch (err) {
     toast.error('全部运行失败', {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
+    if (activeCollectionRunId.value === runId) activeCollectionRunId.value = null
+    collectionProgress.value = null
     runningAll.value = false
   }
+}
+
+/** 取消在途集合运行：后端停止领新任务，已完成项保留。 */
+function cancelRunAll(): void {
+  if (!activeCollectionRunId.value) return
+  void store.cancelAllTestCases(activeCollectionRunId.value)
+  toast.info('正在取消集合运行…')
 }
 
 const STATUS_TONE: Record<TestCase['last_run_status'], string> = {
@@ -265,7 +292,22 @@ watch(
           :disabled="!cases.length || runningAll"
           @click="runAll"
         >
-          <Icon name="play" :size="13" /> {{ runningAll ? '运行中…' : '全部运行' }}
+          <Icon name="play" :size="13" />
+          {{
+            runningAll && collectionProgress
+              ? `运行中… ${collectionProgress.done}/${collectionProgress.total}`
+              : runningAll
+                ? '运行中…'
+                : '全部运行'
+          }}
+        </button>
+        <button
+          v-if="runningAll && activeCollectionRunId"
+          class="rf-btn rf-btn-sm rf-btn-danger"
+          type="button"
+          @click="cancelRunAll"
+        >
+          <Icon name="x" :size="13" /> 取消
         </button>
       </div>
     </div>

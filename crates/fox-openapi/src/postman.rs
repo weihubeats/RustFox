@@ -447,6 +447,21 @@ fn parse_auth(auth: Option<&Value>) -> Option<AuthSpec> {
                 ApiKeyLocation::Query
             },
         }),
+        "digest" => Some(AuthSpec::Digest {
+            username: cred("username"),
+            password: cred("password"),
+        }),
+        "hawk" => Some(AuthSpec::Hawk {
+            key_id: cred("authId"),
+            key: cred("authKey"),
+        }),
+        "awsv4" => Some(AuthSpec::AwsV4 {
+            access_key: cred("accessKey"),
+            secret_key: cred("secretKey"),
+            region: cred("region"),
+            service: cred("service"),
+            session_token: Some(cred("sessionToken")).filter(|s| !s.is_empty()),
+        }),
         _ => None,
     }
 }
@@ -584,5 +599,46 @@ mod tests {
         assert_eq!(fields[0].key, "u");
         assert_eq!(fields[0].value, "admin");
         assert_eq!(post.path, "/login");
+    }
+
+    #[test]
+    fn signing_auth_types_imported() {
+        for (ty, fields, expect) in [
+            (
+                "digest",
+                r#"[{ "key": "username", "value": "u" }, { "key": "password", "value": "p" }]"#,
+                "digest",
+            ),
+            (
+                "hawk",
+                r#"[{ "key": "authId", "value": "id1" }, { "key": "authKey", "value": "k1" }]"#,
+                "hawk",
+            ),
+            (
+                "awsv4",
+                r#"[{ "key": "accessKey", "value": "AK" }, { "key": "secretKey", "value": "SK" },
+                    { "key": "region", "value": "us-east-1" }, { "key": "service", "value": "iam" },
+                    { "key": "sessionToken", "value": "tok" }]"#,
+                "awsv4",
+            ),
+        ] {
+            let auth = serde_json::json!({
+                "type": ty,
+                ty: serde_json::from_str::<serde_json::Value>(fields).unwrap(),
+            });
+            let parsed = parse_auth(Some(&auth)).expect("应解析出签名认证");
+            let tag = serde_json::to_value(&parsed).unwrap()["type"].to_string();
+            assert_eq!(tag, format!("\"{expect}\""));
+        }
+        // hawk 字段映射校验。
+        let hawk = parse_auth(Some(&serde_json::json!({
+            "type": "hawk",
+            "hawk": [{ "key": "authId", "value": "id1" }, { "key": "authKey", "value": "k1" }],
+        })))
+        .unwrap();
+        assert!(matches!(
+            hawk,
+            fox_core::model::AuthSpec::Hawk { ref key_id, .. } if key_id == "id1"
+        ));
     }
 }

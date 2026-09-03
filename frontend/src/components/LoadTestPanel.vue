@@ -18,10 +18,10 @@ import type { Endpoint, LoadResult } from '../types/foxApi'
 // chart.js 体积较大（约 200KB gz）且仅压测面板使用，懒加载以缩减首屏 bundle
 const Line = defineAsyncComponent(async () => {
   const [
-    { Chart: ChartJS, Filler, Legend, LinearScale, LineElement, PointElement, Tooltip },
+    { Chart: ChartJS, Decimation, Filler, Legend, LinearScale, LineElement, PointElement, Tooltip },
     { Line },
   ] = await Promise.all([import('chart.js'), import('vue-chartjs')])
-  ChartJS.register(LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
+  ChartJS.register(Decimation, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
   return Line
 })
 
@@ -107,12 +107,22 @@ const chartOptions: ChartOptions<'line'> = {
   },
   plugins: {
     legend: { labels: { boxWidth: 12, boxHeight: 12, font: { size: 11 } } },
+    // 高频事件下只渲染抽样点（LTTB），避免逐事件全量重绘掉帧。
+    decimation: { enabled: true, algorithm: 'lttb', samples: 200 },
   },
 }
 
+/**
+ * 图表节流：后端已按 100ms 合并事件，前端再按 150ms 窗口收点
+ *（终态必收，保证收尾准确）。原来每事件 push + chartData 全量 map ×2
+ * + Chart.js 全量重绘，高并发短请求下掉帧。
+ */
+let lastPointTs = 0
 function onProgress(p: { done: number; total: number; ok: number; failed: number }): void {
   progress.value = p
   const now = performance.now()
+  if (p.done < p.total && now - lastPointTs < 150) return
+  lastPointTs = now
   if (startTs === null) startTs = now
   const x = Math.round(((now - startTs) / 1000) * 10) / 10
   const last = points.value[points.value.length - 1]
@@ -138,7 +148,10 @@ onUnmounted(() => {
   unlistenLoad?.()
 })
 
-// ---------- 启动压测 ----------
+// ---------- 启动 / 取消压测 ----------
+/** 本轮运行标识：取消按钮持有，结束后清空。 */
+const activeRunId = ref<string | null>(null)
+
 async function runLoadTest(): Promise<void> {
   if (!props.draft) return
   const concurrency = Number(loadConcurrency.value)
@@ -152,21 +165,35 @@ async function runLoadTest(): Promise<void> {
   loadResult.value = null
   points.value = []
   startTs = null
+  lastPointTs = 0
+  const runId = crypto.randomUUID()
+  activeRunId.value = runId
   try {
-    loadResult.value = await api.loadTest({
+    const result = await api.loadTest({
       url: props.url,
       method: props.draft.method,
       spec: props.draft.request,
       environment_id: store.activeEnvId,
       concurrency,
       total,
+      run_id: runId,
     })
+    loadResult.value = result
+    if (result.cancelled) toast.info(`压测已取消：已完成 ${result.total}/${total}`)
   } catch (err) {
     toast.error('压测失败', { message: err instanceof Error ? err.message : String(err) })
   } finally {
+    if (activeRunId.value === runId) activeRunId.value = null
     loading.value = false
     progress.value = null
   }
+}
+
+/** 取消在途压测：后端中止 worker，已完成样本保留并返回。 */
+function cancelLoadTest(): void {
+  if (!activeRunId.value) return
+  void api.cancelLoadTest(activeRunId.value).catch(() => {})
+  toast.info('正在取消压测…')
 }
 
 // ---------- 指标 ----------
@@ -229,6 +256,15 @@ const metrics = computed<Metric[]>(() => {
       <button class="rf-btn rf-btn-sm" type="button" :disabled="!draft || running" @click="runLoadTest">
         <Icon name="gauge" :size="13" />
         {{ loading ? `压测中… ${progress ? `${progress.done}/${progress.total}` : ''}` : '开始压测' }}
+      </button>
+      <button
+        v-if="running && activeRunId"
+        class="rf-btn rf-btn-sm rf-btn-danger"
+        type="button"
+        @click="cancelLoadTest"
+      >
+        <Icon name="x" :size="13" />
+        取消
       </button>
     </div>
 

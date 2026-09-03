@@ -8,10 +8,11 @@
  *   各渲染独立面板组件（Tests 断言、Code 生成代码已从底部工具区迁入）；
  * - Ctrl+S 保存 / Ctrl+Enter 发送；响应区展示状态码、耗时与正文（JSON 自动美化）。
  */
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
+import { useShortcuts } from '../composables/useShortcuts'
 import {
   envBaseUrl,
   environmentVariableMap,
@@ -140,6 +141,9 @@ watch(
   () => draft.value?.id,
   () => {
     smartTab.value = draft.value && methodNeedsBody(draft.value.method) ? 'body' : 'params'
+    // 旧大 body 不再常驻：单例 response 切 Tab 不清空原来既占内存又可能错显。
+    response.value = null
+    sendError.value = null
   },
   { immediate: true },
 )
@@ -623,19 +627,44 @@ async function copyRequestUrl(): Promise<void> {
   toast.info('地址已复制')
 }
 
-function onKeydown(event: KeyboardEvent): void {
-  if (!(event.metaKey || event.ctrlKey)) return
-  if (event.key === 's') {
-    event.preventDefault()
-    save()
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    send()
-  } else if (event.key === 't' || event.key === 'n') {
-    event.preventDefault()
-    store.openNewEndpoint(null)
-  }
-}
+/**
+ * 全局快捷键（集中注册表，见 useShortcuts；帮助面板自动收录）。
+ * inInput: true 保持原行为——原来是裸 window 监听，输入框内同样生效。
+ */
+useShortcuts([
+  {
+    id: 'editor.save',
+    key: 's',
+    group: '请求编辑',
+    description: '保存当前接口',
+    inInput: true,
+    handler: () => save(),
+  },
+  {
+    id: 'editor.send',
+    key: 'Enter',
+    group: '请求编辑',
+    description: '发送当前请求',
+    inInput: true,
+    handler: () => void send(),
+  },
+  {
+    id: 'editor.new-request-t',
+    key: 't',
+    group: '请求编辑',
+    description: '新建接口',
+    inInput: true,
+    handler: () => store.openNewEndpoint(null),
+  },
+  {
+    id: 'editor.new-request-n',
+    key: 'n',
+    group: '请求编辑',
+    description: '新建接口',
+    inInput: true,
+    handler: () => store.openNewEndpoint(null),
+  },
+])
 
 /** 新建接口后自动聚焦地址输入框（TabBar「+」/ ⌘T ⌘N / 树内新建共用），便于直接输入路径。 */
 watch(
@@ -647,12 +676,7 @@ watch(
   },
 )
 
-onMounted(async () => {
-  window.addEventListener('keydown', onKeydown)
-})
-
 onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown)
   onSplitterUp()
 })
 </script>

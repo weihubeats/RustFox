@@ -6,7 +6,7 @@
  *   hover 时圆点被 ✕ 替换（两者不同时出现，避免挤占）；
  * - 关闭按钮 hover 才出现；脏标签关闭走 Popconfirm。
  */
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import Icon from './ui/Icon.vue'
@@ -48,9 +48,18 @@ watch(
   },
 )
 
-function methodOf(id: string): string {
-  return store.draftOf(id)?.method ?? 'GET'
-}
+/**
+ * 标签行数据一次求值：原来模板每标签调 methodOf/titleOf/isDirty 3-4 次
+ *（每次各自查 drafts/endpoints），此处单遍组装供模板复用。
+ */
+const tabs = computed(() =>
+  store.openTabs.map((id) => ({
+    id,
+    method: store.draftOf(id)?.method ?? 'GET',
+    title: store.titleOf(id),
+    dirty: store.isDirty(id),
+  })),
+)
 
 // ---------- 「+」快捷新建：主区 = 空 HTTP 请求，箭头 = 新建类型菜单 ----------
 const addMenu = ref<InstanceType<typeof Menu> | null>(null)
@@ -103,24 +112,24 @@ async function createFolder(): Promise<void> {
 <template>
   <div ref="barEl" class="tab-bar">
     <div
-      v-for="id in store.openTabs"
-      :key="id"
+      v-for="tab in tabs"
+      :key="tab.id"
       class="tab"
-      :class="{ active: store.activeTabId === id }"
-      @click="store.activeTabId = id"
-      @mousedown="onTabMouseDown($event, id)"
+      :class="{ active: store.activeTabId === tab.id }"
+      @click="store.activeTabId = tab.id"
+      @mousedown="onTabMouseDown($event, tab.id)"
     >
-      <span class="method-tag" :class="`mt-${methodOf(id).toLowerCase()}`">{{ methodOf(id) }}</span>
-      <span class="tab-title" v-tooltip-overflow="store.titleOf(id)">{{ store.titleOf(id) }}</span>
-      <span v-if="store.isDirty(id)" class="tab-dirty" title="未保存"><Icon name="dot" :size="7" /></span>
+      <span class="method-tag" :class="`mt-${tab.method.toLowerCase()}`">{{ tab.method }}</span>
+      <span class="tab-title" v-tooltip-overflow="tab.title">{{ tab.title }}</span>
+      <span v-if="tab.dirty" class="tab-dirty" title="未保存"><Icon name="dot" :size="7" /></span>
       <Popconfirm
-        v-if="store.isDirty(id)"
+        v-if="tab.dirty"
         title="该接口有未保存的修改，确认关闭？"
-        @confirm="close(id)"
+        @confirm="close(tab.id)"
       >
         <IconButton class="tab-close" name="x" :size="12" title="关闭" />
       </Popconfirm>
-      <IconButton v-else class="tab-close" name="x" :size="12" title="关闭" @click.stop="close(id)" />
+      <IconButton v-else class="tab-close" name="x" :size="12" title="关闭" @click.stop="close(tab.id)" />
     </div>
     <Tooltip content="新建请求 (⌘N)">
       <div class="tab-add-group">

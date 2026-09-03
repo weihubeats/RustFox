@@ -93,10 +93,12 @@ impl ImportedEndpoint {
     }
 }
 
-/// 支持的导入文档格式（M12）。
+/// 支持的导入文档格式（M12；N14 起含 OpenAPI 3.1）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ImportFormat {
     OpenApi30,
+    OpenApi31,
     Swagger20,
     Postman21,
     Unknown,
@@ -106,6 +108,7 @@ impl ImportFormat {
     pub fn label(&self) -> &'static str {
         match self {
             ImportFormat::OpenApi30 => "OpenAPI 3.0",
+            ImportFormat::OpenApi31 => "OpenAPI 3.1（已转换为 3.0 子集导入）",
             ImportFormat::Swagger20 => "Swagger 2.0",
             ImportFormat::Postman21 => "Postman 集合 v2.1",
             ImportFormat::Unknown => "无法识别",
@@ -124,7 +127,7 @@ pub(crate) fn parse_value(text: &str) -> Result<serde_json::Value, AppError> {
     }
 }
 
-/// 自动识别文档格式（OpenAPI 3.0 / Swagger 2.0 / Postman v2.1）。
+/// 自动识别文档格式（OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman v2.1）。
 pub fn detect_format(text: &str) -> ImportFormat {
     let Ok(v) = parse_value(text) else {
         return ImportFormat::Unknown;
@@ -132,7 +135,10 @@ pub fn detect_format(text: &str) -> ImportFormat {
     let Some(root) = v.as_object() else {
         return ImportFormat::Unknown;
     };
-    if root.contains_key("openapi") {
+    if let Some(version) = root.get("openapi").and_then(|v| v.as_str()) {
+        if version.starts_with("3.1") {
+            return ImportFormat::OpenApi31;
+        }
         return ImportFormat::OpenApi30;
     }
     if root.contains_key("swagger") {
@@ -148,36 +154,95 @@ pub fn detect_format(text: &str) -> ImportFormat {
 pub fn import_any(text: &str) -> Result<(Vec<ImportedEndpoint>, ImportFormat), AppError> {
     let format = detect_format(text);
     let imported = match format {
-        ImportFormat::OpenApi30 => import_endpoints(text)?,
+        ImportFormat::OpenApi30 | ImportFormat::OpenApi31 => import_endpoints(text)?,
         ImportFormat::Swagger20 => crate::swagger2::import_swagger2(text)?,
         ImportFormat::Postman21 => crate::postman::import_postman(text)?,
         ImportFormat::Unknown => return Err(AppError::Validation(
-            "无法识别的文档格式：支持 OpenAPI 3.0 / Swagger 2.0 / Postman 集合 v2.1（JSON/YAML）"
+            "无法识别的文档格式：支持 OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman 集合 v2.1（JSON/YAML）"
                 .to_string(),
         )),
     };
     Ok((imported, format))
 }
 
-/// 解析 OpenAPI 文本（自动识别 JSON / YAML），并校验版本为 3.0。
+/// 解析 OpenAPI 文本（自动识别 JSON / YAML），校验版本为 3.0 / 3.1。
+///
+/// 3.1 处理：归一化为 3.0 子集后再走同一套 typed 解析（导入只消费
+/// paths/operations/parameters/requestBody/examples，schema 细节无损要求低）：
+/// - `openapi: 3.1.x` → `3.0.3`；`webhooks` 顶层键丢弃（给出兼容提示）；
+/// - `type: [...]` 数组 → 取首个非 null 类型（nullable 语义由 `enum`/示例承载）；
+/// - 数字型 `exclusiveMinimum`/`exclusiveMaximum`（3.1）→ 丢弃（3.0 为布尔型）。
 pub fn parse_openapi(text: &str) -> Result<OpenAPI, AppError> {
-    let trimmed = text.trim_start();
-    let json_result = serde_json::from_str::<OpenAPI>(trimmed);
-    let spec = match json_result {
-        Ok(spec) => spec,
-        Err(_) => serde_norway::from_str::<OpenAPI>(text).map_err(|e| {
-            AppError::Validation(format!(
-                "OpenAPI 文件解析失败，请检查是否为合法的 JSON/YAML：{e}"
-            ))
-        })?,
-    };
+    let mut value = parse_value(text)?;
+    let version = value
+        .get("openapi")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if version.starts_with("3.1") {
+        normalize_openapi31(&mut value);
+    }
+    let spec: OpenAPI = serde_json::from_value(value).map_err(|e| {
+        AppError::Validation(format!(
+            "OpenAPI 文件解析失败，请检查是否为合法的 JSON/YAML：{e}"
+        ))
+    })?;
     if !spec.openapi.starts_with("3.0") {
         return Err(AppError::Validation(format!(
-            "暂不支持 OpenAPI 版本 {}，仅支持 3.0（JSON/YAML）",
+            "暂不支持 OpenAPI 版本 {}，仅支持 3.0 / 3.1（JSON/YAML）",
             spec.openapi
         )));
     }
     Ok(spec)
+}
+
+/// OpenAPI 3.1 → 3.0 子集归一化（原地改 Value）。
+fn normalize_openapi31(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    if let Some(root) = value.as_object_mut() {
+        root.insert("openapi".into(), Value::String("3.0.3".into()));
+        // webhooks 顶层键：3.0 无对应位置，丢弃（paths 导入不受影响）。
+        root.remove("webhooks");
+    }
+    normalize_schema_node(value);
+}
+
+/// 递归归一化 schema 节点（3.1 → 3.0 可解析形状）。
+fn normalize_schema_node(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    match value {
+        Value::Object(map) => {
+            // type 数组 → 首个非 null 类型。
+            if let Some(Value::Array(types)) = map.get("type") {
+                let picked = types
+                    .iter()
+                    .filter_map(|t| t.as_str())
+                    .find(|t| *t != "null")
+                    .unwrap_or("string")
+                    .to_string();
+                map.insert("type".into(), Value::String(picked));
+            }
+            // 数字型 exclusiveMinimum/Maximum → 丢弃（3.0 为布尔型）。
+            for key in ["exclusiveMinimum", "exclusiveMaximum"] {
+                if map.get(key).is_some_and(|v| v.is_number()) {
+                    map.remove(key);
+                }
+            }
+            // const → enum 单元素（3.0 无 const 关键字）。
+            if let Some(c) = map.remove("const") {
+                map.insert("enum".into(), Value::Array(vec![c]));
+            }
+            for (_, v) in map.iter_mut() {
+                normalize_schema_node(v);
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                normalize_schema_node(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// 解析并导入 OpenAPI 文档，返回待落库的接口列表。
@@ -437,10 +502,38 @@ mod tests {
     }
 
     #[test]
-    fn reject_openapi_31() {
+    fn openapi_31_normalized_and_imported() {
+        // 空 paths：版本归一化后可解析。
         let doc = r#"{"openapi":"3.1.0","info":{"title":"x","version":"1"},"paths":{}}"#;
-        let err = import_endpoints(doc).unwrap_err();
-        assert!(err.user_message().contains("3.0"));
+        assert!(import_endpoints(doc).unwrap().is_empty());
+        assert_eq!(detect_format(doc), ImportFormat::OpenApi31);
+        // 典型 3.1 形状：type 数组 + webhooks + 数字 exclusiveMinimum。
+        let doc = serde_json::json!({
+            "openapi": "3.1.0",
+            "info": {"title": "t", "version": "1"},
+            "webhooks": {"newPet": {"post": {"responses": {"200": {"description": "ok"}}}}},
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "operationId": "listPets",
+                        "parameters": [{
+                            "name": "limit", "in": "query",
+                            "schema": {"type": ["integer", "null"], "exclusiveMinimum": 0}
+                        }],
+                        "responses": {"200": {"description": "ok"}}
+                    }
+                }
+            }
+        });
+        let eps = import_endpoints(&doc.to_string()).unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0].path, "/pets");
+        assert_eq!(eps[0].name, "GET /pets");
+        assert_eq!(eps[0].request.params.len(), 1);
+        assert_eq!(
+            import_any(&doc.to_string()).unwrap().1,
+            ImportFormat::OpenApi31
+        );
     }
 
     #[test]

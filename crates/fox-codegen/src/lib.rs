@@ -99,7 +99,11 @@ pub struct GenRequest<'a> {
 }
 
 /// 认证 → 附加请求头。
-fn auth_headers(auth: &AuthSpec) -> Vec<(String, String)> {
+///
+/// 签名类（Hawk / AWS SigV4 / HMAC）按生成时刻做快照加签：时间戳 / nonce 取
+/// 当前值，输出可直接发送但具时效性（Postman 代码生成同理）。
+/// Digest 需运行时 401 握手，静态代码无法表达，返回空（与未授权 OAuth2 一致）。
+fn auth_headers(auth: &AuthSpec, snap: &SignSnapshot) -> Vec<(String, String)> {
     match auth {
         AuthSpec::None => Vec::new(),
         AuthSpec::Bearer { token } if !token.is_empty() => {
@@ -119,13 +123,132 @@ fn auth_headers(auth: &AuthSpec) -> Vec<(String, String)> {
         AuthSpec::OAuth2 { token: Some(t), .. } if !t.access_token.is_empty() => {
             vec![("Authorization".into(), format!("Bearer {}", t.access_token))]
         }
+        AuthSpec::Digest { .. } => Vec::new(),
+        AuthSpec::Hawk { key_id, key } => {
+            let ts: u64 = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let nonce = fox_sign::random_nonce_hex(4);
+            let (_, payload) = snapshot_payload(snap.body);
+            let body = payload
+                .as_ref()
+                .map(|(ct, bytes)| (ct.as_str(), bytes.as_slice()));
+            fox_sign::hawk_authorization(&fox_sign::HawkParams {
+                id: key_id,
+                key,
+                method: snap.method.as_str(),
+                url: snap.url,
+                body,
+                ts,
+                nonce: &nonce,
+            })
+            .map(|h| vec![("Authorization".into(), h)])
+            .unwrap_or_default()
+        }
+        AuthSpec::AwsV4 {
+            access_key,
+            secret_key,
+            region,
+            service,
+            session_token,
+        } => {
+            let (payload_hash, _) = snapshot_payload(snap.body);
+            let amz_date = fox_sign::aws_amz_date_now();
+            let mut out = vec![("x-amz-date".into(), amz_date.clone())];
+            if let Some(token) = session_token {
+                if !token.trim().is_empty() {
+                    out.push(("x-amz-security-token".into(), token.clone()));
+                }
+            }
+            fox_sign::sign_aws_v4(&fox_sign::AwsV4Params {
+                access_key,
+                secret_key,
+                session_token: session_token.as_deref(),
+                region,
+                service,
+                method: snap.method.as_str(),
+                url: snap.url,
+                payload_hash: &payload_hash,
+                amz_date: &amz_date,
+            })
+            .map(|s| {
+                out.push(("Authorization".into(), s.authorization));
+                out
+            })
+            .unwrap_or_default()
+        }
+        AuthSpec::Hmac {
+            access_key,
+            secret_key,
+        } => {
+            // 路径 + 查询串（解析失败时退化为全 URL 字符串）。
+            let path_query = url::Url::parse(snap.url)
+                .map(|u| {
+                    let mut pq = u.path().to_string();
+                    if let Some(q) = u.query() {
+                        pq.push('?');
+                        pq.push_str(q);
+                    }
+                    pq
+                })
+                .unwrap_or_else(|_| snap.url.to_string());
+            let timestamp = fox_sign::utc_timestamp_secs();
+            let nonce = fox_sign::random_nonce_hex(4);
+            fox_sign::aksk_headers(&fox_sign::AkSkParams {
+                access_key,
+                secret_key,
+                method: snap.method.as_str(),
+                path_query: &path_query,
+                timestamp: &timestamp,
+                nonce: &nonce,
+            })
+            .map(|(headers, _)| headers)
+            .unwrap_or_default()
+        }
         _ => Vec::new(),
+    }
+}
+
+/// 快照加签上下文（方法 + URL + Body）。
+struct SignSnapshot<'a> {
+    method: &'a HttpMethod,
+    url: &'a str,
+    body: &'a BodySpec,
+}
+
+/// 快照载荷：`(摘要, 有body时(content-type, 字节))`。
+///
+/// 与运行时（`fox-http`）口径一致：无 body 取空摘要；二进制 / 表单流
+/// 记 `UNSIGNED-PAYLOAD` 且不参与 Hawk hash。
+fn snapshot_payload(body: &BodySpec) -> (String, Option<(String, Vec<u8>)>) {
+    match body {
+        BodySpec::None => (fox_sign::sha256_hex(&[]), None),
+        BodySpec::Binary { .. } | BodySpec::Multipart { .. } => ("UNSIGNED-PAYLOAD".into(), None),
+        _ => {
+            let (text, content_type, _) = body_parts(body);
+            let bytes = text.into_bytes();
+            (
+                fox_sign::sha256_hex(&bytes),
+                Some((
+                    content_type
+                        .unwrap_or("application/octet-stream")
+                        .to_string(),
+                    bytes,
+                )),
+            )
+        }
     }
 }
 
 /// 生成代码。
 pub fn render<'a>(lang: Lang, req: &GenRequest<'a>) -> String {
-    let merged = merge_headers(req.headers, req.auth);
+    let snap = SignSnapshot {
+        method: req.method,
+        url: req.url,
+        body: req.body,
+    };
+    let merged = merge_headers(req.headers, req.auth, &snap);
     let m = req.method;
     let u = req.url;
     match lang {
@@ -146,7 +269,14 @@ pub fn render_graphql_curl(
     auth: &AuthSpec,
     spec: &GraphQLSpec,
 ) -> String {
-    let merged = merge_headers(headers, auth);
+    // GraphQL 固定 POST。
+    let body = BodySpec::GraphQL { spec: spec.clone() };
+    let snap = SignSnapshot {
+        method: &HttpMethod::POST,
+        url,
+        body: &body,
+    };
+    let merged = merge_headers(headers, auth, &snap);
     let mut out = format!("curl -X POST '{}'", sq(url));
     for (k, v) in &merged {
         out.push_str(&format!(" \\\n     -H '{}: {}'", sq(k), sq(v)));
@@ -175,7 +305,13 @@ pub fn render_graphql_js(
     out.push_str("import { ApolloClient, InMemoryCache, gql } from '@apollo/client';\n\n");
     out.push_str("const client = new ApolloClient({\n");
     out.push_str(&format!("  uri: '{}',\n", sq(url)));
-    let merged = merge_headers(headers, auth);
+    let body = BodySpec::GraphQL { spec: spec.clone() };
+    let snap = SignSnapshot {
+        method: &HttpMethod::POST,
+        url,
+        body: &body,
+    };
+    let merged = merge_headers(headers, auth, &snap);
     if !merged.is_empty() {
         out.push_str("  headers: {\n");
         for (k, v) in &merged {
@@ -268,8 +404,12 @@ fn graphql_json(spec: &GraphQLSpec) -> String {
 }
 
 /// 合并请求头与认证信息（auth 优先，大小写不敏感去重）。
-fn merge_headers<'a>(headers: &'a [KeyValue], auth: &'a AuthSpec) -> Vec<(String, String)> {
-    let mut merged: Vec<(String, String)> = auth_headers(auth);
+fn merge_headers<'a>(
+    headers: &'a [KeyValue],
+    auth: &'a AuthSpec,
+    snap: &SignSnapshot,
+) -> Vec<(String, String)> {
+    let mut merged: Vec<(String, String)> = auth_headers(auth, snap);
     for kv in headers
         .iter()
         .filter(|kv| kv.enabled && !kv.key.trim().is_empty())
@@ -1100,6 +1240,57 @@ mod tests {
         let code = render(Lang::Go, &req);
         assert!(code.contains("http.NewRequest(\"GET\""));
         assert!(code.contains("Basic dXNlcjpwYXNz"));
+    }
+
+    #[test]
+    fn signing_auth_snapshot_headers() {
+        // 快照加签：时间戳相关值每次不同，只断言头结构（发送端真实性由 fox-http 端到端覆盖）。
+        let method = HttpMethod::GET;
+        let body = BodySpec::None;
+        let render_with = |auth: &AuthSpec| {
+            let req = GenRequest {
+                method: &method,
+                url: "https://api.example.com/v1/items?a=1",
+                headers: &[],
+                body: &body,
+                auth,
+            };
+            render(Lang::Curl, &req)
+        };
+        let hawk = AuthSpec::Hawk {
+            key_id: "kid".into(),
+            key: "k".into(),
+        };
+        let hawk_code = render_with(&hawk);
+        assert!(hawk_code.contains("Authorization: Hawk "));
+        assert!(hawk_code.contains("id=\"kid\""));
+
+        let aws = AuthSpec::AwsV4 {
+            access_key: "AK".into(),
+            secret_key: "SK".into(),
+            region: "us-east-1".into(),
+            service: "iam".into(),
+            session_token: None,
+        };
+        let aws_code = render_with(&aws);
+        assert!(aws_code.contains("AWS4-HMAC-SHA256 Credential=AK/"));
+        assert!(aws_code.contains("x-amz-date:"));
+
+        let hmac = AuthSpec::Hmac {
+            access_key: "ak".into(),
+            secret_key: "sk".into(),
+        };
+        let hmac_code = render_with(&hmac);
+        assert!(hmac_code.contains("X-Access-Key: ak"));
+        assert!(hmac_code.contains("X-Signature:"));
+
+        // Digest 需运行时握手，静态代码不输出凭据头。
+        let digest = AuthSpec::Digest {
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let digest_code = render_with(&digest);
+        assert!(!digest_code.contains("Authorization: Digest"));
     }
 
     #[test]

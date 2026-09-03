@@ -13,7 +13,7 @@
  * 样式沿用项目 rf- 设计系统（深色 slate 主题，变量名与
  * crates/fox-desktop/src/styles.rs 的 DESIGN_SYSTEM_CSS 对齐）。
  */
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
@@ -88,9 +88,27 @@ const variablesValid = computed(() => {
 })
 
 // ---------- 高亮（实现见 utils/highlight.ts） ----------
-const queryHtml = computed(() => highlightGraphQL(gql.value.query))
+// 防抖：原来每键全量 highlightGraphQL/highlightJSON（正则扫描全文），
+// 此处输入即时响应（底层 textarea 非受控），着色延迟 150ms 跟上。
+const shownQuery = ref(gql.value.query)
+const shownVariables = ref(gql.value.variables)
+let gqlHlTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [gql.value.query, gql.value.variables],
+  ([q, v]) => {
+    if (gqlHlTimer) clearTimeout(gqlHlTimer)
+    gqlHlTimer = setTimeout(() => {
+      shownQuery.value = q
+      shownVariables.value = v
+    }, 150)
+  },
+)
+onUnmounted(() => {
+  if (gqlHlTimer) clearTimeout(gqlHlTimer)
+})
+const queryHtml = computed(() => highlightGraphQL(shownQuery.value))
 const variablesHtml = computed(() => {
-  const t = gql.value.variables
+  const t = shownVariables.value
   if (variablesValid.value) return highlightJSON(t)
   return escapeHtml(t)
 })

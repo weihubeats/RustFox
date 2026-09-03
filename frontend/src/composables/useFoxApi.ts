@@ -28,10 +28,15 @@ import type {
   CommandError,
   CurlParsed,
   Endpoint,
+  CollectionResult,
+  CookieEntry,
   EndpointResult,
   Environment,
+  EnvExchangeFormat,
   EnvironmentVariable,
   ExecuteRequestArgs,
+  ExportedEnv,
+  ImportedEnv,
   ExecuteResponse,
   ExportFormat,
   ExportedDoc,
@@ -41,6 +46,7 @@ import type {
   ImportResult,
   KeyValue,
   LoadResult,
+  LogFile,
   MockRule,
   OAuth2Token,
   Project,
@@ -81,6 +87,23 @@ function warnDecryptionFailed(): void {
   import('./useToast').then(({ useToast }) => {
     useToast().error('解密失败', { message: DECRYPT_WARNING, duration: 0 })
   })
+}
+
+/**
+ * 静默 invoke（无全局进度条）：高频纯读路径用——切 Tab 的示例/用例加载、
+ * 历史刷新、Mock 轮询等走 `run()` 会让顶部进度条在 `Promise.all` 下抖动。
+ * 写操作继续走 `run()`。
+ */
+async function quiet<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(`${PLUGIN}|${command}`, args)
+  } catch (e) {
+    const err = toFoxError(e)
+    if ('code' in err && err.code === 'DECRYPT') {
+      warnDecryptionFailed()
+    }
+    throw err
+  }
 }
 
 /** 统一的带错误映射的 invoke 封装（自动加插件命名空间前缀）。 */
@@ -156,7 +179,7 @@ export function useFoxApi() {
     return project
   }
 
-  const getActiveProject = () => call<Project | null>('get_active_project')
+  const getActiveProject = () => quiet<Project | null>('get_active_project')
 
   // ---------- 接口 ----------
   const listEndpoints = (projectId: string) =>
@@ -200,10 +223,18 @@ export function useFoxApi() {
     return environment
   }
 
-  const getActiveEnvironment = () => call<Environment | null>('get_active_environment')
+  const getActiveEnvironment = () => quiet<Environment | null>('get_active_environment')
 
   const deleteEnvironment = (environmentId: string) =>
     run(() => call<void>('delete_environment', { environmentId }))
+
+  /** 导出单个环境（变量以明文落盘，与备份 JSON 口径一致）。 */
+  const exportEnvironment = (environmentId: string, format: EnvExchangeFormat) =>
+    run(() => call<ExportedEnv>('export_environment', { environmentId, format }))
+
+  /** 导入环境预览（不落库；自动识别 RustFox / Postman 格式）。 */
+  const importEnvironment = (text: string) =>
+    run(() => call<ImportedEnv>('import_environment', { text }))
 
   // ---------- 全局变量 ----------
   const getGlobalVariables = () => run(() => call<EnvironmentVariable[]>('get_global_variables'))
@@ -227,7 +258,7 @@ export function useFoxApi() {
 
   // ---------- 响应示例 ----------
   const listExamples = (endpointId: string) =>
-    run(() => call<ResponseExample[]>('list_examples', { endpointId }))
+    quiet<ResponseExample[]>('list_examples', { endpointId })
 
   const saveExample = (example: ResponseExample) =>
     run(() => call<ResponseExample>('save_example', { example }))
@@ -237,7 +268,7 @@ export function useFoxApi() {
 
   // ---------- 请求用例 ----------
   const listRequestExamples = (endpointId: string) =>
-    run(() => call<RequestExample[]>('list_request_examples', { endpointId }))
+    quiet<RequestExample[]>('list_request_examples', { endpointId })
 
   const saveRequestExample = (example: RequestExample) =>
     run(() => call<RequestExample>('save_request_example', { example }))
@@ -247,7 +278,7 @@ export function useFoxApi() {
 
   // ---------- 测试用例 ----------
   const listTestCases = (requestId: string) =>
-    run(() => call<TestCase[]>('list_test_cases', { requestId }))
+    quiet<TestCase[]>('list_test_cases', { requestId })
 
   const saveTestCase = (testCase: TestCase) =>
     run(() => call<TestCase>('save_test_case', { testCase }))
@@ -303,9 +334,7 @@ export function useFoxApi() {
 
   // ---------- 请求历史 ----------
   const listRequestHistories = (projectId: string, limit?: number, endpointId?: string | null) =>
-    run(() =>
-      call<RequestHistory[]>('list_request_histories', { projectId, endpointId, limit }),
-    )
+    quiet<RequestHistory[]>('list_request_histories', { projectId, endpointId, limit })
 
   const clearRequestHistories = (projectId: string, endpointId?: string | null) =>
     run(() => call<number>('clear_request_histories', { projectId, endpointId }))
@@ -315,7 +344,10 @@ export function useFoxApi() {
 
   const mockStop = () => run(() => call<void>('mock_stop'))
 
-  const mockStatus = () => run(() => call<string | null>('mock_status'))
+  const mockStatus = () => quiet<string | null>('mock_status')
+
+  /** 热重载 Mock 定义（运行中原子替换路由与模板，无需重启；未运行报错）。 */
+  const mockReload = () => run(() => call<number>('mock_reload'))
 
   // ---------- Mock 规则 ----------
   const listMockRules = (projectId: string) =>
@@ -385,7 +417,74 @@ export function useFoxApi() {
     environment_id: string | null
     concurrency: number
     total: number
+    run_id?: string | null
   }) => run(() => call<LoadResult>('load_test', { args }))
+
+  /** 取消在途压测（run_id 不存在或已完成时返回 false）。 */
+  const cancelLoadTest = (runId: string) =>
+    call<boolean>('cancel_load_test', { runId })
+
+  /** 集合测试：一次 IPC 跑完整个集合（后端并发 + 可取消 + 进度事件）。 */
+  const testCollection = (args: {
+    items: Array<{ endpoint: Endpoint; url: string; spec: RequestSpec }>
+    environment_id: string | null
+    concurrency?: number | null
+    run_id?: string | null
+  }) => run(() => call<CollectionResult>('test_collection', { args }))
+
+  /** 取消在途集合测试（run_id 不存在或已完成时返回 false）。 */
+  const cancelTestCollection = (runId: string) =>
+    call<boolean>('cancel_test_collection', { runId })
+
+  // ---------- Cookie 管理 ----------
+  /** 列出 Jar 中的 Cookie（domain 为空返回全部；否则子串过滤域名）。 */
+  const cookieList = (domain?: string | null) =>
+    quiet<CookieEntry[]>('cookie_list', { domain: domain ?? null })
+
+  /** 清理 Cookie（domain 为空=全部；否则精确域 + 子域）。返回删除条数。 */
+  const cookieClear = (domain?: string | null) =>
+    run(() => call<number>('cookie_clear', { domain: domain ?? null }))
+
+  // ---------- 日志查看 ----------
+  /** 列出日志文件（最新在前）。 */
+  const logFiles = () => quiet<LogFile[]>('log_files')
+
+  /** 读取日志尾部（默认 300 行，上限 2000 行）。 */
+  const logTail = (file?: string | null, lines?: number | null) =>
+    quiet<string>('log_tail', { file: file ?? null, lines: lines ?? null })
+
+  /** 日志目录绝对路径（供「打开目录」）。 */
+  const logDirPath = () => quiet<string>('log_dir_path')
+
+  // ---------- 实时调试（WebSocket / SSE） ----------
+  /** 建立 WS 连接：返回 connection_id，后续事件经 `fox:ws-event` 推送。 */
+  const wsConnect = (args: {
+    connection_id?: string | null
+    url: string
+    headers?: Record<string, string>
+    subprotocols?: string[]
+    auto_reconnect?: boolean
+  }) => run(() => call<string>('ws_connect', { args }))
+
+  /** 发送 WS 帧（binary/ping 的 payload 为 base64）。 */
+  const wsSend = (args: { connection_id: string; frame: string; payload: string }) =>
+    call<void>('ws_send', { args })
+
+  /** 断开 WS 连接（不存在时返回 false）。 */
+  const wsDisconnect = (connectionId: string) =>
+    call<boolean>('ws_disconnect', { connectionId })
+
+  /** 订阅 SSE：返回 connection_id，原始文本块经 `fox:sse-event` 推送。 */
+  const sseConnect = (args: {
+    connection_id?: string | null
+    url: string
+    headers?: Record<string, string>
+    last_event_id?: string | null
+  }) => run(() => call<string>('sse_connect', { args }))
+
+  /** 取消 SSE 订阅（不存在时返回 false）。 */
+  const sseDisconnect = (connectionId: string) =>
+    call<boolean>('sse_disconnect', { connectionId })
 
   return {
     pending,
@@ -413,6 +512,8 @@ export function useFoxApi() {
     setActiveEnvironment,
     getActiveEnvironment,
     deleteEnvironment,
+    exportEnvironment,
+    importEnvironment,
     getGlobalVariables,
     saveGlobalVariables,
     getGlobalParams,
@@ -439,6 +540,7 @@ export function useFoxApi() {
     mockStart,
     mockStop,
     mockStatus,
+    mockReload,
     listMockRules,
     saveMockRule,
     deleteMockRule,
@@ -458,6 +560,19 @@ export function useFoxApi() {
     writeTextFile,
     testEndpoint,
     loadTest,
+    cancelLoadTest,
+    testCollection,
+    cancelTestCollection,
+    cookieList,
+    cookieClear,
+    logFiles,
+    logTail,
+    logDirPath,
+    wsConnect,
+    wsSend,
+    wsDisconnect,
+    sseConnect,
+    sseDisconnect,
   }
 }
 

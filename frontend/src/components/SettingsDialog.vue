@@ -17,7 +17,7 @@ import Modal from './ui/Modal.vue'
 import Icon, { type IconName } from './ui/Icon.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import { envBaseUrl } from '../utils/environment'
-import type { Environment, Project, ProjectStat, SeqCounter } from '../types/foxApi'
+import type { Environment, LogFile, Project, ProjectStat, SeqCounter } from '../types/foxApi'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -32,7 +32,7 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
 ]
 
 // ---------- 分类导航 ----------
-type TabId = 'general' | 'network' | 'sequences' | 'data' | 'environments'
+type TabId = 'general' | 'network' | 'sequences' | 'data' | 'environments' | 'logs'
 interface TabDef {
   id: TabId
   label: string
@@ -44,6 +44,7 @@ const tabs: TabDef[] = [
   { id: 'sequences', label: '自增序列', icon: 'list' },
   { id: 'data', label: '数据与备份', icon: 'folder' },
   { id: 'environments', label: '环境管理', icon: 'beaker' },
+  { id: 'logs', label: '日志', icon: 'file' },
 ]
 const activeTab = ref<TabId>('general')
 
@@ -334,9 +335,15 @@ async function onImportFile(event: Event): Promise<void> {
   try {
     const text = await file.text()
     const summary = await api.backupRestore(text)
-    toast.success(
-      `已恢复为「${summary.name}」：接口 ${summary.endpoints} 个、环境 ${summary.environments} 个`,
-    )
+    const extras: string[] = []
+    if (summary.settings_applied?.length) extras.push(`全局设置应用：${summary.settings_applied.join('、')}`)
+    if (summary.settings_skipped?.length) extras.push(`全局设置保留现有：${summary.settings_skipped.join('、')}`)
+    const mergedVars = summary.global_variables_merged ?? 0
+    const mergedParams = summary.global_params_merged ?? 0
+    if (mergedVars + mergedParams > 0) extras.push(`全局变量/参数补缺 ${mergedVars + mergedParams} 项`)
+    toast.success(`已恢复为「${summary.name}」：接口 ${summary.endpoints} 个、环境 ${summary.environments} 个`, {
+      message: extras.join('；') || undefined,
+    })
     emit('close')
   } catch (err) {
     toast.error('导入失败', { message: err instanceof Error ? err.message : String(err) })
@@ -344,6 +351,54 @@ async function onImportFile(event: Event): Promise<void> {
     busy.value = false
   }
 }
+
+// ---------- 日志查看 ----------
+const logFiles = ref<LogFile[]>([])
+const logSelected = ref<string>('')
+const logContent = ref('')
+const logLoading = ref(false)
+
+async function loadLogFiles(): Promise<void> {
+  try {
+    logFiles.value = (await api.logFiles()) ?? []
+    if (!logSelected.value && logFiles.value.length) {
+      logSelected.value = logFiles.value[0].name
+    }
+  } catch {
+    logFiles.value = []
+  }
+}
+
+async function loadLogTail(): Promise<void> {
+  if (!logSelected.value) {
+    logContent.value = ''
+    return
+  }
+  logLoading.value = true
+  try {
+    logContent.value = await api.logTail(logSelected.value, 300)
+  } catch (err) {
+    toast.error('读取日志失败', { message: err instanceof Error ? err.message : String(err) })
+    logContent.value = ''
+  } finally {
+    logLoading.value = false
+  }
+}
+
+async function openLogDir(): Promise<void> {
+  try {
+    const dir = await api.logDirPath()
+    await revealItemInDir(dir)
+  } catch {
+    toast.error('无法打开日志目录')
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'logs') {
+    void loadLogFiles().then(() => void loadLogTail())
+  }
+})
 
 // ---------- 通用派生 ----------
 const sequencesCount = computed(() => counters.value.length)
@@ -658,7 +713,7 @@ const projectSummary = computed(() => {
             <section v-if="activeTab === 'data'">
               <header>
                 <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">数据与备份</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">导出当前项目备份，或从备份文件恢复。</p>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">导出当前项目备份（含接口/环境/Mock/示例/用例 + 全局设置快照与全局变量/参数），或从备份文件恢复。恢复为全新项目；全局维度保守合并（缺失才补，不覆盖现有配置）。</p>
               </header>
 
               <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
@@ -770,6 +825,34 @@ const projectSummary = computed(() => {
                 </button>
               </div>
             </section>
+
+            <!-- 日志 -->
+            <section v-if="activeTab === 'logs'">
+              <header>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">日志</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">应用运行日志（按天滚动）。反馈问题时可直接复制关键段落，或打开目录打包。</p>
+              </header>
+
+              <div class="mb-3 flex items-center gap-2">
+                <select
+                  v-model="logSelected"
+                  class="rf-input rf-input-sm max-w-60 flex-1"
+                  @change="loadLogTail"
+                >
+                  <option v-for="f in logFiles" :key="f.name" :value="f.name">
+                    {{ f.name }}（{{ (f.size_bytes / 1024).toFixed(1) }} KB）
+                  </option>
+                </select>
+                <button class="rf-btn rf-btn-sm" type="button" :disabled="logLoading" @click="loadLogTail">
+                  <Icon name="refresh" :size="13" /> {{ logLoading ? '读取中…' : '刷新' }}
+                </button>
+                <button class="rf-btn rf-btn-sm" type="button" @click="openLogDir">
+                  <Icon name="folder" :size="13" /> 打开目录
+                </button>
+              </div>
+              <pre v-if="logContent" class="log-view">{{ logContent }}</pre>
+              <p v-else class="text-xs text-zinc-500">暂无日志内容</p>
+            </section>
           </div>
         </Transition>
       </div>
@@ -806,6 +889,21 @@ const projectSummary = computed(() => {
 .sd-dot-active {
   background: var(--success);
   box-shadow: 0 0 0 3px var(--success-tint);
+}
+.log-view {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-2);
 }
 </style>
 

@@ -14,6 +14,7 @@ members = [
     "crates/fox-smoke",
     "crates/fox-agent",
     "crates/fox-mcp",
+    "crates/fox-sign",
 ]
 
 [workspace.package]
@@ -41,7 +42,7 @@ tokio = { version = "1", features = [
     "fs",
     "sync",
 ] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
 futures = "0.3"
 async-trait = "0.1"
 regex = "1"
@@ -51,6 +52,11 @@ indexmap = { version = "2", features = ["serde"] }
 dirs = "5"
 aes-gcm = "0.10"
 base64 = "0.22"
+# 签名类认证（Digest / Hawk / AWS SigV4 / HMAC AK-SK）：fox-sign 专用
+hmac = "0.12"
+sha2 = "0.10"
+md5 = "0.7"
+hex = "0.4"
 
 sqlx = { version = "0.7", features = [
     "runtime-tokio-rustls",

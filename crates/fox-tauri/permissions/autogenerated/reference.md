@@ -27,6 +27,8 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-set-active-environment`
 - `allow-get-active-environment`
 - `allow-delete-environment`
+- `allow-export-environment`
+- `allow-import-environment`
 - `allow-get-global-variables`
 - `allow-save-global-variables`
 - `allow-get-global-params`
@@ -39,12 +41,15 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-oauth-authorize`
 - `allow-oauth-access-token`
 - `allow-codegen-render`
+- `allow-cookie-list`
+- `allow-cookie-clear`
 - `allow-clipboard-write-text`
 - `allow-list-request-histories`
 - `allow-clear-request-histories`
 - `allow-mock-start`
 - `allow-mock-stop`
 - `allow-mock-status`
+- `allow-mock-reload`
 - `allow-agent-start`
 - `allow-agent-stop`
 - `allow-agent-status`
@@ -57,6 +62,17 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-save-text-file`
 - `allow-test-endpoint`
 - `allow-load-test`
+- `allow-cancel-load-test`
+- `allow-test-collection`
+- `allow-cancel-test-collection`
+- `allow-log-files`
+- `allow-log-tail`
+- `allow-log-dir-path`
+- `allow-ws-connect`
+- `allow-ws-send`
+- `allow-ws-disconnect`
+- `allow-sse-connect`
+- `allow-sse-disconnect`
 - `allow-list-mock-rules`
 - `allow-save-mock-rule`
 - `allow-delete-mock-rule`
@@ -220,6 +236,32 @@ Denies the backup_restore command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-cancel-load-test`
+
+</td>
+<td>
+
+Enables the cancel_load_test command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-cancel-load-test`
+
+</td>
+<td>
+
+Denies the cancel_load_test command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-cancel-request`
 
 </td>
@@ -239,6 +281,32 @@ Enables the cancel_request command without any pre-configured scope.
 <td>
 
 Denies the cancel_request command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-cancel-test-collection`
+
+</td>
+<td>
+
+Enables the cancel_test_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-cancel-test-collection`
+
+</td>
+<td>
+
+Denies the cancel_test_collection command without any pre-configured scope.
 
 </td>
 </tr>
@@ -317,6 +385,58 @@ Enables the codegen_render command without any pre-configured scope.
 <td>
 
 Denies the codegen_render command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-cookie-clear`
+
+</td>
+<td>
+
+Enables the cookie_clear command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-cookie-clear`
+
+</td>
+<td>
+
+Denies the cookie_clear command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-cookie-list`
+
+</td>
+<td>
+
+Enables the cookie_list command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-cookie-list`
+
+</td>
+<td>
+
+Denies the cookie_list command without any pre-configured scope.
 
 </td>
 </tr>
@@ -636,6 +756,32 @@ Denies the export_docs command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-export-environment`
+
+</td>
+<td>
+
+Enables the export_environment command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-export-environment`
+
+</td>
+<td>
+
+Denies the export_environment command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-export-openapi`
 
 </td>
@@ -889,6 +1035,32 @@ Enables the import_document command without any pre-configured scope.
 <td>
 
 Denies the import_document command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-import-environment`
+
+</td>
+<td>
+
+Enables the import_environment command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-import-environment`
+
+</td>
+<td>
+
+Denies the import_environment command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1175,6 +1347,110 @@ Enables the load_test command without any pre-configured scope.
 <td>
 
 Denies the load_test command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-log-dir-path`
+
+</td>
+<td>
+
+Enables the log_dir_path command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-log-dir-path`
+
+</td>
+<td>
+
+Denies the log_dir_path command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-log-files`
+
+</td>
+<td>
+
+Enables the log_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-log-files`
+
+</td>
+<td>
+
+Denies the log_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-log-tail`
+
+</td>
+<td>
+
+Enables the log_tail command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-log-tail`
+
+</td>
+<td>
+
+Denies the log_tail command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-mock-reload`
+
+</td>
+<td>
+
+Enables the mock_reload command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-mock-reload`
+
+</td>
+<td>
+
+Denies the mock_reload command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1780,6 +2056,84 @@ Denies the set_seq_counter command without any pre-configured scope.
 <tr>
 <td>
 
+`fox-tauri:allow-sse-connect`
+
+</td>
+<td>
+
+Enables the sse_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-sse-connect`
+
+</td>
+<td>
+
+Denies the sse_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-sse-disconnect`
+
+</td>
+<td>
+
+Enables the sse_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-sse-disconnect`
+
+</td>
+<td>
+
+Denies the sse_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-test-collection`
+
+</td>
+<td>
+
+Enables the test_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-test-collection`
+
+</td>
+<td>
+
+Denies the test_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `fox-tauri:allow-test-endpoint`
 
 </td>
@@ -1929,6 +2283,84 @@ Enables the update_test_case_status command without any pre-configured scope.
 <td>
 
 Denies the update_test_case_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-ws-connect`
+
+</td>
+<td>
+
+Enables the ws_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-ws-connect`
+
+</td>
+<td>
+
+Denies the ws_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-ws-disconnect`
+
+</td>
+<td>
+
+Enables the ws_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-ws-disconnect`
+
+</td>
+<td>
+
+Denies the ws_disconnect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-ws-send`
+
+</td>
+<td>
+
+Enables the ws_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-ws-send`
+
+</td>
+<td>
+
+Denies the ws_send command without any pre-configured scope.
 
 </td>
 </tr>

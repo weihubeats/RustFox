@@ -24,13 +24,19 @@ const testsJson = ref('')
 const testResult = ref<EndpointResult | null>(null)
 const testing = ref(false)
 
+/**
+ * 仅在切换接口（draft.id）或 tests 引用变化时同步编辑框。
+ * 原来 `deep: true` 监听整个草稿：任意嵌套键入都重置 testsJson，
+ * 覆盖用户正在输入的内容 + 每键一次 stringify。
+ */
+function syncFromDraft(): void {
+  const tests = (props.draft?.request as { tests?: unknown } | undefined)?.tests
+  testsJson.value = tests ? JSON.stringify(tests, null, 2) : ''
+}
+watch(() => props.draft?.id, syncFromDraft, { immediate: true })
 watch(
-  () => props.draft,
-  () => {
-    const tests = (props.draft?.request as { tests?: unknown } | undefined)?.tests
-    testsJson.value = tests ? JSON.stringify(tests, null, 2) : ''
-  },
-  { deep: true, immediate: true },
+  () => (props.draft?.request as { tests?: unknown } | undefined)?.tests,
+  syncFromDraft,
 )
 
 async function runTests(): Promise<void> {
@@ -68,7 +74,7 @@ async function runTests(): Promise<void> {
       v-model="testsJson"
       class="rf-input tp-input"
       spellcheck="false"
-      placeholder='{ "assertions": [{ "type": "status", "op": "eq", "expected": 200 }] }'
+      placeholder='{ "assertions": [{ "type": "status", "op": "eq", "expected": 200 }] }（op 还支持 matches/regex、empty；type 还支持 graphql_errors、length）'
     ></textarea>
     <div class="tp-run-row">
       <button class="rf-btn rf-btn-sm" type="button" :disabled="testing" @click="runTests">

@@ -96,7 +96,59 @@ fn actual(a: &AssertionSpec, resp: &HttpResponseData, body_value: Option<&Value>
             let path = a.path.as_deref()?;
             crate::extract::extract_body_json(body_value, path).map(Value::String)
         }
+        // GraphQL errors 断言：body.errors 数组（缺失按空数组，配合 empty/not_empty）。
+        "graphql_errors" => Some(
+            body_value
+                .and_then(|v| v.get("errors"))
+                .and_then(|e| e.as_array())
+                .map(|arr| Value::Array(arr.clone()))
+                .unwrap_or(Value::Array(Vec::new())),
+        ),
+        // 长度断言：path 为 JSONPath（缺省为整个 body 文本）→ 其长度；
+        // 后续走数字比较（eq/neq/gt/gte/lt/lte）。
+        "length" => {
+            let len = match a.path.as_deref() {
+                Some(path) => {
+                    let json = body_value?;
+                    let inst: jsonpath_rust::JsonPathInst = path.parse().ok()?;
+                    let matched = inst
+                        .find_slice(json, jsonpath_rust::path::config::JsonPathConfig::default())
+                        .into_iter()
+                        .next()?;
+                    json_len(&matched)
+                }
+                None => body_value
+                    .map(|v| match v {
+                        Value::String(s) => s.chars().count() as u64,
+                        other => other.to_string().len() as u64,
+                    })
+                    .unwrap_or(0),
+            };
+            Some(Value::Number(len.into()))
+        }
         _ => body_value.cloned(),
+    }
+}
+
+/// 值是否视为空：空串 / 空数组 / 空对象 / Null。
+fn is_empty_value(v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::String(s) => s.is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+        _ => false,
+    }
+}
+
+/// JSON 值的长度：字符串按字符数，数组/对象按成员数，其余按序列化文本长度。
+fn json_len(v: &Value) -> u64 {
+    match v {
+        Value::String(s) => s.chars().count() as u64,
+        Value::Array(a) => a.len() as u64,
+        Value::Object(o) => o.len() as u64,
+        Value::Null => 0,
+        other => other.to_string().len() as u64,
     }
 }
 
@@ -172,6 +224,44 @@ pub fn evaluate(a: &AssertionSpec, resp: &HttpResponseData, body_value: Option<&
         }
         "exists" => Ok(()),
         "not_exists" => Err(format!("值存在（{}），应不存在", v_to_text(&actual))),
+        // 正则（部分匹配；非法模式直接报失败而非 panic）。
+        "matches" => match regex::Regex::new(&expected) {
+            Ok(re) => {
+                let content = v_to_text(&actual);
+                if re.is_match(&content) {
+                    Ok(())
+                } else {
+                    Err(format!("「{content}」不匹配正则「{expected}」"))
+                }
+            }
+            Err(e) => Err(format!("正则无效「{expected}」：{e}")),
+        },
+        "not_matches" => match regex::Regex::new(&expected) {
+            Ok(re) => {
+                let content = v_to_text(&actual);
+                if re.is_match(&content) {
+                    Err(format!("「{content}」不应匹配正则「{expected}」"))
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => Err(format!("正则无效「{expected}」：{e}")),
+        },
+        // 空 / 非空（字符串空、数组/对象无成员、Null 视为空）。
+        "empty" => {
+            if is_empty_value(&actual) {
+                Ok(())
+            } else {
+                Err(format!("值非空（{}），应为空", v_to_text(&actual)))
+            }
+        }
+        "not_empty" => {
+            if is_empty_value(&actual) {
+                Err("值为空，应非空".into())
+            } else {
+                Ok(())
+            }
+        }
         other => Err(format!("不支持的操作符：{other}")),
     };
 
@@ -215,6 +305,111 @@ mod tests {
             op: Some(op.to_string()),
             expected: Some(expected),
         }
+    }
+
+    #[test]
+    fn regex_matches_and_invalid_pattern() {
+        let r = make_resp(200, vec![], r#"{"id":"u-123"}"#, 5.0);
+        assert!(
+            evaluate(
+                &spec("body", "matches", json!(r#""id":"u-\d+""#), None),
+                &r,
+                None
+            )
+            .passed
+        );
+        assert!(!evaluate(&spec("body", "matches", json!(r#"^nope"#), None), &r, None).passed);
+        assert!(
+            evaluate(
+                &spec("body", "not_matches", json!(r#"^nope"#), None),
+                &r,
+                None
+            )
+            .passed
+        );
+        let bad = evaluate(&spec("body", "matches", json!("(["), None), &r, None);
+        assert!(!bad.passed);
+        assert!(bad.reason.is_some_and(|m| m.contains("正则无效")));
+    }
+
+    #[test]
+    fn length_assertions() {
+        let body = serde_json::json!({"items": [1, 2, 3], "name": "abcd"});
+        let r = make_resp(200, vec![], &body.to_string(), 5.0);
+        let bv = serde_json::from_str::<Value>(&body.to_string()).ok();
+        assert!(
+            evaluate(
+                &spec("length", "eq", json!(3), Some("$.items")),
+                &r,
+                bv.as_ref()
+            )
+            .passed
+        );
+        assert!(
+            evaluate(
+                &spec("length", "gte", json!(4), Some("$.name")),
+                &r,
+                bv.as_ref()
+            )
+            .passed
+        );
+        assert!(
+            !evaluate(
+                &spec("length", "eq", json!(5), Some("$.items")),
+                &r,
+                bv.as_ref()
+            )
+            .passed
+        );
+    }
+
+    #[test]
+    fn graphql_errors_assertions() {
+        let ok_body = serde_json::json!({"data": {"a": 1}});
+        let err_body = serde_json::json!({"errors": [{"message": "bad"}]});
+        let r_ok = make_resp(200, vec![], &ok_body.to_string(), 5.0);
+        let r_err = make_resp(200, vec![], &err_body.to_string(), 5.0);
+        let bv_ok = serde_json::from_str::<Value>(&ok_body.to_string()).ok();
+        let bv_err = serde_json::from_str::<Value>(&err_body.to_string()).ok();
+        assert!(
+            evaluate(
+                &spec("graphql_errors", "empty", json!(null), None),
+                &r_ok,
+                bv_ok.as_ref()
+            )
+            .passed
+        );
+        assert!(
+            !evaluate(
+                &spec("graphql_errors", "empty", json!(null), None),
+                &r_err,
+                bv_err.as_ref()
+            )
+            .passed
+        );
+        assert!(
+            evaluate(
+                &spec("graphql_errors", "not_empty", json!(null), None),
+                &r_err,
+                bv_err.as_ref()
+            )
+            .passed
+        );
+        assert!(
+            evaluate(
+                &spec("graphql_errors", "contains", json!("bad"), None),
+                &r_err,
+                bv_err.as_ref()
+            )
+            .passed
+        );
+    }
+
+    #[test]
+    fn empty_ops_on_strings() {
+        let r = make_resp(200, vec![], "", 5.0);
+        assert!(evaluate(&spec("body", "empty", json!(null), None), &r, None).passed);
+        assert!(!evaluate(&spec("body", "not_empty", json!(null), None), &r, None).passed);
     }
 
     #[test]

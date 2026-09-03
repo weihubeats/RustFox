@@ -8,6 +8,12 @@
 > Tauri 2(`frontend/src-tauri` + `frontend/` Vue 3)。本文下方目录结构为历史设计蓝图,
 > 当前实际结构以 [TAURI_MIGRATION.md](TAURI_MIGRATION.md) 与仓库为准,`fox-core/fox-storage/fox-http/
 > fox-openapi/fox-mock/fox-test/fox-oauth/fox-backup/fox-codegen/fox-smoke` 核心 crate 全部保留。
+>
+> **本文状态：历史规范（frozen）**——仅供追溯 M0–M16 需求来源，不再随功能更新。
+> 当前事实源：架构看 [ARCHITECTURE.md](ARCHITECTURE.md)，用法看 [USER_GUIDE.md](USER_GUIDE.md)，
+> Agent 集成看 [AGENT.md](AGENT.md)，版本变化看 [CHANGELOG.md](../CHANGELOG.md)。
+> 特别说明：§0.1 中「不允许 Vue / TypeScript / Node 前端」「UI 必须 Dioxus」等约束
+> **已随 M17 迁移废止**（见 TAURI_MIGRATION.md），请勿再执行。
 
 ---
 

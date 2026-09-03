@@ -21,6 +21,9 @@ pub struct CurlParsed {
     pub body: Option<BodySpec>,
     /// 认证（`-u user:pass` → Basic）。
     pub auth: AuthSpec,
+    /// 被忽略的参数原文（去重保序；旧 JSON 缺失时按空处理）。
+    #[serde(default)]
+    pub ignored: Vec<String>,
 }
 
 impl Default for CurlParsed {
@@ -31,7 +34,14 @@ impl Default for CurlParsed {
             headers: Vec::new(),
             body: None,
             auth: AuthSpec::None,
+            ignored: Vec::new(),
         }
+    }
+}
+
+fn push_ignored(out: &mut CurlParsed, token: &str) {
+    if !out.ignored.iter().any(|s| s == token) {
+        out.ignored.push(token.to_string());
     }
 }
 
@@ -48,6 +58,8 @@ pub fn parse_curl(input: &str) -> Result<CurlParsed, AppError> {
     let mut explicit: Option<HttpMethod> = None;
     let mut has_data = false;
     let mut data_parts: Vec<String> = Vec::new();
+    // `--digest`：与 `-u user:pass` 联用表示 Digest 认证（否则为 Basic）。
+    let mut digest_flag = false;
 
     let mut i = 0;
     while i < words.len() {
@@ -81,8 +93,10 @@ pub fn parse_curl(input: &str) -> Result<CurlParsed, AppError> {
                         name,
                         value,
                     );
+                } else {
+                    // 未知长选项整体忽略（记入 ignored，导入预览展示）。
+                    push_ignored(&mut out, name);
                 }
-                // 未知长选项整体忽略。
                 i += 1;
                 continue;
             }
@@ -110,6 +124,10 @@ pub fn parse_curl(input: &str) -> Result<CurlParsed, AppError> {
                     i += 1;
                 }
             }
+            // Digest 开关（无值布尔 flag，需与 -u 联用）。
+            "--digest" => {
+                digest_flag = true;
+            }
             "-d" | "--data" | "--data-raw" | "--data-binary" | "--data-urlencode" => {
                 if let Some(v) = words.get(i + 1) {
                     data_parts.push(v.clone());
@@ -127,12 +145,14 @@ pub fn parse_curl(input: &str) -> Result<CurlParsed, AppError> {
             }
             // 未知长选项：取值型（如 --cookie ~/a.txt）跳过其值，其余仅跳过自身。
             other if other.starts_with("--") && other.len() > 2 => {
+                push_ignored(&mut out, other);
                 if words.get(i + 1).is_some() && VALUE_LONG_OPTIONS.contains(&other) {
                     i += 1;
                 }
             }
             // 未知短选项：含取值型字符（如 -b、-A，-i/-k 无值）时一并跳过其值。
             other if other.starts_with('-') && other.len() > 1 => {
+                push_ignored(&mut out, other);
                 if words.get(i + 1).is_some()
                     && other[1..].chars().any(|c| VALUE_SHORT_OPTS.contains(&c))
                 {
@@ -160,6 +180,14 @@ pub fn parse_curl(input: &str) -> Result<CurlParsed, AppError> {
     } else {
         HttpMethod::GET
     });
+    if digest_flag {
+        if let AuthSpec::Basic { username, password } = &out.auth {
+            out.auth = AuthSpec::Digest {
+                username: username.clone(),
+                password: password.clone(),
+            };
+        }
+    }
     if has_data {
         out.body = Some(infer_body(&data_parts.join("&")));
     }
@@ -375,6 +403,22 @@ mod tests {
         assert_eq!((user2.as_str(), pass2.as_str()), ("admin", "123"));
     }
 
+    /// Digest Auth：curl --digest -u admin:123 https://api.example.com
+    #[test]
+    fn parse_digest_auth() {
+        let p = parse_curl("curl --digest -u admin:123 https://api.example.com").unwrap();
+        assert_eq!(
+            p.auth,
+            AuthSpec::Digest {
+                username: "admin".into(),
+                password: "123".into(),
+            }
+        );
+        // 无 -u 时 --digest 不改变 None。
+        let p2 = parse_curl("curl --digest https://api.example.com").unwrap();
+        assert_eq!(p2.auth, AuthSpec::None);
+    }
+
     /// 复杂 shell 转义：单引号套双引号、双引号套单引号。
     #[test]
     fn parse_complex_quoting() {
@@ -418,6 +462,20 @@ mod tests {
         let p = parse_curl("curl -v -k -s --compressed -L https://api.example.com/secure").unwrap();
         assert_eq!(p.url, "https://api.example.com/secure");
         assert_eq!(p.method, HttpMethod::GET);
+    }
+
+    /// 被忽略的参数记入 ignored（去重保序），供导入预览展示。
+    #[test]
+    fn parse_ignored_flags_recorded() {
+        let p = parse_curl(
+            "curl --retry 3 --retry 3 --proxy http://127.0.0.1:8080 -k -v https://api.example.com/a",
+        )
+        .unwrap();
+        assert_eq!(p.url, "https://api.example.com/a");
+        assert_eq!(p.ignored, vec!["--retry", "--proxy", "-k", "-v"]);
+        // 已支持的参数不进 ignored。
+        let q = parse_curl("curl -X POST -H 'A: b' -d 'x=1' https://api.example.com/a").unwrap();
+        assert!(q.ignored.is_empty());
     }
 
     /// `--url` 与 `--url=` 两种写法、重复 --url 取首个。

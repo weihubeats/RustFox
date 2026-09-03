@@ -54,6 +54,15 @@ pub async fn sync_seq_counters(db: &sqlx::SqlitePool) -> CommandResult<()> {
     Ok(())
 }
 
+/// 脏检查版落盘：计数器未推进时跳过 settings 查询 + 写入。
+/// 请求 / 测试 / 压测热路径用此函数（`{{$seq}}` 未使用时零开销）。
+pub async fn sync_seq_counters_if_dirty(db: &sqlx::SqlitePool) -> CommandResult<()> {
+    if !fox_core::variable::take_seq_dirty() {
+        return Ok(());
+    }
+    sync_seq_counters(db).await
+}
+
 /// 启动时从磁盘恢复自增序列（加载失败静默，从默认状态开始）。
 pub async fn apply_saved_seq_counters(db: &sqlx::SqlitePool) {
     let raw = match repo::get_setting(db, SEQ_STORAGE_KEY).await {

@@ -75,6 +75,10 @@ Everything lives in a local `rustfox.db`; environment variable values are **AES-
 ### More
 
 - GraphQL debugging view
+- Realtime debugging: WebSocket send/receive / SSE subscribe (pop-out window supported)
+- Environment import/export (native / Postman), OpenAPI 3.1 import
+- Cookie management (inspect/clear per domain, per-request disable), Mock hot-reload & fault injection
+- Undo delete, tree multi-select batch ops, shortcut help (Ctrl+/), in-app log viewer
 - Backup (JSON) & restore (full ID remapping, never overwrites existing data)
 - Dark / light / follow-system theme
 
@@ -170,7 +174,9 @@ scripts/package-tauri.sh                # package distributables in one step
 | [docs/en/ARCHITECTURE.md](docs/en/ARCHITECTURE.md) | Architecture overview (Tauri 2 + Vue 3, with diagrams) |
 | [docs/en/USER_GUIDE.md](docs/en/USER_GUIDE.md) | End-user manual |
 | [docs/en/AGENT.md](docs/en/AGENT.md) | AI Agent integration (MCP / HTTP control plane) |
-| [docs/SPEC.md](docs/SPEC.md) | Detailed spec (Chinese: models / database / commands) |
+| [CHANGELOG.md](CHANGELOG.md) | Version highlights (Chinese) |
+| [docs/README.md](docs/README.md) | Docs index (Chinese) |
+| [docs/SPEC.md](docs/SPEC.md) | Historical spec, frozen (Chinese: models / database / commands) |
 | [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md) | Manual acceptance checklist (Chinese) |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Release & deployment (Chinese) |
 | [docs/MILESTONES.md](docs/MILESTONES.md) | Milestones (Chinese) |

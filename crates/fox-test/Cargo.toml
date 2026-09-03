@@ -13,6 +13,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = "0.7"
 tracing = { workspace = true }
 regex = { workspace = true }
 jsonpath-rust = { workspace = true }
