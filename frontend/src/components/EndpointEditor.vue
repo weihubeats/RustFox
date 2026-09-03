@@ -70,8 +70,20 @@ const TestCasesPanel = defineAsyncComponent(() => import('./TestCasesPanel.vue')
 const sending = ref(false)
 /** 在途请求的取消标识（非空表示有请求可取消）。 */
 const activeRequestId = ref<string | null>(null)
-const response = ref<ExecuteResponse | null>(null)
-const sendError = ref<string | null>(null)
+/**
+ * 各接口的请求结果按 id 分桶：EndpointEditor 是单实例常驻，若用单个 ref，
+ * 切到另一个接口会看到上一个接口的响应；且请求在途时切换接口，旧接口的
+ * 返回也会落到当前接口上（偶发「A 请求却显示 B 结果」）。按 id 存取后，
+ * 每个接口只显示自己的最后一次结果，天然隔离上述两处错位。
+ */
+const responses = ref<Map<string, ExecuteResponse | null>>(new Map())
+const sendErrors = ref<Map<string, string | null>>(new Map())
+const response = computed<ExecuteResponse | null>(() =>
+  draft.value ? (responses.value.get(draft.value.id) ?? null) : null,
+)
+const sendError = computed<string | null>(() =>
+  draft.value ? (sendErrors.value.get(draft.value.id) ?? null) : null,
+)
 
 const draft = computed(() => store.activeEndpoint)
 
@@ -374,13 +386,17 @@ function buildUrl(): string {
 
 async function send(): Promise<void> {
   if (!draft.value || sending.value) return
+  const targetId = draft.value.id
   sending.value = true
-  sendError.value = null
+  sendErrors.value.set(targetId, null)
   const url = buildUrl()
   const rid = crypto.randomUUID()
   activeRequestId.value = rid
   try {
-    response.value = await store.send(draft.value, url, rid)
+    const resp = await store.send(draft.value, url, rid)
+    // 结果按发起请求时的接口 id 落桶：请求在途时切走再返回，不会错位。
+    responses.value.set(targetId, resp)
+    sendErrors.value.set(targetId, null)
     // 历史已迁至侧栏「请求历史」页签，发送后由 store 统一刷新。
     void store.loadHistories()
   } catch (err) {
@@ -388,10 +404,10 @@ async function send(): Promise<void> {
     if (e?.code === 'CANCELLED') {
       // 用户主动取消：不视为错误，保留上一次结果。
       toast.info('请求已取消')
-      sendError.value = null
+      sendErrors.value.set(targetId, null)
     } else {
-      sendError.value = err instanceof Error ? err.message : String(err)
-      response.value = null
+      sendErrors.value.set(targetId, err instanceof Error ? err.message : String(err))
+      responses.value.set(targetId, null)
     }
   } finally {
     if (activeRequestId.value === rid) activeRequestId.value = null
