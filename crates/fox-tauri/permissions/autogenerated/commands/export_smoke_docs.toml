@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-export-smoke-docs"
+description = "Enables the export_smoke_docs command without any pre-configured scope."
+commands.allow = ["export_smoke_docs"]
+
+[[permission]]
+identifier = "deny-export-smoke-docs"
+description = "Denies the export_smoke_docs command without any pre-configured scope."
+commands.deny = ["export_smoke_docs"]

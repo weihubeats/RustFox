@@ -50,6 +50,7 @@ const COMMANDS: &[&str] = &[
     "read_text_file",
     "export_openapi",
     "export_docs",
+    "export_smoke_docs",
     "save_text_file",
     "test_endpoint",
     "load_test",

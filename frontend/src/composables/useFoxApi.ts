@@ -370,6 +370,14 @@ export function useFoxApi() {
     format: ExportFormat
   }) => run(() => call<ExportedDoc>('export_docs', args))
 
+  /** 导出测试用例为冒烟测试文档：endpointId 为 null 时导出整个项目；includeResults 附带运行结果，runResults 为前端内存态运行元信息。 */
+  const exportSmokeDocs = (args: {
+    projectId: string
+    endpointId: string | null
+    includeResults: boolean
+    runResults?: Record<string, { status: number; durationMs: number }>
+  }) => run(() => call<ExportedDoc>('export_smoke_docs', args))
+
   /** 写入磁盘（路径来自原生保存框）。 */
   const writeTextFile = (path: string, contents: string) =>
     run(() => call<void>('save_text_file', { path, contents }))
@@ -455,6 +463,7 @@ export function useFoxApi() {
     importDocument,
     exportOpenapi,
     exportDocs,
+    exportSmokeDocs,
     writeTextFile,
     testEndpoint,
     loadTest,

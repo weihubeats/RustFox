@@ -55,6 +55,7 @@ permissions = [
     "allow-read-text-file",
     "allow-export-openapi",
     "allow-export-docs",
+    "allow-export-smoke-docs",
     "allow-save-text-file",
     "allow-test-endpoint",
     "allow-load-test",
