@@ -164,6 +164,89 @@ pub enum ApiKeyLocation {
     Query,
 }
 
+/// 签名算法。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+// 显式 rename：`rename_all = "snake_case"` 会把连续大写当作单词边界，
+// 导致 `MD5`→`m_d5`、`SHA256`→`s_h_a256`、`HmacSHA256`→`hmac_s_h_a256`，
+// 与前端传参 `md5` / `sha256` / `hmac_sha256` 不匹配（IPC 报 unknown variant）。
+pub enum SignatureAlgorithm {
+    #[default]
+    #[serde(rename = "md5")]
+    MD5,
+    #[serde(rename = "sha256")]
+    SHA256,
+    /// HMAC-SHA256：`app_secret` 作为 HMAC 密钥，载荷为被签消息。
+    #[serde(rename = "hmac_sha256")]
+    HmacSHA256,
+}
+
+/// 摘要字节 → 传输字符串的编码方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureEncoding {
+    #[default]
+    HexLower,
+    HexUpper,
+    Base64,
+}
+
+/// 动态签名鉴权配置（`App-Key` / `App-Secret` / `App-Timestamp` / `App-Sig`）。
+///
+/// - `app_secret` 属敏感数据：持久化前须经 AES-256-GCM 加密（见 fox-secret）。
+/// - `payload_template` 是签名载荷模板，`{{$key}}` / `{{$secret}}` / `{{$timestamp}}`
+///   为内置占位符，由后端在发送前最后一刻替换（保证时间戳实时性）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DynamicSignatureConfig {
+    #[serde(default)]
+    pub app_key: String,
+    #[serde(default)]
+    pub app_secret: String,
+    /// App-Key 请求头名（默认 "App-Key"）。
+    #[serde(default = "default_key_header")]
+    pub key_header: String,
+    /// App-Timestamp 请求头名（默认 "App-Timestamp"）。
+    #[serde(default = "default_timestamp_header")]
+    pub timestamp_header: String,
+    /// App-Sig 请求头名（默认 "App-Sig"）。
+    #[serde(default = "default_sig_header")]
+    pub sig_header: String,
+    #[serde(default)]
+    pub algorithm: SignatureAlgorithm,
+    #[serde(default)]
+    pub encoding: SignatureEncoding,
+    /// 签名载荷模板（默认 `{{$key}}{{$secret}}{{$timestamp}}`）。
+    #[serde(default = "default_payload_template")]
+    pub payload_template: String,
+}
+
+fn default_key_header() -> String {
+    "App-Key".into()
+}
+fn default_timestamp_header() -> String {
+    "App-Timestamp".into()
+}
+fn default_sig_header() -> String {
+    "App-Sig".into()
+}
+fn default_payload_template() -> String {
+    "{{$key}}{{$secret}}{{$timestamp}}".into()
+}
+
+impl Default for DynamicSignatureConfig {
+    fn default() -> Self {
+        Self {
+            app_key: String::new(),
+            app_secret: String::new(),
+            key_header: default_key_header(),
+            timestamp_header: default_timestamp_header(),
+            sig_header: default_sig_header(),
+            algorithm: SignatureAlgorithm::default(),
+            encoding: SignatureEncoding::default(),
+            payload_template: default_payload_template(),
+        }
+    }
+}
+
 /// 认证方式。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -183,6 +266,11 @@ pub enum AuthSpec {
         value: String,
         #[serde(rename = "in")]
         location: ApiKeyLocation,
+    },
+    /// 动态签名鉴权（Key + Secret + Timestamp 拼接算签名，发送前最后一刻生成）。
+    #[serde(rename = "dynamic_signature")]
+    DynamicSignature {
+        config: DynamicSignatureConfig,
     },
     /// OAuth2 授权码流（Authorization Code Grant）。
     ///

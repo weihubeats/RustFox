@@ -17,6 +17,8 @@ use fox_core::model::{
 use fox_core::variable::{resolve_variables, VariableMap};
 use fox_core::AppError;
 
+use crate::signature::apply_signature;
+
 /// 默认超时（毫秒），300 秒。
 pub const DEFAULT_TIMEOUT_MS: u64 = 300_000;
 /// 最大响应体大小（字节）。
@@ -309,6 +311,12 @@ async fn apply_auth(
                 .map_err(|e| AppError::OAuth2(e.to_string()))?;
             headers.push(("Authorization".into(), format!("Bearer {access}")));
         }
+        // 动态签名：Pre-Request Hook，在发送前最后一刻生成时间戳并计算签名。
+        // 时间戳实时性保证：此调用位于发送管线最末端（紧邻 reqwest 发送），
+        // 全程 Rust 进程内，不经 IPC 往返。
+        AuthSpec::DynamicSignature { config } => {
+            apply_signature(headers, config)?;
+        }
     }
     Ok(())
 }
@@ -542,7 +550,7 @@ pub fn describe_http_error(e: &reqwest::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fox_core::model::RequestSpec;
+    use fox_core::model::{DynamicSignatureConfig, RequestSpec};
 
     /// 极简本地 HTTP 服务。
     fn start_server(
@@ -763,6 +771,48 @@ mod tests {
             auth: AuthSpec::Basic {
                 username: "u".into(),
                 password: "p".into(),
+            },
+            ..Default::default()
+        };
+        let resp = send_request(HttpMethod::GET, &format!("{base}/"), &spec, None)
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[tokio::test]
+    async fn send_dynamic_signature() {
+        // 验证签名三头注入：Key / Timestamp / Sig，且 Sig = MD5(Key+Secret+Timestamp)。
+        let base = start_server(|_, request| {
+            let line = |prefix: &str| {
+                request
+                    .lines()
+                    .find(|l| l.to_lowercase().starts_with(&format!("{prefix}: ")))
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let key = line("app-key").replacen("app-key: ", "", 1);
+            let ts = line("app-timestamp").replacen("app-timestamp: ", "", 1);
+            let sig = line("app-sig").replacen("app-sig: ", "", 1);
+            assert_eq!(key, "app-123");
+            // 时间戳为当前毫秒（发送前最后一刻生成）。
+            let diff = chrono::Utc::now().timestamp_millis() - ts.parse::<i64>().unwrap();
+            assert!(diff.abs() < 5_000, "时间戳应实时生成，偏差 {diff}ms");
+            // 签名 = MD5(Key+Secret+Timestamp) 的 hex 小写。
+            let mut h = md5::Md5::new();
+            use sha2::Digest as _;
+            h.update(format!("{key}sec-456{ts}").as_bytes());
+            let expected: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(sig, expected, "Sig 必须等于 MD5(Key+Secret+Timestamp)");
+            (200, "text/plain".to_string(), "sig-ok".to_string())
+        });
+        let spec = RequestSpec {
+            auth: AuthSpec::DynamicSignature {
+                config: DynamicSignatureConfig {
+                    app_key: "app-123".into(),
+                    app_secret: "sec-456".into(),
+                    ..Default::default()
+                },
             },
             ..Default::default()
         };

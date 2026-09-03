@@ -252,3 +252,28 @@ fn ipc_models_serialize_snake_case_keys() {
 
     check("GraphQLSpec", &GraphQLSpec::default());
 }
+
+/// 动态签名枚举的 IPC 值契约：前端按固定字符串传参，误用 `rename_all`
+/// 会把 `MD5` 序列化成 `m_d5`、`SHA256`→`s_h_a256`，导致
+/// `unknown variant`（见 fox-core 历史 bug）。此处锁定 wire 格式。
+#[test]
+fn signature_enums_ipc_values() {
+    use fox_core::model::{SignatureAlgorithm as Algo, SignatureEncoding as Enc};
+
+    assert_eq!(serde_json::to_value(Algo::MD5).unwrap(), "md5");
+    assert_eq!(serde_json::to_value(Algo::SHA256).unwrap(), "sha256");
+    assert_eq!(
+        serde_json::to_value(Algo::HmacSHA256).unwrap(),
+        "hmac_sha256"
+    );
+
+    assert_eq!(serde_json::to_value(Enc::HexLower).unwrap(), "hex_lower");
+    assert_eq!(serde_json::to_value(Enc::HexUpper).unwrap(), "hex_upper");
+    assert_eq!(serde_json::to_value(Enc::Base64).unwrap(), "base64");
+
+    // 反序列化对称（前端传来的值能还原）。
+    for algo in [Algo::MD5, Algo::SHA256, Algo::HmacSHA256] {
+        let json = serde_json::to_value(algo).unwrap();
+        assert_eq!(serde_json::from_value::<Algo>(json).unwrap(), algo);
+    }
+}

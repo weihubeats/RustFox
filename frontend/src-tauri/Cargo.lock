@@ -1608,11 +1608,14 @@ dependencies = [
  "fox-oauth",
  "fox-storage",
  "futures",
+ "hmac",
+ "md-5",
  "reqwest 0.12.28",
  "rquickjs",
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sha2",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -4417,7 +4420,7 @@ dependencies = [
 
 [[package]]
 name = "rustfox"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "fox-tauri",
  "serde",

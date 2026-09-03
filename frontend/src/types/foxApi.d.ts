@@ -59,6 +59,29 @@ export interface KeyValue {
   example?: string
 }
 
+/** 动态签名算法（Rust `SignatureAlgorithm`，serde snake_case）。 */
+export type SignatureAlgorithm = 'md5' | 'sha256' | 'hmac_sha256'
+
+/** 动态签名摘要编码（Rust `SignatureEncoding`，serde snake_case）。 */
+export type SignatureEncoding = 'hex_lower' | 'hex_upper' | 'base64'
+
+/** 动态签名鉴权配置（Rust `DynamicSignatureConfig`）。
+ * `app_secret` 持久化时经 AES-256-GCM 加密（fox-secret）。 */
+export interface DynamicSignatureConfig {
+  app_key: string
+  app_secret: string
+  /** App-Key 请求头名（默认 "App-Key"）。 */
+  key_header: string
+  /** App-Timestamp 请求头名（默认 "App-Timestamp"）。 */
+  timestamp_header: string
+  /** App-Sig 请求头名（默认 "App-Sig"）。 */
+  sig_header: string
+  algorithm: SignatureAlgorithm
+  encoding: SignatureEncoding
+  /** 签名载荷模板：{{$key}} {{$secret}} {{$timestamp}}。 */
+  payload_template: string
+}
+
 /** 认证方式（Rust `AuthSpec`，tag = "type"）。 */
 export type AuthSpec =
   | { type: 'none' }
@@ -75,6 +98,7 @@ export type AuthSpec =
       redirect_uri: string
       token?: OAuth2Token
     }
+  | { type: 'dynamic_signature'; config: DynamicSignatureConfig }
 
 /** OAuth2 令牌（`expires_at` 为 UTC 时刻）。 */
 export interface OAuth2Token {

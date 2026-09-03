@@ -105,7 +105,11 @@ impl EndpointRow {
             description: model.description.clone(),
             status: model.status.as_str().to_string(),
             sort_order: model.sort_order,
-            request_json: serde_json::to_string(&model.request).unwrap_or_else(|_| "{}".into()),
+            // app_secret 为敏感字段：持久化前加密（AES-256-GCM，见本文件
+            // `encrypt_request_secrets`；加密失败降级明文并告警）。
+            request_json: encrypt_request_secrets(
+                &serde_json::to_string(&model.request).unwrap_or_else(|_| "{}".into()),
+            ),
             created_at: model.created_at.to_rfc3339(),
             updated_at: model.updated_at.to_rfc3339(),
         }
@@ -129,7 +133,9 @@ impl EndpointRow {
                 _ => EndpointStatus::Developing,
             },
             sort_order: self.sort_order,
-            request: serde_json::from_str(&self.request_json).unwrap_or_default(),
+            // 读路径：先解密 app_secret 再反序列化（明文 / 非签名数据原样通过）。
+            request: serde_json::from_str(&decrypt_request_secrets(&self.request_json)?)
+                .unwrap_or_default(),
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,
         })
@@ -494,8 +500,138 @@ pub(crate) fn parse_uuid(s: &str) -> Result<Uuid> {
     Uuid::parse_str(s).map_err(|e| AppError::Validation(format!("无效 ID：{s}（{e}）")))
 }
 
+// ---------------------------------------------------------------------------
+// 动态签名 app_secret 加密（AES-256-GCM，密钥见 fox-secret）。
+//
+// [占位实现]：endpoints.request_json 整包以 JSON 持久化，其中
+// `AuthSpec::DynamicSignature.config.app_secret` 为敏感字段。完整接入点有二：
+//
+// 1. 写路径：`EndpointRow::from_model`（本文件）序列化后调用
+//    `encrypt_request_secrets`，把 app_secret 字段替换为密文；
+// 2. 读路径：`EndpointRow::into_model` 反序列化前调用
+//    `decrypt_request_secrets`，还原明文后照常解析。
+//
+// 下方两个函数已按递归 JSON 遍历实现（未来 App-Secret 字段改名 / 新增
+// 敏感字段时无需改这里，按 key 名匹配即可）；是否接入由上层按发布节奏
+// 决定——接入前旧库中 app_secret 为明文，decrypt 对无 `:` 前缀的明文
+// 原样返回（fox-secret 兼容策略），不会破坏既有数据。
+/// 把请求 JSON 中动态签名鉴权的 `app_secret` 字段加密为密文。
+///
+/// 加密失败降级为明文保留（与 `encrypt_env_json` 一致），并记录 warn，
+/// 避免磁盘故障等偶发问题把整个请求写失败。新数据只含动态签名时
+/// 走 fox-secret 的 `encrypt`；旧明文 / 非动态签名数据原样通过。
+pub(crate) fn encrypt_request_secrets(request_json: &str) -> String {
+    encrypt_request_json(request_json, true)
+}
+
+/// 把请求 JSON 中动态签名鉴权的 `app_secret` 字段解密回明文。
+///
+/// 加密格式解不开（主密钥丢失/更换）时返回 `AppError::Decryption` 由上层
+/// 提示用户，避免把密文当明文继续使用。JSON 损坏时原样返回（与旧版
+/// `unwrap_or_default` 容错行为一致，交由反序列化兜底）。
+pub(crate) fn decrypt_request_secrets(request_json: &str) -> Result<String> {
+    let Ok(value) = serde_json::from_str(request_json) else {
+        return Ok(request_json.to_string());
+    };
+    let out = walk_secrets(value, false)
+        .map_err(|e| AppError::Decryption(format!("请求密文解密失败：{e}")))?;
+    Ok(serde_json::to_string(&out).unwrap_or_else(|_| request_json.to_string()))
+}
+
+fn encrypt_request_json(request_json: &str, encrypt: bool) -> String {
+    let value: serde_json::Value = match serde_json::from_str(request_json) {
+        Ok(v) => v,
+        Err(_) => return request_json.to_string(),
+    };
+    let out = match walk_secrets(value, encrypt) {
+        Ok(v) => v,
+        Err(_) => return request_json.to_string(),
+    };
+    serde_json::to_string(&out).unwrap_or_else(|_| request_json.to_string())
+}
+
+/// 递归遍历 JSON，凡 key 为 `app_secret` 的字符串字段做加/解密。
+///
+/// 用 key 名匹配而非深度绑定到 `DynamicSignatureConfig` 结构：未来该字段
+/// 挪到 OAuth2 等其它鉴权对象中也能自动覆盖；同时规避 serde 扁平化标签
+/// 带来的结构感知复杂度。
+fn walk_secrets(value: serde_json::Value, encrypt: bool) -> Result<serde_json::Value> {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::with_capacity(map.len());
+            for (key, v) in map {
+                if key == "app_secret" {
+                    // 仅字符串字段参与加解密；非字符串（异常数据）原样保留。
+                    if let serde_json::Value::String(s) = v {
+                        let secret = if encrypt {
+                            fox_secret::ensure_master_key()
+                                .and_then(|k| fox_secret::encrypt(&k, &s))
+                                .map_err(|e| AppError::Decryption(e.to_string()))?
+                        } else {
+                            fox_secret::ensure_master_key()
+                                .and_then(|k| fox_secret::decrypt(&k, &s))
+                                .map_err(|e| AppError::Decryption(e.to_string()))?
+                        };
+                        out.insert(key, serde_json::Value::String(secret));
+                    } else {
+                        out.insert(key, v);
+                    }
+                } else {
+                    // 原地递归消费，避免逐节点 clone。
+                    out.insert(key, walk_secrets(v, encrypt)?);
+                }
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+        serde_json::Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(walk_secrets(item, encrypt)?);
+            }
+            Ok(serde_json::Value::Array(out))
+        }
+        other => Ok(other),
+    }
+}
+
 pub(crate) fn parse_time(s: &str) -> Result<chrono::DateTime<Utc>> {
     chrono::DateTime::parse_from_rfc3339(s)
         .map(|d| d.with_timezone(&Utc))
         .map_err(|e| AppError::Validation(format!("无效时间：{s}（{e}）")))
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn app_secret_roundtrips_through_encrypt_decrypt() {
+        let json = r#"{"auth":{"type":"dynamic_signature","config":{"app_secret":"hunter2","app_key":"k"}}}"#;
+        let enc = encrypt_request_secrets(json);
+        assert_ne!(enc, json);
+        assert!(enc.contains(":"), "密文应为 nonce:ciphertext 格式");
+        assert!(!enc.contains("hunter2"), "明文不得残留");
+        let dec = decrypt_request_secrets(&enc).unwrap();
+        assert!(dec.contains("hunter2"));
+    }
+
+    #[test]
+    fn non_signature_json_is_passthrough() {
+        let json = r#"{"headers":[{"key":"X","value":"1"}]}"#;
+        assert_eq!(encrypt_request_secrets(json), json);
+        assert_eq!(decrypt_request_secrets(json).unwrap(), json);
+    }
+
+    #[test]
+    fn decrypt_plaintext_app_secret_passthrough() {
+        // 旧库明文 app_secret：解密原样返回，不误报。
+        let json = r#"{"config":{"app_secret":"legacy-plain"}}"#;
+        assert_eq!(decrypt_request_secrets(json).unwrap(), json);
+    }
+
+    #[test]
+    fn corrupt_json_is_passthrough() {
+        assert_eq!(encrypt_request_secrets("not-json"), "not-json");
+        assert_eq!(decrypt_request_secrets("not-json").unwrap(), "not-json");
+    }
 }

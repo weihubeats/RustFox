@@ -142,6 +142,12 @@ fn auth_line(auth: &AuthSpec) -> String {
             )
         }
         AuthSpec::OAuth2 { .. } => "OAuth2".into(),
+        AuthSpec::DynamicSignature { config } => {
+            format!(
+                "动态签名：Key {}，{:?}/{:?}，签名头 {}",
+                config.app_key, config.algorithm, config.encoding, config.sig_header
+            )
+        }
     }
 }
 

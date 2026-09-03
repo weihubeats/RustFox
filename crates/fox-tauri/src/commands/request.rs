@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
-use fox_core::model::{AuthSpec, BodySpec, HttpMethod, KeyValue, RequestHistory, RequestSpec};
+use fox_core::model::{
+    AuthSpec, BodySpec, DynamicSignatureConfig, HttpMethod, KeyValue, RequestHistory, RequestSpec,
+};
 use fox_core::VariableMap;
 use fox_http::client::HttpResponseData;
 use fox_storage::repository as repo;
@@ -251,6 +253,20 @@ pub(crate) fn render_spec(spec: &RequestSpec, vars: &VariableMap) -> RequestSpec
                 scope: fox_core::resolve_variables(scope, vars),
                 redirect_uri: fox_core::resolve_variables(redirect_uri, vars),
                 token: token.clone(),
+            },
+            // 动态签名：Key/Secret 支持 {{变量}} 插值（如 {{$app_key}}）；
+            // 模板本身也参与渲染，便于把环境变量拼进载荷。时间戳在发送时生成。
+            AuthSpec::DynamicSignature { config } => AuthSpec::DynamicSignature {
+                config: DynamicSignatureConfig {
+                    app_key: fox_core::resolve_variables(&config.app_key, vars),
+                    app_secret: fox_core::resolve_variables(&config.app_secret, vars),
+                    key_header: fox_core::resolve_variables(&config.key_header, vars),
+                    timestamp_header: fox_core::resolve_variables(&config.timestamp_header, vars),
+                    sig_header: fox_core::resolve_variables(&config.sig_header, vars),
+                    algorithm: config.algorithm,
+                    encoding: config.encoding,
+                    payload_template: fox_core::resolve_variables(&config.payload_template, vars),
+                },
             },
         },
         body: match &spec.body {
