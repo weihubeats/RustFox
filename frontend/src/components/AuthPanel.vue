@@ -111,7 +111,20 @@ type EditableSignatureConfig = Omit<DynamicSignatureConfig, 'algorithm' | 'encod
   encoding?: string
 }
 
-const sigConfig = computed(() => authAny.value?.config as EditableSignatureConfig)
+/** 动态签名配置引用。缺失时物化默认值（历史数据 / IPC 异常可能缺 config，
+ * 直接访问字段会渲染崩溃），保证 sig-form 分支渲染不崩。 */
+const sigConfig = computed<EditableSignatureConfig>(() => {
+  const auth = authAny.value as EditableAuth & { config?: DynamicSignatureConfig } | undefined
+  const cfg = auth?.config
+  if (cfg) return cfg as EditableSignatureConfig
+  const req = props.draft?.request
+  if (req && auth?.type === 'dynamic_signature') {
+    const created = defaultSignatureConfig()
+    req.auth = { type: 'dynamic_signature', config: created } as AuthSpec
+    return created as EditableSignatureConfig
+  }
+  return defaultSignatureConfig()
+})
 
 /** OAuth2 授权状态文案。 */
 const oauthStatus = computed(() => {
