@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ResponsePanel from './ResponsePanel.vue'
 import type { ExecuteResponse } from '../types/foxApi'
 import { collectErrors, stubScrollIntoView } from '../testUtils/componentTest'
+import { copyText } from '../utils/clipboard'
+
+vi.mock('../utils/clipboard', () => ({
+  copyText: vi.fn(async () => true),
+}))
 
 function makeResponse(body: string): ExecuteResponse {
   return {
@@ -113,6 +118,33 @@ describe('ResponsePanel：查找（Find in Response）', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.findbar').exists()).toBe(false)
     input.remove()
+    wrapper.unmount()
+  })
+})
+
+describe('ResponsePanel：复制响应正文', () => {
+  it('树接管 pretty 视图时复制源为原始 body 而非空串（回归）', async () => {
+    const body = JSON.stringify({ users: [{ id: 1 }, { id: 2 }] })
+    const wrapper = mount(ResponsePanel, { props: { response: makeResponse(body) } })
+
+    expect(wrapper.find('.jt-line').exists()).toBe(true)
+
+    const copyBtn = wrapper.findAll('.rp-icon-btn').at(-2)
+    expect(copyBtn).toBeTruthy()
+    await copyBtn!.trigger('click')
+
+    expect(vi.mocked(copyText)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(body)
+    wrapper.unmount()
+  })
+
+  it('raw 视图复制源为原始 body', async () => {
+    const body = JSON.stringify({ a: 1 })
+    const wrapper = mount(ResponsePanel, { props: { response: makeResponse(body) } })
+    await wrapper.findAll('.seg-item')[1].trigger('click')
+
+    await wrapper.findAll('.rp-icon-btn').at(-2)!.trigger('click')
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(body)
     wrapper.unmount()
   })
 })

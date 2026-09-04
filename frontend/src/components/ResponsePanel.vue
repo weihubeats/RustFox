@@ -10,6 +10,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useToast } from '../composables/useToast'
+import { copyText } from '../utils/clipboard'
 import { escapeHtml, highlightJSONText } from '../utils/highlight'
 import { EDITOR_INDENT } from '../constants/editorTheme'
 import { formatBytes, formatDuration } from '../utils/format'
@@ -215,19 +216,18 @@ const responseTabs = computed<TabItem[]>(() => [
 ])
 
 // ---------- 操作 ----------
+/** 复制源：preview/raw 用原始 body；pretty 用格式化文本。树接管时 `pretty`
+ * 为 ''（大响应跳过 stringify 的优化），需回退原始 body，否则复制到空串。 */
 const copySource = computed(() =>
   viewMode.value === 'raw' || viewMode.value === 'preview'
     ? props.response.body
-    : pretty.value,
+    : pretty.value || props.response.body,
 )
 
 async function copyBody(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(copySource.value)
-    toast.success('已复制响应正文')
-  } catch {
-    toast.error('复制失败，请手动选择文本')
-  }
+  const ok = await copyText(copySource.value)
+  if (ok) toast.success('已复制响应正文')
+  else toast.error('复制失败，请手动选择文本')
 }
 
 const MODE_OPTIONS = computed<SegmentOption[]>(() => [
