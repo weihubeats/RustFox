@@ -59,6 +59,7 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-read-text-file`
 - `allow-export-openapi`
 - `allow-export-docs`
+- `allow-export-smoke-docs`
 - `allow-save-text-file`
 - `allow-test-endpoint`
 - `allow-load-test`
@@ -801,6 +802,32 @@ Enables the export_openapi command without any pre-configured scope.
 <td>
 
 Denies the export_openapi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-export-smoke-docs`
+
+</td>
+<td>
+
+Enables the export_smoke_docs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-export-smoke-docs`
+
+</td>
+<td>
+
+Denies the export_smoke_docs command without any pre-configured scope.
 
 </td>
 </tr>

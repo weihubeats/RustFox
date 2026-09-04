@@ -200,6 +200,7 @@ pub mod plugin {
                 commands::read_text_file,
                 commands::export_openapi,
                 commands::export_docs,
+                commands::export_smoke_docs,
                 commands::save_text_file,
                 commands::test_endpoint,
                 commands::load_test,

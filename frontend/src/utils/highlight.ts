@@ -80,21 +80,70 @@ export function highlightJSON(code: string): string {
     .join('')
 }
 
-/** JSON 高亮 + 查找标记（响应行视图用；空 query 时退化为纯高亮）。 */
-export function highlightJSONText(code: string, query: string): string {
+/** JSON 高亮 + 查找标记（响应行视图与请求编辑器用；空 query 时退化为纯高亮；activeMatch >= 0 时当前项附加 active 类）。 */
+export function highlightJSONText(code: string, query: string, activeMatch?: number): string {
   if (!query) return highlightJSON(code)
   const ql = query.toLowerCase()
   const lower = code.toLowerCase()
-  let out = ''
+
+  // 1. 提取全局所有匹配区间
+  const matches: Array<{ start: number; end: number; index: number }> = []
   let from = 0
+  let matchIdx = 0
   for (;;) {
     const idx = lower.indexOf(ql, from)
     if (idx === -1) break
-    out += highlightJSON(code.slice(from, idx))
-    out += `<mark class="rp-find-mark">${escapeHtml(code.slice(idx, idx + query.length))}</mark>`
+    matches.push({ start: idx, end: idx + query.length, index: matchIdx })
+    matchIdx += 1
     from = idx + query.length
   }
-  out += highlightJSON(code.slice(from))
+  if (!matches.length) return highlightJSON(code)
+
+  // 2. 词法分词（完整 JSON）
+  const tokens = jsonTokens(code)
+
+  // 3. 逐 token 渲染高亮与查找 mark
+  let currentOffset = 0
+  let out = ''
+
+  for (const t of tokens) {
+    const tokStart = currentOffset
+    const tokEnd = tokStart + t.text.length
+    currentOffset = tokEnd
+
+    // 检查是否有匹配与该 token 重叠
+    const overlapping = matches.filter((m) => m.start < tokEnd && m.end > tokStart)
+
+    let tokenHtml = ''
+    if (!overlapping.length) {
+      tokenHtml = escapeHtml(t.text)
+    } else {
+      let relFrom = 0
+      for (const m of overlapping) {
+        const matchRelStart = Math.max(0, m.start - tokStart)
+        const matchRelEnd = Math.min(t.text.length, m.end - tokStart)
+
+        if (matchRelStart > relFrom) {
+          tokenHtml += escapeHtml(t.text.slice(relFrom, matchRelStart))
+        }
+
+        const isActive = activeMatch !== undefined && m.index === activeMatch
+        const cls = isActive ? 'rp-find-mark active' : 'rp-find-mark'
+        tokenHtml += `<mark class="${cls}">${escapeHtml(t.text.slice(matchRelStart, matchRelEnd))}</mark>`
+        relFrom = matchRelEnd
+      }
+      if (relFrom < t.text.length) {
+        tokenHtml += escapeHtml(t.text.slice(relFrom))
+      }
+    }
+
+    if (t.cls) {
+      out += `<span class="${t.cls}">${tokenHtml}</span>`
+    } else {
+      out += tokenHtml
+    }
+  }
+
   return out
 }
 

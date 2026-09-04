@@ -5,6 +5,7 @@
  */
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import type { Endpoint, Environment, Project } from '../types/foxApi'
 
 function makeProject(id: string, name: string): Project {
@@ -12,8 +13,7 @@ function makeProject(id: string, name: string): Project {
   return { id, name, description: '', variables: {}, created_at: now, updated_at: now }
 }
 
-function makeEndpoint(id: string, projectId: string, name: string): Endpoint {
-  const now = new Date().toISOString()
+function makeEndpoint(id: string, projectId: string, name: string, now = new Date().toISOString()): Endpoint {
   return {
     id,
     project_id: projectId,
@@ -77,7 +77,13 @@ vi.mock('../composables/useFoxApi', () => ({
     listRequestExamples: vi.fn().mockResolvedValue([]),
     listTestCases: vi.fn().mockResolvedValue([]),
     listRequestHistories: vi.fn().mockResolvedValue([]),
-    saveEndpoint: vi.fn().mockImplementation(async (ep: Endpoint) => ep),
+    saveEndpoint: vi.fn().mockImplementation(async (ep: Endpoint) => {
+      const list = backend.endpointsByProject.get(ep.project_id) ?? []
+      const idx = list.findIndex((x) => x.id === ep.id)
+      if (idx === -1) list.push(ep)
+      else list[idx] = ep
+      return ep
+    }),
   }),
 }))
 
@@ -164,5 +170,69 @@ describe('workspace store 多项目快照切换', () => {
     await store.switchProject('p-b')
     expect(store.project?.id).toBe('p-b')
     expect(store.openProjects.map((t) => t.id)).toEqual(['p-a', 'p-b'])
+  })
+})
+
+describe('moveEndpoint：移动后打开草稿的 folder_id / sort_order 同步', () => {
+  beforeEach(() => {
+    backend.setActive('p-a')
+    // 固定时钟：isDirty 依赖草稿/已存的全字段 eq 比较，时间戳漂移会误判「脏」
+    const T = '2026-01-01T00:00:00.000Z'
+    backend.endpointsByProject.set('p-a', [
+      { ...makeEndpoint('ep-a', 'p-a', 'in-a', T), folder_id: 'f-a', sort_order: 0 },
+      { ...makeEndpoint('ep-other', 'p-a', 'also-in-a', T), folder_id: 'f-a', sort_order: 1 },
+      { ...makeEndpoint('ep-b', 'p-a', 'in-b', T), folder_id: 'f-b', sort_order: 0 },
+    ])
+  })
+
+  it('跨文件夹移动后保存：folder_id 保持新归属，不退回旧文件夹（回归 bug#保存回退）', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    store.openEndpoint(store.endpoints.find((e) => e.id === 'ep-a')!)
+
+    await store.moveEndpoint('ep-a', 'f-b', 0)
+
+    // 打开草稿的 folder_id 随移动同步；保存写库不再用旧归属覆盖
+    expect(store.draftOf('ep-a')?.folder_id).toBe('f-b')
+    expect(await store.saveActiveDraft()).toBe(true)
+    const saved = backend.endpointsByProject.get('p-a')!.find((e) => e.id === 'ep-a')!
+    expect(saved.folder_id).toBe('f-b')
+  })
+
+  it('同组内移动：打开草稿的 sort_order 同步，不产生假「脏」', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    store.openEndpoint(store.endpoints.find((e) => e.id === 'ep-a')!)
+    store.openEndpoint(store.endpoints.find((e) => e.id === 'ep-other')!)
+
+    // 把 ep-a 移到组尾：ep-other 前移
+    await store.moveEndpoint('ep-a', 'f-a', 1)
+    // dirtyTick 由 nextTick 推进，等其落定后 isDirty 才是稳定值
+    await nextTick()
+
+    expect(store.draftOf('ep-a')?.sort_order).toBe(1)
+    expect(store.draftOf('ep-other')?.sort_order).toBe(0)
+    expect(store.isDirty('ep-a')).toBe(false)
+    expect(store.isDirty('ep-other')).toBe(false)
+  })
+
+  it('编辑 body 内容并保存：草稿与保存态深克隆解耦，保存后内容稳定不丢失', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    const ep = store.endpoints.find((e) => e.id === 'ep-a')!
+    store.openEndpoint(ep)
+
+    const draft = store.draftOf('ep-a')!
+    draft.request.body = { mode: 'json', raw: '{"name":"fox","added":"s"}' }
+
+    expect(store.isDirty('ep-a')).toBe(true)
+    expect(await store.saveActiveDraft()).toBe(true)
+
+    // 保存后草稿保持最新内容
+    expect(store.draftOf('ep-a')?.request.body).toEqual({
+      mode: 'json',
+      raw: '{"name":"fox","added":"s"}',
+    })
+    expect(store.isDirty('ep-a')).toBe(false)
   })
 })

@@ -185,9 +185,9 @@ async function installUpdate(): Promise<void> {
   margin-bottom: 6px;
   color: #fff;
   border-radius: 18px;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--put) 100%);
+  background: var(--accent);
   box-shadow:
-    0 10px 24px rgba(168, 85, 247, 0.35),
+    0 10px 24px rgba(9, 12, 22, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 

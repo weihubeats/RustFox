@@ -1,6 +1,7 @@
 pub mod client;
 pub mod cookie;
 pub mod script_sandbox;
+pub mod signature;
 pub mod ws_client;
 
 pub use script_sandbox::{

@@ -97,18 +97,23 @@ function applyMethodDefaults(m: HttpMethod): void {
 watch(method, (m) => applyMethodDefaults(m))
 
 // ---------- 打开时同步草稿 ----------
+// 同时监听 `props.open` 与 `props.testCase`：抽屉已打开（open 恒为 true）时
+// 切换用例，`drawerCase` 会变而 `open` 不变，若只监听 open 则本地编辑 ref
+// 仍是旧用例数据——保存时把旧 body/params/headers 写进新用例，表现为
+// 「保存成功但 body 还是修改前的样子」（偶发竞态）。监听 testCase 后任何
+// 用例切换都强制重新同步。
 watch(
-  () => props.open,
-  (open) => {
-    if (!open || !props.testCase) return
-    name.value = props.testCase.name
-    category.value = props.testCase.category
-    method.value = props.testCase.method
-    urlPath.value = props.testCase.url_path
-    params.value = props.testCase.params.map((p) => ({ ...p }))
-    headers.value = props.testCase.headers.map((h) => ({ ...h }))
-    bodyType.value = props.testCase.body_type
-    bodyContent.value = props.testCase.body_content
+  [() => props.open, () => props.testCase],
+  ([open, testCase]) => {
+    if (!open || !testCase) return
+    name.value = testCase.name
+    category.value = testCase.category
+    method.value = testCase.method
+    urlPath.value = testCase.url_path
+    params.value = testCase.params.map((p) => ({ ...p }))
+    headers.value = testCase.headers.map((h) => ({ ...h }))
+    bodyType.value = testCase.body_type
+    bodyContent.value = testCase.body_content
     activeTab.value = 'params'
     result.value = null
     runError.value = ''
@@ -572,7 +577,7 @@ function onSplitterDblClick(): void {
 }
 .drw-splitter:hover,
 .drw-splitter:active {
-  background: rgba(168, 85, 247, 0.55);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* ---------- 分区卡片 ---------- */

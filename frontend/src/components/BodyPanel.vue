@@ -8,8 +8,10 @@
  * - urlencoded/multipart 为字段行编辑，graphql 为 query/variables 编辑器。
  * bodyAny 用 any 放宽联合类型访问（模板 v-model 直写 raw / spec.*）。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+
 import CustomSelect from './ui/CustomSelect.vue'
+import FindBar from './ui/FindBar.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import JsonEditor from './ui/JsonEditor.vue'
@@ -73,6 +75,145 @@ const MULTIPART_TYPE_OPTIONS = [
   { value: 'text', label: '文本' },
   { value: 'file_path', label: '文件路径' },
 ]
+
+// ---------- 查找（Find in Request Body） ----------
+const panelRef = ref<HTMLElement | null>(null)
+const rawTextareaRef = ref<HTMLTextAreaElement | null>(null)
+const gqlTextareaRef = ref<HTMLTextAreaElement | null>(null)
+
+const findOpen = ref(false)
+const query = ref('')
+const activeMatch = ref(0)
+const jsonTotal = ref(0)
+
+const searchQuery = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(query, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!q) {
+    searchQuery.value = ''
+    return
+  }
+  searchTimer = setTimeout(() => {
+    searchQuery.value = q
+  }, 160)
+})
+
+watch(query, () => {
+  activeMatch.value = 0
+})
+
+function countOccurrences(text: string, q: string): number {
+  if (!text || !q) return 0
+  const ql = q.toLowerCase()
+  const lower = text.toLowerCase()
+  let n = 0
+  let from = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) break
+    n += 1
+    from = idx + ql.length
+  }
+  return n
+}
+
+const total = computed(() => {
+  if (activeTab.value === 'raw' && rawSubtype.value === 'json') {
+    return jsonTotal.value
+  }
+  if (activeTab.value === 'raw') {
+    return countOccurrences(bodyAny.value?.raw ?? '', searchQuery.value)
+  }
+  if (activeTab.value === 'graphql') {
+    return countOccurrences(graphql.value?.query ?? '', searchQuery.value)
+  }
+  return 0
+})
+
+watch(total, (t) => {
+  if (t === 0) activeMatch.value = 0
+  else if (activeMatch.value >= t) activeMatch.value = t - 1
+})
+
+function getMatchOffsets(text: string, q: string, targetIdx: number): [number, number] | null {
+  if (!q) return null
+  const ql = q.toLowerCase()
+  const lower = text.toLowerCase()
+  let from = 0
+  let cur = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) return null
+    if (cur === targetIdx) return [idx, idx + q.length]
+    cur += 1
+    from = idx + q.length
+  }
+}
+
+watch(
+  () => [searchQuery.value, activeMatch.value],
+  ([q, matchIdx]) => {
+    if (!q || matchIdx === undefined) return
+    if (activeTab.value === 'raw' && rawSubtype.value === 'json') return
+    const ta = activeTab.value === 'graphql' ? gqlTextareaRef.value : rawTextareaRef.value
+    if (!ta) return
+    const text = ta.value
+    const offsets = getMatchOffsets(text, String(q), Number(matchIdx))
+    if (!offsets) return
+    const [start, end] = offsets
+    ta.focus()
+    ta.setSelectionRange(start, end)
+  },
+)
+
+function nextMatch(): void {
+  if (!total.value) return
+  activeMatch.value = (activeMatch.value + 1) % total.value
+}
+
+function prevMatch(): void {
+  if (!total.value) return
+  activeMatch.value = (activeMatch.value - 1 + total.value) % total.value
+}
+
+function closeFind(): void {
+  findOpen.value = false
+  query.value = ''
+  activeMatch.value = 0
+  jsonTotal.value = 0
+}
+
+function toggleFind(): void {
+  if (findOpen.value) {
+    closeFind()
+  } else {
+    findOpen.value = true
+  }
+}
+
+function onWindowKeydown(e: KeyboardEvent): void {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.findbar, .sidebar-search, .docs-search')) return
+
+  const root = panelRef.value
+  const isInside = !!(root && target && root.contains(target))
+  if (isInside) {
+    e.preventDefault()
+    findOpen.value = true
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onWindowKeydown)
+  if (searchTimer) clearTimeout(searchTimer)
+})
 
 /** urlencoded 字段表：与 Params/Headers 一致的 KeyValueTable 幽灵行（输入自动补行）。 */
 function applyUrlencoded(rows: KVRow[]): void {
@@ -176,28 +317,57 @@ const binPath = useDebouncedField(
 </script>
 
 <template>
-  <div class="panel">
+  <div ref="panelRef" class="panel">
     <div class="mode-bar">
-      <SegmentedControl v-model="activeTab" :options="BODY_TABS" size="sm" class="mode-tabs" />
-      <CustomSelect
-        v-if="activeTab === 'raw'"
-        v-model="rawSubtype"
-        :options="RAW_SUBTYPE_OPTIONS"
-        size="sm"
-        class="raw-subtype"
-        pop-class="raw-subtype-pop"
-      />
+      <div class="mode-bar-left">
+        <SegmentedControl v-model="activeTab" :options="BODY_TABS" size="sm" class="mode-tabs" />
+        <CustomSelect
+          v-if="activeTab === 'raw'"
+          v-model="rawSubtype"
+          :options="RAW_SUBTYPE_OPTIONS"
+          size="sm"
+          class="raw-subtype"
+          pop-class="raw-subtype-pop"
+        />
+      </div>
+      <div class="mode-bar-right">
+        <button
+          v-if="activeTab === 'raw' || activeTab === 'graphql'"
+          class="bp-icon-btn"
+          :class="{ active: findOpen }"
+          type="button"
+          title="在请求体中查找 (⌘F)"
+          @click="toggleFind"
+        >
+          <Icon name="search" :size="13" />
+        </button>
+      </div>
     </div>
+
+    <FindBar
+      v-if="findOpen && (activeTab === 'raw' || activeTab === 'graphql')"
+      v-model:query="query"
+      :index="activeMatch"
+      :total="total"
+      placeholder="在请求体中查找…"
+      @prev="prevMatch"
+      @next="nextMatch"
+      @close="closeFind"
+    />
 
     <JsonEditor
       v-if="activeTab === 'raw' && rawSubtype === 'json'"
       v-model="bodyAny.raw"
       placeholder='{ "key": "value" }'
       :min-height="120"
+      :query="findOpen ? searchQuery : ''"
+      :active-match="activeMatch"
+      @match-count="jsonTotal = $event"
     />
     <textarea
       v-else-if="activeTab === 'raw'"
       :value="rawText.local.value"
+      ref="rawTextareaRef"
       class="rf-input body-input"
       spellcheck="false"
       :placeholder="RAW_PLACEHOLDER[rawSubtype as RawSubtype] ?? '纯文本内容'"
@@ -208,6 +378,7 @@ const binPath = useDebouncedField(
     <div v-else-if="activeTab === 'graphql'" class="gql-editor">
       <textarea
         :value="gqlQuery.local.value"
+        ref="gqlTextareaRef"
         class="rf-input body-input"
         spellcheck="false"
         placeholder="query Hero($id: ID!) { hero(id: $id) { name } }"
@@ -218,6 +389,8 @@ const binPath = useDebouncedField(
         v-model="graphql.variables"
         placeholder='{ "id": "42" }'
         :min-height="80"
+        :query="findOpen ? searchQuery : ''"
+        :active-match="activeMatch"
       />
       <input
         :value="gqlOp.local.value"
@@ -315,8 +488,48 @@ const binPath = useDebouncedField(
 .mode-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+.mode-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mode-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.bp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.bp-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+.bp-icon-btn.active {
+  background: var(--accent-tint, rgba(168, 85, 247, 0.15));
+  color: var(--accent, #a855f7);
+  border-color: var(--accent, #a855f7);
 }
 
 .mode-tabs {

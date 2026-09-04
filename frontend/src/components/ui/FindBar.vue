@@ -7,11 +7,15 @@
 import { computed, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
 
-const props = defineProps<{
-  query: string
-  index: number
-  total: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    query: string
+    index: number
+    total: number
+    placeholder?: string
+  }>(),
+  { placeholder: '在响应中查找…' },
+)
 
 const emit = defineEmits<{
   'update:query': [string]
@@ -52,7 +56,7 @@ function onInputKeydown(e: KeyboardEvent): void {
       v-model="inputValue"
       class="findbar-input"
       spellcheck="false"
-      placeholder="在响应中查找…"
+      :placeholder="placeholder"
       @keydown="onInputKeydown"
     />
     <span class="findbar-count" :class="{ empty: total === 0 }">

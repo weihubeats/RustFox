@@ -97,6 +97,13 @@ pub fn export_markdown(
                 out.push_str("### 认证\n\n");
                 out.push_str(&format!("- HMAC (AK-SK)：`{access_key}`\n\n"));
             }
+            AuthSpec::DynamicSignature { config } => {
+                out.push_str("### 认证\n\n");
+                out.push_str(&format!(
+                    "- 动态签名：Key `{}`，算法 `{:?}` / 编码 `{:?}`，签名头 `{}`\n\n",
+                    config.app_key, config.algorithm, config.encoding, config.sig_header
+                ));
+            }
         }
 
         let body_text = match &ep.request.body {

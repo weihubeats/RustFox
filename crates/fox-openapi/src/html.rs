@@ -146,6 +146,12 @@ fn auth_line(auth: &AuthSpec) -> String {
         AuthSpec::Hawk { .. } => "Hawk 认证（HMAC-SHA-256）".into(),
         AuthSpec::AwsV4 { .. } => "AWS Signature V4".into(),
         AuthSpec::Hmac { .. } => "HMAC (AK-SK)".into(),
+        AuthSpec::DynamicSignature { config } => {
+            format!(
+                "动态签名：Key {}，{:?}/{:?}，签名头 {}",
+                config.app_key, config.algorithm, config.encoding, config.sig_header
+            )
+        }
     }
 }
 

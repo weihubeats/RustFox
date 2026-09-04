@@ -774,17 +774,17 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-/* 主操作「+」：violet 微光方块，页面侧栏唯一强调按钮 */
+/* 主操作「+」：accent 微光方块，页面侧栏唯一强调按钮 */
 .tool-add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid rgba(139, 92, 246, 0.45);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 7px;
-  background: rgba(124, 105, 245, 0.16);
-  color: #a78bfa;
+  background: var(--accent-tint);
+  color: var(--accent);
   cursor: pointer;
   transition:
     background var(--dur) var(--ease),
@@ -793,10 +793,9 @@ onBeforeUnmount(() => {
     color var(--dur) var(--ease);
 }
 .tool-add:hover {
-  border-color: rgba(139, 92, 246, 0.85);
-  background: rgba(124, 105, 245, 0.28);
-  color: #c4b5fd;
-  box-shadow: 0 2px 12px rgba(124, 105, 245, 0.35);
+  border-color: color-mix(in srgb, var(--accent) 85%, transparent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--accent-hover);
 }
 .tool-add:active {
   transform: translateY(1px);
@@ -819,7 +818,7 @@ onBeforeUnmount(() => {
     background var(--dur) var(--ease);
 }
 .sidebar-search:focus-within {
-  border-color: rgba(168, 85, 247, 0.5);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   background: rgba(255, 255, 255, 0.07);
 }
 

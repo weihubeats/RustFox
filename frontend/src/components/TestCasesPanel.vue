@@ -16,6 +16,7 @@ import IconButton from './ui/IconButton.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
 import TestCaseDrawer from './TestCaseDrawer.vue'
 import TestCaseModal from './TestCaseModal.vue'
+import ExportSmokeDialog from './docs/ExportSmokeDialog.vue'
 import { useToast } from '../composables/useToast'
 
 const props = defineProps<{ draft: Endpoint | null }>()
@@ -114,6 +115,9 @@ async function onMenuConfirm(item: MenuItem): Promise<void> {
   if (!c || !d || item.key !== 'delete') return
   await store.removeTestCase(d.id, c.id)
 }
+
+// ---------- 导出冒烟文档 ----------
+const exportSmokeOpen = ref(false)
 
 // ---------- 详情 / 编辑抽屉 ----------
 const drawerOpen = ref(false)
@@ -283,6 +287,15 @@ watch(
         </button>
       </div>
       <div class="tcp-actions">
+        <button
+          class="rf-btn rf-btn-sm"
+          type="button"
+          :disabled="!cases.length"
+          title="导出当前接口 / 整个项目的用例为冒烟测试文档"
+          @click="exportSmokeOpen = true"
+        >
+          <Icon name="download" :size="13" /> 导出冒烟文档
+        </button>
         <button class="rf-btn rf-btn-sm" type="button" @click="openCreate">
           <Icon name="plus" :size="13" /> 添加用例
         </button>
@@ -393,6 +406,12 @@ watch(
       :on-run="runDrawerPayload"
       :on-save="saveDrawerPayload"
       @update:open="drawerOpen = $event"
+    />
+
+    <ExportSmokeDialog
+      v-if="exportSmokeOpen"
+      :draft="draft"
+      @close="exportSmokeOpen = false"
     />
 
     <Menu ref="menuEl" @select="onMenuSelect" @confirm="onMenuConfirm" />

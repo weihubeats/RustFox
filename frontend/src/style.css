@@ -53,8 +53,9 @@
   --text-1: #e9eaee;
   --text-2: #a7a8b3;
   --text-3: #71737f;
-  --accent: #7c69f5;
-  --accent-hover: #8f7ff7;
+  /* 单一 accent：靛青降饱和（saturation ≈ 70%，避开 AI 紫大饱和），hover 略提亮 */
+  --accent: #8380e8;
+  --accent-hover: #9995ef;
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -66,7 +67,7 @@
   --delete: #ef4444;
 
   /* ---- 语义派生 ---- */
-  --accent-tint: rgba(124, 105, 245, 0.16);
+  --accent-tint: rgba(131, 128, 232, 0.16);
   --success-tint: rgba(34, 197, 94, 0.12);
   --warning-tint: rgba(245, 158, 11, 0.12);
   --danger-tint: rgba(239, 68, 68, 0.12);
@@ -105,9 +106,9 @@
   --sp-6: 24px;
 
   /* ---- 阴影 / 动效 / 焦点 ---- */
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
-  --focus-ring: rgba(124, 105, 245, 0.5);
+  --shadow: 0 8px 24px rgba(9, 12, 22, 0.5);
+  --shadow-lg: 0 16px 48px rgba(8, 10, 18, 0.55);
+  --focus-ring: rgba(131, 128, 232, 0.5);
   --ease: ease-out;
   --dur: 140ms;
 
@@ -117,7 +118,8 @@
 
   /* ---- 字体 ---- */
   --font-ui:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC',
+    'Geist Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'HarmonyOS Sans SC',
     'Microsoft YaHei', sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 
@@ -181,8 +183,8 @@
   --text-1: #1f2329;
   --text-2: #5c6670;
   --text-3: #98a1ab;
-  --accent: #6e5ce6;
-  --accent-hover: #5b49d8;
+  --accent: #5f5ad4;
+  --accent-hover: #4e49c7;
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
@@ -193,16 +195,16 @@
   --patch: #8b5cf6;
   --delete: #dc2626;
 
-  --accent-tint: rgba(110, 92, 230, 0.1);
+  --accent-tint: rgba(95, 90, 212, 0.12);
   --success-tint: rgba(22, 163, 74, 0.1);
   --warning-tint: rgba(217, 119, 6, 0.1);
   --danger-tint: rgba(220, 38, 38, 0.08);
   --info-tint: rgba(37, 99, 235, 0.08);
   --patch-tint: rgba(139, 92, 246, 0.1);
 
-  --shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  --shadow-lg: 0 16px 48px rgba(15, 23, 42, 0.18);
-  --focus-ring: rgba(110, 92, 230, 0.45);
+  --shadow: 0 8px 24px rgba(23, 28, 48, 0.12);
+  --shadow-lg: 0 16px 48px rgba(17, 21, 38, 0.18);
+  --focus-ring: rgba(95, 90, 212, 0.45);
 
   --danger-border: rgba(220, 38, 38, 0.3);
   --info-border: rgba(37, 99, 235, 0.3);
@@ -360,19 +362,21 @@ kbd,
 }
 
 .rf-btn-send {
-  background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 60%, var(--accent) 100%);
+  background: var(--accent);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 4px 14px var(--accent-tint);
+  box-shadow: 0 3px 10px rgba(9, 12, 22, 0.45);
 }
 .rf-btn-send:hover:not(:disabled) {
+  background: var(--accent-hover);
   border-color: transparent;
-  filter: brightness(1.08);
-  box-shadow: 0 6px 18px var(--accent-tint);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(9, 12, 22, 0.5);
 }
 .rf-btn-send:active:not(:disabled) {
+  background: var(--accent);
+  transform: translateY(0);
   box-shadow: none;
-  filter: none;
 }
 
 .rf-btn-danger {
@@ -707,4 +711,16 @@ body.dragging-dnd {
 }
 .rf-overflow-tip.in {
   opacity: 1;
+}
+
+/* ---- 动效偏好：系统开启减少动态时，压缩全部过渡/动画（无障碍合规） ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

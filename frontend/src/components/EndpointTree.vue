@@ -787,10 +787,10 @@ function onBatchMenuSelect(item: MenuItem): void {
 :global(html[data-theme='light']) .tree-row:hover {
   background: rgba(0, 0, 0, 0.04);
 }
-/* 选中态：清爽半透明紫底 + 右缘主题色条（border-right 补偿 padding 防止行宽跳动） */
+/* 选中态：清爽半透明 accent 底 + 右缘主题色条（border-right 补偿 padding 防止行宽跳动） */
 .tree-row.active {
-  background: rgba(124, 58, 237, 0.15);
-  border-right: 2px solid #a855f7;
+  background: var(--accent-tint);
+  border-right: 2px solid var(--accent);
   padding-right: 4px;
 }
 /* 多选态：淡蓝底（与激活态可叠加，激活优先显示） */

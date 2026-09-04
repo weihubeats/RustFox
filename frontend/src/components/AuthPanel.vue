@@ -1,14 +1,22 @@
 <script setup lang="ts">
 /**
- * AuthPanel：认证配置面板（none / bearer / basic / apikey / oauth2 / digest / hawk / awsv4 / hmac）。
+ * AuthPanel：认证配置面板（none/bearer/basic/apikey/oauth2/digest/hawk/awsv4/hmac/dynamic_signature）。
  * OAuth2 授权流：后端起本地回调 + 打开系统浏览器，完成后令牌写入草稿。
- * 签名类（Hawk / AWS SigV4 / HMAC）：每次发送由后端实时计算；Digest 遇 401 自动应答重发。
+ * 签名类（Hawk/AWS SigV4/HMAC/Digest/动态签名）：由后端实时计算注入请求头。
  */
 import { computed, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import CustomSelect from './ui/CustomSelect.vue'
-import type { ApiKeyLocation, AuthSpec, Endpoint, OAuth2Token } from '../types/foxApi'
+import type {
+  ApiKeyLocation,
+  AuthSpec,
+  DynamicSignatureConfig,
+  Endpoint,
+  OAuth2Token,
+  SignatureAlgorithm,
+  SignatureEncoding,
+} from '../types/foxApi'
 
 const props = defineProps<{ draft: Endpoint | null }>()
 
@@ -20,6 +28,7 @@ const AUTH_TYPES: Array<{ value: string; label: string }> = [
   { value: 'bearer', label: 'Bearer Token' },
   { value: 'basic', label: 'Basic' },
   { value: 'apikey', label: 'API Key' },
+  { value: 'dynamic_signature', label: '动态签名' },
   { value: 'oauth2', label: 'OAuth2' },
   { value: 'digest', label: 'Digest' },
   { value: 'hawk', label: 'Hawk' },
@@ -30,6 +39,20 @@ const AUTH_IN_OPTIONS = [
   { value: 'header', label: 'Header' },
   { value: 'query', label: 'Query' },
 ]
+const ALGORITHM_OPTIONS: Array<{ value: SignatureAlgorithm; label: string }> = [
+  { value: 'md5', label: 'MD5' },
+  { value: 'sha256', label: 'SHA-256' },
+  { value: 'hmac_sha256', label: 'HMAC-SHA256' },
+]
+const ENCODING_OPTIONS: Array<{ value: SignatureEncoding; label: string }> = [
+  { value: 'hex_lower', label: 'Hex（小写）' },
+  { value: 'hex_upper', label: 'Hex（大写）' },
+  { value: 'base64', label: 'Base64' },
+]
+
+/** 载荷模板占位符提示文案（含字面 `{{ }}`，避免在模板文本里嵌套花括号）。 */
+const SIG_HINT =
+  '占位符 {{$key}} / {{$secret}} / {{$timestamp}}。时间戳在 Rust 后端发送前最后一刻生成（不经 IPC 往返），保证实时性；Key / Timestamp / Sig 三个请求头自动注入。'
 
 /** 签名类认证的发送时行为说明。 */
 const SIGN_HINTS: Record<string, string> = {
@@ -65,10 +88,30 @@ type EditableAuth = AuthSpec & {
   region?: string
   service?: string
   session_token?: string
+  /** 动态签名配置。algorithm / encoding 放宽为 string，配合 CustomSelect
+   * 的 `string | number` 事件类型；提交时由后端按枚举校验。 */
+  config?: DynamicSignatureConfig & { algorithm?: string; encoding?: string }
+
 }
 
 const authAny = computed(() => props.draft?.request.auth as EditableAuth)
 const authorizing = ref(false)
+const advancedOpen = ref(false)
+
+/** 动态签名高级配置面板是否可展开（仅该类型下展示）。 */
+const isSignature = computed(() => authAny.value?.type === 'dynamic_signature')
+
+/** 动态签名配置引用。仅 `dynamic_signature` 分支渲染时访问（由模板
+ * `v-else-if` 守卫保证 config 必存在），故此处做非空断言，模板内
+ * 避免对可空 `config` 的链式访问。
+ * algorithm / encoding 放宽为 string：CustomSelect 事件类型为
+ * `string | number`，提交时后端按枚举反序列化校验。 */
+type EditableSignatureConfig = Omit<DynamicSignatureConfig, 'algorithm' | 'encoding'> & {
+  algorithm?: string
+  encoding?: string
+}
+
+const sigConfig = computed(() => authAny.value?.config as EditableSignatureConfig)
 
 /** OAuth2 授权状态文案。 */
 const oauthStatus = computed(() => {
@@ -101,6 +144,19 @@ async function oauthAuthorize(): Promise<void> {
   }
 }
 
+function defaultSignatureConfig(): DynamicSignatureConfig {
+  return {
+    app_key: '',
+    app_secret: '',
+    key_header: 'App-Key',
+    timestamp_header: 'App-Timestamp',
+    sig_header: 'App-Sig',
+    algorithm: 'md5',
+    encoding: 'hex_lower',
+    payload_template: '{{$key}}{{$secret}}{{$timestamp}}',
+  }
+}
+
 function setAuthType(type: string): void {
   const req = props.draft?.request
   if (!req) return
@@ -116,6 +172,16 @@ function setAuthType(type: string): void {
       break
     case 'apikey':
       req.auth = { type: 'apikey', key: '', value: '', in: 'header' }
+      break
+    case 'dynamic_signature':
+      req.auth = { type: 'dynamic_signature', config: defaultSignatureConfig() }
+      advancedOpen.value = true
+      // 安全警告：Secret 只参与签名计算，绝不明文入请求头 / 不落明文库。
+      toast.warning('App-Secret 仅用于签名计算，不会明文发送或存储', {
+        message:
+          'Key/Timestamp/Sig 三头由后端发送前实时生成；请勿把 Secret 值粘贴到 Header 或载荷模板之外。',
+        duration: 6000,
+      })
       break
     case 'oauth2':
       req.auth = {
@@ -265,6 +331,78 @@ function setAuthType(type: string): void {
     <p v-if="signHint" class="auth-hint">
       {{ signHint }}
     </p>
+    <div v-else-if="isSignature" class="sig-form">
+      <div class="kv-row">
+        <input
+          v-model="sigConfig.app_key"
+          class="rf-input rf-input-sm kv-key"
+          placeholder="App Key"
+          spellcheck="false"
+        />
+        <input
+          v-model="sigConfig.app_secret"
+          class="rf-input rf-input-sm kv-value"
+          placeholder="App Secret"
+          type="password"
+          spellcheck="false"
+        />
+      </div>
+      <div class="sig-adv">
+        <button class="rf-btn rf-btn-sm sig-toggle" type="button" @click="advancedOpen = !advancedOpen">
+          {{ advancedOpen ? '收起高级配置' : '高级配置 ▾' }}
+        </button>
+        <div v-if="advancedOpen" class="sig-adv-body">
+          <div class="kv-row">
+            <input
+              v-model="sigConfig.key_header"
+              class="rf-input rf-input-sm kv-key"
+              placeholder="Key 头名"
+              spellcheck="false"
+            />
+            <input
+              v-model="sigConfig.timestamp_header"
+              class="rf-input rf-input-sm kv-key"
+              placeholder="时间戳头名"
+              spellcheck="false"
+            />
+            <input
+              v-model="sigConfig.sig_header"
+              class="rf-input rf-input-sm kv-value"
+              placeholder="签名头名"
+              spellcheck="false"
+            />
+          </div>
+          <div class="kv-row">
+            <span class="sig-label">算法</span>
+            <CustomSelect
+              :model-value="sigConfig.algorithm"
+              :options="ALGORITHM_OPTIONS"
+              size="sm"
+              class="sig-select"
+              @update:model-value="sigConfig.algorithm = String($event)"
+            />
+            <span class="sig-label">编码</span>
+            <CustomSelect
+              :model-value="sigConfig.encoding"
+              :options="ENCODING_OPTIONS"
+              size="sm"
+              class="sig-select"
+              @update:model-value="sigConfig.encoding = String($event)"
+            />
+          </div>
+          <textarea
+            v-model="sigConfig.payload_template"
+            class="rf-input rf-input-sm sig-template"
+            placeholder="{{$key}}{{$secret}}{{$timestamp}}"
+            spellcheck="false"
+          ></textarea>
+          <p class="sig-hint">
+            {{ SIG_HINT }}
+          </p>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -319,9 +457,56 @@ function setAuthType(type: string): void {
   color: var(--text-3);
 }
 
-.sign-form {
+.sign-form,
+.sig-form {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
+.sig-adv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sig-toggle {
+  align-self: flex-start;
+  color: var(--text-3);
+}
+
+.sig-adv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sig-label {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.sig-select {
+  width: 130px;
+}
+
+.sig-template {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  min-height: 40px;
+  resize: vertical;
+}
+
+.sig-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
 </style>

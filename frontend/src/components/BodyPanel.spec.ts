@@ -104,4 +104,38 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
       JSON.stringify({ name: 'alice', age: 18 }, null, 2),
     )
   })
+
+  it('在请求体中查找：打开 FindBar 并高亮与计数', async () => {
+    const draft = jsonDraft('{"user":"fox","name":"fox"}')
+    const wrapper = mountPanel(draft)
+
+    // 点击搜索图标按钮打开 FindBar
+    const searchBtn = wrapper.find('.bp-icon-btn')
+    expect(searchBtn.exists()).toBe(true)
+    await searchBtn.trigger('click')
+
+    expect(wrapper.findComponent({ name: 'FindBar' }).exists()).toBe(true)
+
+    // 输入查找词
+    const findInput = wrapper.find('.findbar-input')
+    await findInput.setValue('fox')
+
+    // 等待防抖
+    await new Promise((r) => setTimeout(r, 200))
+    await wrapper.vm.$nextTick()
+
+    // JsonEditor 渲染 mark 高亮
+    expect(wrapper.findAll('.rp-find-mark').length).toBe(2)
+    expect(wrapper.findAll('.rp-find-mark.active').length).toBe(1)
+    expect(wrapper.find('.findbar-count').text()).toContain('1 / 2')
+
+    // 切换下一个匹配
+    await wrapper.findAll('.findbar-btn')[1].trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.findbar-count').text()).toContain('2 / 2')
+
+    // Esc 关闭
+    await findInput.trigger('keydown', { key: 'Escape' })
+    expect(wrapper.findComponent({ name: 'FindBar' }).exists()).toBe(false)
+  })
 })

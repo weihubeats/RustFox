@@ -87,6 +87,8 @@ pub enum ExportFormat {
     Html,
     /// cURL 命令脚本 (.sh)
     CurlScript,
+    /// 冒烟测试文档 (Markdown)
+    Smoke,
 }
 
 impl ExportFormat {
@@ -95,7 +97,7 @@ impl ExportFormat {
         match self {
             ExportFormat::OpenapiJson | ExportFormat::Postman => "json",
             ExportFormat::OpenapiYaml => "yaml",
-            ExportFormat::Markdown => "md",
+            ExportFormat::Markdown | ExportFormat::Smoke => "md",
             ExportFormat::Html => "html",
             ExportFormat::CurlScript => "sh",
         }
@@ -107,6 +109,7 @@ impl ExportFormat {
             ExportFormat::OpenapiJson | ExportFormat::OpenapiYaml => Some("openapi"),
             ExportFormat::Postman => Some("postman"),
             ExportFormat::CurlScript => Some("curl"),
+            ExportFormat::Smoke => Some("smoke"),
             ExportFormat::Markdown | ExportFormat::Html => None,
         }
     }
@@ -258,6 +261,10 @@ fn render_docs(
             examples,
         )),
         ExportFormat::CurlScript => Ok(render_curl_script(endpoints)),
+        // 冒烟文档不走 export_docs（走独立的 export_smoke_docs，需要测试用例数据）
+        ExportFormat::Smoke => Err(CommandError::validation(
+            "冒烟测试文档请使用测试用例导出入口",
+        )),
     }
 }
 
@@ -291,6 +298,71 @@ fn render_curl_script(endpoints: &[Endpoint]) -> String {
         out.push_str("\n\n");
     }
     out
+}
+
+/// 导出测试用例为冒烟测试文档（Markdown）。
+///
+/// - `endpoint_id` 为 Some 时仅导出该接口的用例，None 时导出整个项目；
+/// - `include_results` 为 true 时在文档中附带用例最近一次运行结果；
+/// - `run_results` 为前端内存态运行元信息（caseId → HTTP 状态码 / 耗时），
+///   命中时优先展示状态码与耗时，缺失回退 `TestCase.last_run_status`；
+/// - 已废弃接口与 `export_docs` 保持一致被排除；
+/// - 文档结构：测试范围 / 按分组（正向·负向·边界值·安全性·其他）用例详情 / 验收清单。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn export_smoke_docs(
+    state: State<'_, AppState>,
+    project_id: Uuid,
+    endpoint_id: Option<Uuid>,
+    include_results: bool,
+    run_results: Option<HashMap<Uuid, fox_openapi::smoke::SmokeRunResult>>,
+) -> CommandResult<ExportedDoc> {
+    let project = repo::get_project(&state.db, project_id).await?;
+    let mut endpoints: Vec<Endpoint> = repo::list_endpoints(&state.db, project_id)
+        .await?
+        .into_iter()
+        .filter(|e| e.status != EndpointStatus::Deprecated)
+        .collect();
+    if let Some(id) = endpoint_id {
+        endpoints.retain(|e| e.id == id);
+        if endpoints.is_empty() {
+            return Err(CommandError::validation("当前接口不存在或已被删除"));
+        }
+    }
+
+    let mut cases_by_endpoint: HashMap<Uuid, Vec<fox_core::model::TestCase>> = HashMap::new();
+    for ep in &endpoints {
+        if let Ok(list) = repo::list_test_cases(&state.db, ep.id).await {
+            if !list.is_empty() {
+                cases_by_endpoint.insert(ep.id, list);
+            }
+        }
+    }
+
+    let run_results = run_results.unwrap_or_default();
+    let content = fox_openapi::smoke::render_smoke(
+        &project.name,
+        &endpoints,
+        &cases_by_endpoint,
+        include_results,
+        &run_results,
+    );
+
+    // 命名基准：单接口 → 接口名（空名回退 method-path）；整个项目 → 项目名
+    let base = match endpoint_id {
+        Some(_) => {
+            let ep = &endpoints[0];
+            if ep.name.trim().is_empty() {
+                format!("{}-{}", ep.method.as_str().to_lowercase(), ep.path)
+            } else {
+                ep.name.clone()
+            }
+        }
+        None => project.name.clone(),
+    };
+    Ok(ExportedDoc {
+        content,
+        suggested_name: build_suggested_name(ExportFormat::Smoke, &base, chrono::Local::now()),
+    })
 }
 
 /// 把导出内容写入磁盘指定路径（路径来自前端原生保存框的选择结果）。
@@ -412,6 +484,7 @@ mod tests {
         assert_eq!(ExportFormat::Markdown.ext(), "md");
         assert_eq!(ExportFormat::Html.ext(), "html");
         assert_eq!(ExportFormat::CurlScript.ext(), "sh");
+        assert_eq!(ExportFormat::Smoke.ext(), "md");
     }
 
     #[test]
@@ -462,6 +535,10 @@ mod tests {
         assert_eq!(
             build_suggested_name(ExportFormat::CurlScript, "演示项目", now),
             "curl-演示项目-2026-08-23.sh"
+        );
+        assert_eq!(
+            build_suggested_name(ExportFormat::Smoke, "演示项目", now),
+            "smoke-演示项目-2026-08-23.md"
         );
 
         // 单接口范围：接口名为基准，md/html 不加种类前缀（后缀已可辨识）

@@ -3,7 +3,7 @@
  * 关键字 / 字符串 / 注释 / flag / 宏着色，且所有文本先 HTML 转义。
  */
 import { describe, expect, it } from 'vitest'
-import { escapeHtml, highlightCode, highlightJSON } from './highlight'
+import { escapeHtml, highlightCode, highlightJSON, highlightJSONText, jsonTokens } from './highlight'
 
 describe('highlightCode：JavaScript', () => {
   it('关键字、字符串、数字分别着色', () => {
@@ -40,6 +40,61 @@ describe('highlightCode：cURL / Rust', () => {
 
   it('未知语言兜底为纯转义', () => {
     expect(highlightCode('unknown' as never, '<p>&')).toBe('&lt;p&gt;&amp;')
+  })
+})
+
+describe('JSON 语法高亮与搜索标记', () => {
+  const sample = JSON.stringify({
+    name: 'fox',
+    count: 42,
+    active: true,
+    extra: null,
+  }, null, 2)
+
+  it('jsonTokens 正确分词并打标类名', () => {
+    const tokens = jsonTokens(sample)
+    const keys = tokens.filter((t) => t.cls === 'hl-k')
+    const strs = tokens.filter((t) => t.cls === 'hl-s')
+    const nums = tokens.filter((t) => t.cls === 'hl-n')
+    const bools = tokens.filter((t) => t.cls === 'hl-b')
+    const nulls = tokens.filter((t) => t.cls === 'hl-null')
+
+    expect(keys.length).toBe(4)
+    expect(strs.some((t) => t.text.includes('"fox"'))).toBe(true)
+    expect(nums.some((t) => t.text === '42')).toBe(true)
+    expect(bools.some((t) => t.text === 'true')).toBe(true)
+    expect(nulls.some((t) => t.text === 'null')).toBe(true)
+  })
+
+  it('highlightJSON 生成正确的 class 标签并转义 HTML', () => {
+    const html = highlightJSON('{"<tag>": "value & more"}')
+    expect(html).toContain('<span class="hl-k">&quot;&lt;tag&gt;&quot;:</span>')
+    expect(html).toContain('<span class="hl-s">&quot;value &amp; more&quot;</span>')
+  })
+
+  it('highlightJSONText 在空 query 时与 highlightJSON 完全一致', () => {
+    expect(highlightJSONText(sample, '')).toBe(highlightJSON(sample))
+  })
+
+  it('highlightJSONText 搜索时在保留语法高亮 span 的同时插入 mark 标记', () => {
+    const html = highlightJSONText(sample, 'name', 0)
+    // 依然保留 hl-k 语法着色，且内部包含 active mark
+    expect(html).toContain('<span class="hl-k">&quot;<mark class="rp-find-mark active">name</mark>&quot;:</span>')
+    // 其它没有匹配的键依然正常语法高亮
+    expect(html).toContain('<span class="hl-k">&quot;count&quot;:</span>')
+    expect(html).toContain('<span class="hl-n">42</span>')
+    expect(html).toContain('<span class="hl-b">true</span>')
+  })
+
+  it('highlightJSONText 支持多匹配与 activeMatch 索引高亮', () => {
+    const code = '{"fox_key": "fox_val", "other": "fox_again"}'
+    const html = highlightJSONText(code, 'fox', 1)
+    // 共有 3 处匹配，第 2 处（index 1）应为 active
+    const marks = html.match(/<mark class="[^"]+">fox<\/mark>/g)
+    expect(marks).toHaveLength(3)
+    expect(html).toContain('<span class="hl-k">&quot;<mark class="rp-find-mark">fox</mark>_key&quot;:</span>')
+    expect(html).toContain('<span class="hl-s">&quot;<mark class="rp-find-mark active">fox</mark>_val&quot;</span>')
+    expect(html).toContain('<span class="hl-s">&quot;<mark class="rp-find-mark">fox</mark>_again&quot;</span>')
   })
 })
 
