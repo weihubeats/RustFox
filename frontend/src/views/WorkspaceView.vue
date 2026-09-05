@@ -5,7 +5,7 @@
  * 树操作全部走 workspace store（Pinia），点击接口打开草稿标签页。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -34,6 +34,7 @@ import { useWindowDrag } from '../composables/useWindowDrag'
 
 const store = useWorkspaceStore()
 const router = useRouter()
+const route = useRoute()
 const api = useFoxApi()
 const toast = useToast()
 
@@ -420,28 +421,32 @@ onBeforeUnmount(() => {
           Mock <Icon name="chevron-down" :size="12" />
         </button>
         <EnvironmentBar />
-        <IconButton
-          class="tb-settings"
-          name="code"
-          :size="15"
-          title="GraphQL 工作台"
-          @click="router.push('/graphql')"
-        />
-        <IconButton
-          class="tb-settings"
-          name="zap"
-          :size="15"
-          title="实时调试（WebSocket / SSE）"
-          @click="router.push('/realtime')"
-        />
-        <IconButton
-          class="tb-settings"
-          name="keyboard"
-          :size="15"
-          title="快捷键（Ctrl+/）"
-          @click="showShortcuts = true"
-        />
-        <IconButton class="tb-settings" name="settings" :size="15" title="设置" @click="showSettings = true" />
+        <div class="tb-tool-group" role="toolbar" aria-label="工作台工具">
+          <IconButton
+            class="tb-tool"
+            :class="{ active: route.path === '/graphql' }"
+            name="code"
+            :size="15"
+            title="GraphQL 工作台"
+            @click="router.push('/graphql')"
+          />
+          <IconButton
+            class="tb-tool"
+            :class="{ active: route.path === '/realtime' }"
+            name="zap"
+            :size="15"
+            title="实时调试（WebSocket / SSE）"
+            @click="router.push('/realtime')"
+          />
+          <IconButton
+            class="tb-tool"
+            name="keyboard"
+            :size="15"
+            title="快捷键（Ctrl+/）"
+            @click="showShortcuts = true"
+          />
+          <IconButton class="tb-tool" name="settings" :size="15" title="设置" @click="showSettings = true" />
+        </div>
       </div>
     </div>
 
@@ -690,15 +695,36 @@ onBeforeUnmount(() => {
   border-color: rgba(255, 255, 255, 0.2);
   color: var(--text-1);
 }
-.tb-right .tb-settings {
-  width: 32px;
+/* ---- 右区工具组：连体分段控件（单边框 + 内部分隔），替代四个独立方块 ---- */
+.tb-tool-group {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
   height: 32px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   background: var(--bg-hover);
+  overflow: hidden;
 }
-.tb-right .tb-settings:hover:not(:disabled) {
+.tb-tool-group .tb-tool {
+  width: 36px;
+  height: auto;
+  border-radius: 0;
+}
+.tb-tool-group .tb-tool + .tb-tool {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.tb-tool-group .tb-tool:hover:not(:disabled) {
   background: var(--bg-active);
+  color: var(--text-1);
+}
+.tb-tool-group .tb-tool:active:not(:disabled) {
+  transform: none;
+}
+/* 当前所在工作台高亮（路由驱动） */
+.tb-tool-group .tb-tool.active {
+  color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* ---- Mock 状态圆点（按钮内指示） ---- */
