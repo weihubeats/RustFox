@@ -47,16 +47,16 @@
 
 :root {
   color-scheme: dark;
-  /* ---- 色板（深色基准：GitHub Dark 灰蓝系，比纯黑亮一档） ---- */
-  --bg-app: #16171b;
-  --bg-panel: #1c1e23;
-  --bg-card: #212329;
-  --bg-elevated: #26282f;
-  --bg-code: #1a1c21;
-  --bg-hover: rgba(255, 255, 255, 0.08);
-  --bg-active: rgba(255, 255, 255, 0.12);
-  --border: #2c2f36;
-  --border-strong: #3a3e47;
+  /* ---- 色板（Obsidian 近黑系：app 深埋，panel/card 逐层浮起，边框细亮一档） ---- */
+  --bg-app: #090b0e;
+  --bg-panel: #0e1116;
+  --bg-card: #14171d;
+  --bg-elevated: #1a1f27;
+  --bg-code: #0d1015;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --border: #23272f;
+  --border-strong: #343945;
   --text-1: #e9eaee;
   --text-2: #a7a8b3;
   --text-3: #71737f;
@@ -86,10 +86,12 @@
   --info-border: rgba(59, 130, 246, 0.35);
   --mask: rgba(10, 12, 16, 0.55);
 
-  /* ---- 圆角 4/6/10 ---- */
+  /* ---- 圆角 4/6/8/10/16 ---- */
   --radius-sm: 4px;
   --radius: 6px;
+  --radius-md: 8px;
   --radius-lg: 10px;
+  --radius-xl: 16px;
 
   /* ---- 控件高度 24/28/32/36 ---- */
   --h-xs: 24px;
@@ -275,6 +277,18 @@ body {
   outline-offset: 1px;
 }
 
+/* ---- 减少动态效果：JS 计时器类动画由各自组件的媒体查询处理，
+ * 此处一刀切关闭 CSS 动画/过渡（组件内的媒体查询可逐步清理）。 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ---- 字体：正文 Inter（body 已设），输入框与代码块统一 JetBrains Mono ---- */
 input,
 textarea,
@@ -357,35 +371,47 @@ kbd,
   cursor: default;
 }
 
+/* Obsidian 主按钮：紫渐变 + 光晕（对标参考图的 Create 按钮） */
 .rf-btn-primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   border-color: transparent;
   color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 16px rgba(124, 58, 237, 0.35);
 }
 .rf-btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: linear-gradient(135deg, #9d71f7, #8b5cf6);
   border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 20px rgba(124, 58, 237, 0.45);
 }
 .rf-btn-primary:active:not(:disabled) {
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
 }
 
 .rf-btn-send {
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 3px 10px rgba(9, 12, 22, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 3px 12px rgba(124, 58, 237, 0.4);
 }
 .rf-btn-send:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: linear-gradient(135deg, #9d71f7, #8b5cf6);
   border-color: transparent;
   transform: translateY(-1px);
-  box-shadow: 0 5px 14px rgba(9, 12, 22, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 18px rgba(124, 58, 237, 0.5);
 }
 .rf-btn-send:active:not(:disabled) {
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   transform: translateY(0);
-  box-shadow: none;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
 }
 
 .rf-btn-danger {

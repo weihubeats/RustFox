@@ -680,12 +680,12 @@ onBeforeUnmount(() => {
   opacity: 0.55;
 }
 
-/* ---- 顶栏右区操作：统一 h-8、border-white/10、rounded-lg、gap-2 ---- */
+/* ---- 顶栏右区操作：统一 h-8、rounded-lg、gap-2（边框走变量，深浅主题可见） ---- */
 .tb-right .tb-action {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--bg-hover);
   font-size: 12px;
   gap: 6px;
@@ -693,7 +693,7 @@ onBeforeUnmount(() => {
 }
 .tb-right .tb-action:hover:not(:disabled) {
   background: var(--bg-active);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-strong);
   color: var(--text-1);
 }
 /* ---- 右区工具组：连体分段控件（单边框 + 内部分隔），替代四个独立方块 ---- */
@@ -702,8 +702,8 @@ onBeforeUnmount(() => {
   align-items: stretch;
   flex-shrink: 0;
   height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--bg-hover);
   overflow: hidden;
 }
@@ -713,7 +713,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
 }
 .tb-tool-group .tb-tool + .tb-tool {
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--border);
 }
 .tb-tool-group .tb-tool:hover:not(:disabled) {
   background: var(--bg-active);
@@ -883,6 +883,12 @@ onBeforeUnmount(() => {
 }
 .ss-input::placeholder {
   color: rgba(209, 213, 219, 0.45);
+}
+:global(html[data-theme='light']) .ss-input {
+  color: var(--text-1);
+}
+:global(html[data-theme='light']) .ss-input::placeholder {
+  color: var(--text-3);
 }
 
 .ss-clear {

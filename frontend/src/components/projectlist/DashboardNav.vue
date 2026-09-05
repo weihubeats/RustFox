@@ -58,12 +58,10 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 34px;
-  padding: 0 10px 0 8px;
+  height: 36px;
+  padding: 0 12px;
   border: none;
-  /* 左侧 2px 高亮条占位（active 时着色），避免选中态布局跳动 */
-  border-left: 2px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 10px;
   background: none;
   color: var(--text-2);
   font-size: 13px;
@@ -73,7 +71,7 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
   transition:
     background var(--dur) var(--ease),
     color var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
+    box-shadow var(--dur) var(--ease);
 }
 .nav-item:hover {
   background: var(--bg-hover);
@@ -82,12 +80,14 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
 .nav-item:active {
   background: var(--bg-active);
 }
-/* 选中态：弱化 accent 底 + accent 文字 + 左缘主题色条 */
+/* 选中态：Obsidian 全宽紫 pill（渐变 + 光晕 + 白字） */
 .nav-item.active {
-  background: var(--accent-tint);
-  color: var(--accent-hover);
-  border-left-color: var(--accent);
-  font-weight: 500;
+  background: linear-gradient(135deg, #7e57ff, #6e46ff);
+  color: #fff;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 14px rgba(126, 87, 255, 0.35);
 }
 
 .nav-label {

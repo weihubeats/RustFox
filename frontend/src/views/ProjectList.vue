@@ -31,6 +31,7 @@ import ProjectDeleteModal from '../components/projectlist/ProjectDeleteModal.vue
 import ScratchRequestModal from '../components/projectlist/ScratchRequestModal.vue'
 import { timeAgo } from '../components/projectlist/projectMeta'
 import { aggregateProjectStats, totalEndpointCount } from '../utils/projectStats'
+import { methodTone } from '../utils/methodTone'
 import { useWindowDrag } from '../composables/useWindowDrag'
 import logo from '../assets/rustfox-logo.png'
 import type { HttpMethod, Project } from '../types/foxApi'
@@ -72,6 +73,12 @@ function badgeOf(projectId: string): { text: string; cls: string } {
     ? ep.method.toLowerCase()
     : 'other'
   return { text: ep.method === 'DELETE' ? 'DEL' : ep.method, cls }
+}
+
+/** 时间线徽章色：方法走共享 methodTone，GQL 粉 / NEW 灰为特例。 */
+function tlTone(cls: string): string {
+  if (cls === 'gql') return 'tl-gql'
+  return methodTone(cls)
 }
 
 const recentProjects = computed(() =>
@@ -435,7 +442,7 @@ useWindowDrag(topBarEl)
                     type="button"
                     @click="enter(p)"
                   >
-                    <span class="tl-badge" :class="badgeOf(p.id).cls">{{ badgeOf(p.id).text }}</span>
+                    <span class="tl-badge" :class="tlTone(badgeOf(p.id).cls)">{{ badgeOf(p.id).text }}</span>
                     <span class="tl-main">
                       <span class="tl-line">
                         <span class="tl-name">{{ p.name }}</span>
@@ -640,9 +647,11 @@ useWindowDrag(topBarEl)
   align-items: center;
   justify-content: center;
   color: #fff;
-  border-radius: 8px;
-  background: var(--accent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 2px 8px rgba(124, 58, 237, 0.4);
 }
 
 .top-title {
@@ -702,9 +711,8 @@ useWindowDrag(topBarEl)
   align-items: center;
   gap: 14px;
   padding: 22px 24px;
-  border-radius: var(--radius-lg);
-  /* 半透明深底 + 1px 微光边框：比纯 var(--border) 更有层次 */
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 55%),
     var(--bg-panel);
@@ -715,12 +723,9 @@ useWindowDrag(topBarEl)
     box-shadow var(--dur) var(--ease);
 }
 .stat-card:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-strong);
   transform: translateY(-1px);
   box-shadow: var(--shadow-lg);
-}
-html[data-theme='light'] .stat-card {
-  border-color: var(--border);
 }
 
 /* 图标底座：圆角方块 + 分色微光（indigo / violet / amber 三档） */
@@ -823,12 +828,16 @@ html[data-theme='light'] .stat-card {
   color: var(--text-2);
 }
 
+/* 分区小标题：Obsidian 式小字 caps */
 .stat-label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
-  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 .stat-sub {
@@ -862,13 +871,10 @@ html[data-theme='light'] .stat-card {
   border-top-right-radius: 0;
 }
 .tl-item:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-html[data-theme='light'] .tl-item:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-/* Method Badge：与 TabBar 的 method-tag 同配色体系 */
+/* Method Badge：布局尺寸，颜色走共享 methodTone（GQL 粉 / NEW 灰为特例） */
 .tl-badge {
   flex-shrink: 0;
   width: 42px;
@@ -879,37 +885,15 @@ html[data-theme='light'] .tl-item:hover {
   line-height: 1;
   padding: 4px 0;
   border-radius: 6px;
+  border: 1px solid transparent;
   letter-spacing: 0.03em;
-  color: var(--rf-text-muted);
-  background: var(--bg-hover);
-}
-.tl-badge.get {
-  color: var(--rf-success);
-  background: var(--success-tint);
-}
-.tl-badge.post {
-  color: var(--rf-warning);
-  background: var(--warning-tint);
-}
-.tl-badge.put {
-  color: var(--rf-info);
-  background: var(--info-tint);
-}
-.tl-badge.delete {
-  color: var(--rf-danger);
-  background: var(--danger-tint);
-}
-.tl-badge.patch {
-  color: var(--patch);
-  background: var(--accent-tint);
-}
-.tl-badge.gql {
-  color: #f472b6;
-  background: rgba(236, 72, 153, 0.13);
-}
-.tl-badge.new {
   color: var(--text-3);
   background: var(--bg-hover);
+}
+.tl-badge.tl-gql {
+  color: #f472b6;
+  background: rgba(236, 72, 153, 0.13);
+  border-color: rgba(236, 72, 153, 0.25);
 }
 
 .tl-main {
@@ -981,21 +965,25 @@ html[data-theme='light'] .tl-item:hover {
   transform: translateY(1px);
 }
 
-/* 主 CTA：flat accent（页面唯一的高饱和焦点，无渐变无霓虹） */
+/* 主 CTA：紫渐变光晕（与全局 rf-btn-primary 同语言） */
 .quick-btn.primary {
   border: 1px solid transparent;
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   color: #fff;
-  box-shadow: 0 3px 10px rgba(9, 12, 22, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 3px 12px rgba(124, 58, 237, 0.4);
 }
 .quick-btn.primary:hover {
   border-color: transparent;
-  background: var(--accent-hover);
-  box-shadow: 0 5px 14px rgba(9, 12, 22, 0.5);
+  background: linear-gradient(135deg, #9d71f7, #8b5cf6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 5px 16px rgba(124, 58, 237, 0.5);
 }
 .quick-btn.primary:active {
-  background: var(--accent);
-  box-shadow: none;
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
 }
 
 /* 次要动作（导入）：中性描边样式 */
@@ -1146,21 +1134,25 @@ html[data-theme='light'] .tl-item:hover {
   padding: 0 16px;
   border: none;
   border-radius: var(--radius-lg);
-  background: var(--accent);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   color: #fff;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  box-shadow: 0 4px 14px var(--accent-tint);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 14px rgba(124, 58, 237, 0.4);
   transition:
     background var(--dur) var(--ease),
     transform var(--dur) var(--ease),
     box-shadow var(--dur) var(--ease);
 }
 .btn-new:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 6px 18px var(--accent-tint);
+  background: linear-gradient(135deg, #9d71f7, #8b5cf6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 18px rgba(124, 58, 237, 0.5);
 }
 .btn-new:active {
   transform: translateY(1px);

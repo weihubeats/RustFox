@@ -779,7 +779,7 @@ function onBatchMenuSelect(item: MenuItem): void {
   gap: 6px;
   min-height: 30px;
   padding: 3px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: default;
   transition: background var(--dur) var(--ease);
 }
@@ -789,24 +789,39 @@ function onBatchMenuSelect(item: MenuItem): void {
 :global(html[data-theme='light']) .tree-row:hover {
   background: rgba(0, 0, 0, 0.04);
 }
-/* 选中态：左侧 2px 紫高亮条（光晕）+ 紫渐变卡片 */
+/* 选中态：Obsidian 全宽紫 pill（渐变 + 光晕 + 白字），对标参考图侧边栏 */
 .tree-row.active {
-  background: linear-gradient(90deg, rgba(126, 87, 255, 0.14), rgba(126, 87, 255, 0));
+  background: linear-gradient(135deg, #7e57ff, #6e46ff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 14px rgba(126, 87, 255, 0.35);
 }
 .tree-row.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 20px;
-  border-radius: 999px;
-  background: #7e57ff;
-  box-shadow: 0 0 8px rgba(126, 87, 255, 0.8);
+  content: none;
+}
+.tree-row.active .tree-name,
+.tree-row.active .tree-name-text {
+  color: #fff;
+}
+.tree-row.active .tree-chevron,
+.tree-row.active .tree-folder-icon {
+  color: rgba(255, 255, 255, 0.8);
+}
+.tree-row.active .tree-actions :deep(.ib) {
+  color: rgba(255, 255, 255, 0.75);
+}
+.tree-row.active .tree-actions :deep(.ib:hover) {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.tree-row.active .tree-method {
+  /* 徽章在紫底上提亮底色保证可读 */
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
 }
 :global(html[data-theme='light']) .tree-row.active {
-  background: var(--accent-tint);
+  background: linear-gradient(135deg, #7e57ff, #6e46ff);
 }
 /* 多选态：淡蓝底（与激活态可叠加，激活优先显示） */
 .tree-row.selected {
@@ -820,7 +835,7 @@ function onBatchMenuSelect(item: MenuItem): void {
   padding: 6px 8px;
   margin-top: 4px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-panel);
   font-size: 12px;
 }
@@ -1004,7 +1019,7 @@ function onBatchMenuSelect(item: MenuItem): void {
   gap: 8px;
   padding: 4px 10px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
   opacity: 0.8;
