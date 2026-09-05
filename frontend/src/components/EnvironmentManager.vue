@@ -1335,8 +1335,8 @@ async function remove(env: Environment): Promise<void> {
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
-  color: #34d399;
-  background: rgba(52, 211, 153, 0.1);
+  color: var(--success);
+  background: var(--success-tint);
 }
 
 /* 模块表列 */

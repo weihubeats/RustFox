@@ -2,22 +2,13 @@
 /**
  * MethodText：HTTP 方法彩色文本标识（mono、加粗、语义色；双主题跟随令牌）。
  */
-withDefaults(defineProps<{ method: string }>(), {})
+import { methodTextTone } from '../../utils/methodTone'
 
-const TONES: Record<string, string> = {
-  GET: 'get',
-  POST: 'post',
-  PUT: 'put',
-  PATCH: 'patch',
-  DELETE: 'delete',
-  HEAD: 'get',
-  OPTIONS: 'options',
-  GRAPHQL: 'graphql',
-}
+withDefaults(defineProps<{ method: string }>(), {})
 </script>
 
 <template>
-  <span class="mt" :class="`rf-method-${TONES[method.toUpperCase()] ?? 'options'}`">{{ method }}</span>
+  <span class="mt" :class="methodTextTone(method)">{{ method }}</span>
 </template>
 
 <style scoped>

@@ -36,6 +36,13 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  /* Method 语义色（映射方法变量，深/浅主题自动跟随； text/bg/border-method-* 工具类） */
+  --color-method-get: var(--get);
+  --color-method-post: var(--post);
+  --color-method-put: var(--put);
+  --color-method-patch: var(--patch);
+  --color-method-delete: var(--delete);
+  --color-method-neutral: var(--text-3);
 }
 
 :root {
@@ -106,6 +113,7 @@
   --sp-6: 24px;
 
   /* ---- 阴影 / 动效 / 焦点 ---- */
+  --shadow-sm: 0 1px 2px rgba(9, 12, 22, 0.5);
   --shadow: 0 8px 24px rgba(9, 12, 22, 0.5);
   --shadow-lg: 0 16px 48px rgba(8, 10, 18, 0.55);
   --focus-ring: rgba(131, 128, 232, 0.5);
@@ -202,6 +210,7 @@
   --info-tint: rgba(37, 99, 235, 0.08);
   --patch-tint: rgba(139, 92, 246, 0.1);
 
+  --shadow-sm: 0 1px 2px rgba(23, 28, 48, 0.12);
   --shadow: 0 8px 24px rgba(23, 28, 48, 0.12);
   --shadow-lg: 0 16px 48px rgba(17, 21, 38, 0.18);
   --focus-ring: rgba(95, 90, 212, 0.45);
@@ -552,6 +561,29 @@ kbd,
 }
 .rf-method-graphql {
   color: var(--patch);
+}
+
+/* ---- Method 文本色（全局语义色） ----
+ * m-select-* 曾只定义在 EndpointEditor 局部，其余 4 处引用（历史/用例/Mock/抽屉）
+ * 实际裸奔无色；集中于此后所有调用方生效。 */
+.m-select-get {
+  color: var(--get);
+}
+.m-select-post {
+  color: var(--post);
+}
+.m-select-put {
+  color: var(--put);
+}
+.m-select-delete {
+  color: var(--delete);
+}
+.m-select-patch {
+  color: var(--patch);
+}
+.m-select-head,
+.m-select-options {
+  color: var(--text-3);
 }
 
 /* ---- 表单 / 列表 / 面板 ---- */

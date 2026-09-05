@@ -9,6 +9,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
+import { methodTone } from '../utils/methodTone'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
@@ -119,7 +120,7 @@ async function createFolder(): Promise<void> {
       @click="store.activeTabId = tab.id"
       @mousedown="onTabMouseDown($event, tab.id)"
     >
-      <span class="method-tag" :class="`mt-${tab.method.toLowerCase()}`">{{ tab.method }}</span>
+      <span class="method-tag" :class="methodTone(tab.method)">{{ tab.method }}</span>
       <span class="tab-title" v-tooltip-overflow="tab.title">{{ tab.title }}</span>
       <span v-if="tab.dirty" class="tab-dirty" title="未保存"><Icon name="dot" :size="7" /></span>
       <Popconfirm
@@ -206,9 +207,10 @@ async function createFolder(): Promise<void> {
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
 }
 
-/* 方法标签：单色胶囊 + 方法色 */
+/* 方法标签：胶囊布局，颜色走共享 methodTone（utils/methodTone.ts） */
 .method-tag {
   flex-shrink: 0;
   font-family: var(--font-mono);
@@ -217,31 +219,6 @@ async function createFolder(): Promise<void> {
   line-height: 1;
   padding: 3px 6px;
   border-radius: 999px;
-}
-.mt-get {
-  color: var(--rf-success);
-  background: var(--success-tint);
-}
-.mt-post {
-  color: var(--rf-warning);
-  background: var(--warning-tint);
-}
-.mt-put {
-  color: var(--rf-info);
-  background: var(--info-tint);
-}
-.mt-delete {
-  color: var(--rf-danger);
-  background: var(--danger-tint);
-}
-.mt-patch {
-  color: var(--patch);
-  background: var(--accent-tint);
-}
-.mt-head,
-.mt-options {
-  color: var(--rf-text-muted);
-  background: var(--bg-hover);
 }
 
 .tab-title {

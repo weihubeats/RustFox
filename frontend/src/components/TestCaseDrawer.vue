@@ -858,9 +858,9 @@ function onSplitterDblClick(): void {
   border-color: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 .drw-badge.tone-info {
-  color: var(--rf-info, #38bdf8);
-  background: color-mix(in srgb, var(--rf-info, #38bdf8) 10%, transparent);
-  border-color: color-mix(in srgb, var(--rf-info, #38bdf8) 22%, transparent);
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  border-color: color-mix(in srgb, var(--info) 22%, transparent);
 }
 
 .drw-meta {

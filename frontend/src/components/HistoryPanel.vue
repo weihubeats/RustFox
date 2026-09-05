@@ -259,7 +259,7 @@ function shortTime(iso: string): string {
 }
 
 .hp-row:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .hp-method {

@@ -1124,12 +1124,7 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.m-select-get { color: var(--rf-success); }
-.m-select-post { color: var(--rf-warning); }
-.m-select-put { color: var(--rf-info); }
-.m-select-delete { color: var(--rf-danger); }
-.m-select-patch { color: var(--patch); }
-.m-select-head, .m-select-options { color: var(--rf-text-muted); }
+/* m-select-* 方法文本色已上收全局（style.css），此处不再重复定义。 */
 
 /* 统一请求栏：方法下拉 + 基础URL标签 + 路径输入合并为一个控件 */
 .request-bar {
@@ -1360,8 +1355,8 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 @keyframes bar-send-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
-  50% { box-shadow: 0 0 0 7px rgba(239, 68, 68, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 45%, transparent); }
+  50% { box-shadow: 0 0 0 7px transparent; }
 }
 
 /* 请求栏发送中：顶部流光 + 边框高亮（纯动画，无新增展示块）。 */

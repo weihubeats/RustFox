@@ -223,8 +223,8 @@ html[data-theme='light'] .proj-card:hover {
   box-shadow: 0 0 4px currentColor;
 }
 .proj-status.active {
-  background: rgba(52, 211, 153, 0.09);
-  color: #34d399;
+  background: var(--success-tint);
+  color: var(--success);
 }
 
 .proj-desc {

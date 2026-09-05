@@ -723,23 +723,23 @@ onBeforeUnmount(() => {
 .mp-get,
 .mp-head {
   color: var(--get);
-  background: rgba(16, 185, 129, 0.1);
+  background: color-mix(in srgb, var(--get) 10%, transparent);
 }
 .mp-post {
   color: var(--post);
-  background: rgba(245, 158, 11, 0.1);
+  background: color-mix(in srgb, var(--post) 10%, transparent);
 }
 .mp-put {
   color: var(--put);
-  background: rgba(59, 130, 246, 0.1);
+  background: color-mix(in srgb, var(--put) 10%, transparent);
 }
 .mp-delete {
   color: var(--delete);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--delete) 10%, transparent);
 }
 .mp-patch {
   color: var(--patch);
-  background: rgba(167, 139, 250, 0.12);
+  background: color-mix(in srgb, var(--patch) 12%, transparent);
 }
 .mp-options {
   color: var(--text-2);

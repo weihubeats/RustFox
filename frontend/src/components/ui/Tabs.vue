@@ -110,6 +110,7 @@ function pick(key: string): void {
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
 }
 .tab:disabled {
   opacity: 0.4;

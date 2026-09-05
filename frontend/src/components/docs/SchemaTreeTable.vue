@@ -260,9 +260,9 @@ function toggle(key: string, expandable: boolean): void {
   white-space: nowrap;
 }
 .t-string {
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+  background: var(--success-tint);
+  border-color: color-mix(in srgb, var(--success) 22%, transparent);
 }
 .t-object {
   color: var(--info);

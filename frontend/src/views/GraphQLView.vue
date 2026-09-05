@@ -510,7 +510,7 @@ async function copyCode() {
   --accent: var(--rf-info);
   --accent-2: var(--rf-accent-weak);
   --accent-soft: var(--rf-info-tint);
-  --accent-line: rgba(59, 130, 246, 0.45);
+  --accent-line: color-mix(in srgb, var(--info) 45%, transparent);
   --success: var(--rf-success);
   --warning: var(--rf-warning);
   --danger: var(--rf-danger);
