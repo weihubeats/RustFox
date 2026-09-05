@@ -93,6 +93,7 @@ import { computed, inject, provide, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { escapeHtml } from '../utils/highlight'
+import { methodTone } from '../utils/methodTone'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Menu from './ui/Menu.vue'
@@ -635,7 +636,7 @@ function onBatchMenuSelect(item: MenuItem): void {
           :class="{ open: expanded.has(f.id) || searchActive }"
           @click="toggleFolder(f.id)"
         >
-          <Icon name="chevron-right" :size="13" />
+          <Icon name="chevron-right" :size="12" :stroke-width="1.25" />
         </span>
         <template v-if="editing?.kind === 'rename-folder' && editing.id === f.id">
           <input
@@ -709,7 +710,7 @@ function onBatchMenuSelect(item: MenuItem): void {
         </template>
         <template v-else>
           <span class="tree-chevron spacer"></span>
-          <span class="tree-method" :class="`method-${e.method.toLowerCase()}`">{{ e.method }}</span>
+          <span class="tree-method" :class="methodTone(e.method)">{{ e.method }}</span>
           <span class="tree-name" :class="{ dirty: store.isDirty(e.id) }" @click="onEndpointClick(e, i, $event)">
             <span class="tree-name-text" v-html="highlightName(e.name || e.path)"></span>
             <Icon v-if="store.isDirty(e.id)" class="tree-dirty" name="dot" :size="6" />
@@ -772,26 +773,40 @@ function onBatchMenuSelect(item: MenuItem): void {
 }
 
 .tree-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
-  padding: 2px 6px;
-  border-radius: 6px;
+  min-height: 30px;
+  padding: 3px 8px;
+  border-radius: 8px;
   cursor: default;
   transition: background var(--dur) var(--ease);
 }
 .tree-row:hover {
-  background: rgba(38, 38, 38, 0.5);
+  background: rgba(255, 255, 255, 0.04);
 }
 :global(html[data-theme='light']) .tree-row:hover {
   background: rgba(0, 0, 0, 0.04);
 }
-/* 选中态：清爽半透明 accent 底 + 右缘主题色条（border-right 补偿 padding 防止行宽跳动） */
+/* 选中态：左侧 2px 紫高亮条（光晕）+ 紫渐变卡片 */
 .tree-row.active {
+  background: linear-gradient(90deg, rgba(126, 87, 255, 0.14), rgba(126, 87, 255, 0));
+}
+.tree-row.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 20px;
+  border-radius: 999px;
+  background: #7e57ff;
+  box-shadow: 0 0 8px rgba(126, 87, 255, 0.8);
+}
+:global(html[data-theme='light']) .tree-row.active {
   background: var(--accent-tint);
-  border-right: 2px solid var(--accent);
-  padding-right: 4px;
 }
 /* 多选态：淡蓝底（与激活态可叠加，激活优先显示） */
 .tree-row.selected {
@@ -843,12 +858,16 @@ function onBatchMenuSelect(item: MenuItem): void {
   align-items: center;
   justify-content: center;
   color: var(--text-3);
+  opacity: 0.75;
   cursor: pointer;
   user-select: none;
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
 }
 .tree-chevron:hover {
   color: var(--text-1);
+  opacity: 1;
 }
 .tree-chevron svg {
   transition: transform var(--dur) var(--ease);
@@ -908,7 +927,7 @@ function onBatchMenuSelect(item: MenuItem): void {
   text-align: center;
 }
 
-/* Method 胶囊 Badge：固定宽高、微亮色系（放弃纯文本彩色方案）；mr 与名称留出间距 */
+/* Method 轻量徽章：布局尺寸，颜色走共享 methodTone（utils/methodTone.ts） */
 .tree-method {
   width: 42px;
   height: 18px;
@@ -917,46 +936,15 @@ function onBatchMenuSelect(item: MenuItem): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  border-radius: 6px;
+  border-width: 1px;
+  border-style: solid;
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1;
   white-space: nowrap;
-}
-.tree-method.method-get {
-  background: rgba(16, 185, 129, 0.1);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.2);
-}
-.tree-method.method-post {
-  background: rgba(245, 158, 11, 0.1);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.2);
-}
-.tree-method.method-put {
-  background: rgba(59, 130, 246, 0.1);
-  color: #60a5fa;
-  border-color: rgba(59, 130, 246, 0.2);
-}
-.tree-method.method-delete {
-  background: rgba(244, 63, 94, 0.1);
-  color: #fb7185;
-  border-color: rgba(244, 63, 94, 0.2);
-}
-.tree-method.method-patch,
-.tree-method.method-graphql {
-  background: rgba(167, 139, 250, 0.1);
-  color: #a78bfa;
-  border-color: rgba(167, 139, 250, 0.2);
-}
-.tree-method.method-options,
-.tree-method.method-head {
-  background: rgba(163, 163, 163, 0.1);
-  color: #a3a3a3;
-  border-color: rgba(163, 163, 163, 0.2);
 }
 
 .tree-actions {

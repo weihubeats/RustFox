@@ -452,6 +452,7 @@ onBeforeUnmount(() => {
 
     <div class="workspace-body">
       <aside class="rf-sidebar" :style="{ width: `${sidebarWidth}px` }">
+        <div data-tauri-drag-region class="sidebar-drag" aria-hidden="true"></div>
         <Tabs v-model="sidebarTab" :tabs="sidebarTabs" size="sm" class="sidebar-tabs" />
         <div v-show="sidebarTab === 'collections'" class="sidebar-collections">
           <div class="sidebar-toolbar">
@@ -746,9 +747,20 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--rf-border);
-  background: var(--rf-bg-panel);
+  border-right: 1px solid #262933;
+  background: #14161a;
   overflow: hidden;
+}
+:global(html[data-theme='light']) .rf-sidebar {
+  border-right-color: var(--rf-border);
+  background: var(--rf-bg-panel);
+}
+
+/* ---- 顶部拖拽区：扩大窗口拖拽面积（内无交互元素，避免吞点击） ---- */
+.sidebar-drag {
+  flex-shrink: 0;
+  height: 12px;
+  cursor: default;
 }
 
 /* ---- 拖拽分割条：透明叠加在边框上，悬停/拖拽中高亮 ---- */
@@ -816,30 +828,41 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--accent) 85%, transparent);
   background: color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--accent-hover);
+  box-shadow: 0 0 10px rgba(126, 87, 255, 0.25);
 }
 .tool-add:active {
   transform: translateY(1px);
 }
 
-/* ---- 接口搜索栏：h-7、bg-white/5、rounded、px-2.5、text-xs、text-gray-300 */
+/* ---- 接口搜索栏：内嵌凹陷质感，聚焦时紫色柔光 ---- */
 .sidebar-search {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: 32px;
   margin: 8px 12px 0;
-  padding: 0 8px;
+  padding: 0 10px;
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #262933;
+  border-radius: 12px;
+  background: #1c1f26;
   transition:
     border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
     background var(--dur) var(--ease);
 }
 .sidebar-search:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: #7e57ff;
+  background: #1c1f26;
+  box-shadow: 0 0 0 3px rgba(126, 87, 255, 0.18);
+}
+:global(html[data-theme='light']) .sidebar-search {
+  border-color: var(--rf-border);
+  background: var(--rf-input-bg);
+}
+:global(html[data-theme='light']) .sidebar-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
 .ss-icon {
@@ -890,11 +913,35 @@ onBeforeUnmount(() => {
   padding: 8px 12px 12px;
 }
 
-/* ---- 侧栏页签（接口目录 / 请求历史） ---- */
+/* ---- 侧栏页签（接口目录 / 请求历史 / Cookie）：分段胶囊，与顶栏工具组同语言 ---- */
 .sidebar-tabs {
   flex-shrink: 0;
-  padding: 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin: 2px 12px 0;
+}
+.sidebar-tabs :deep(.tabs) {
+  border-bottom: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 2px;
+  gap: 2px;
+}
+.sidebar-tabs :deep(.tab) {
+  flex: 1 1 0;
+  justify-content: center;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.sidebar-tabs :deep(.tab.active) {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+.sidebar-tabs :deep(.tab.active::after) {
+  display: none;
+}
+:global(html[data-theme='light']) .sidebar-tabs :deep(.tab.active) {
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar-collections {
@@ -926,7 +973,7 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   border-radius: var(--rf-radius-sm);
   background: var(--rf-danger-tint);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid var(--danger-border);
 }
 
 .rf-inline-error-text {
