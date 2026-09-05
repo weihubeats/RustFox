@@ -420,7 +420,7 @@ const showExport = ref(false)
   gap: 6px;
   padding: 4.5px 12px;
   border: 1px solid rgba(64, 64, 64, 0.6);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: #262626;
   color: #e5e5e5;
   font-family: inherit;

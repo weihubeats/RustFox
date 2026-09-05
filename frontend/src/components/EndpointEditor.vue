@@ -1062,7 +1062,7 @@ onUnmounted(() => {
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-2);
   align-self: flex-start;
 }
@@ -1114,7 +1114,7 @@ onUnmounted(() => {
 }
 .save-arrow {
   border-radius: 0 7px 7px 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: 1px solid var(--border-strong);
   padding: 0 7px;
 }
 

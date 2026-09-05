@@ -1074,7 +1074,7 @@ async function remove(env: Environment): Promise<void> {
 
 .em-global-soon {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--text-3);
   border: 1px solid var(--border);

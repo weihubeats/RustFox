@@ -381,7 +381,7 @@ async function startExport(): Promise<void> {
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: #0a0a0a;
 }
 

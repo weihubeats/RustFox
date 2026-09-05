@@ -100,10 +100,10 @@ function onBlur(): void {
       @blur="onBlur"
     />
     <span class="cni-steppers">
-      <button type="button" class="cni-step" tabindex="-1" :disabled="disabled" @mousedown.prevent @click="stepBy(1)">
+      <button type="button" class="cni-step" tabindex="-1" aria-label="增加" :disabled="disabled" @mousedown.prevent @click="stepBy(1)">
         <Icon name="chevron-up" :size="10" />
       </button>
-      <button type="button" class="cni-step" tabindex="-1" :disabled="disabled" @mousedown.prevent @click="stepBy(-1)">
+      <button type="button" class="cni-step" tabindex="-1" aria-label="减少" :disabled="disabled" @mousedown.prevent @click="stepBy(-1)">
         <Icon name="chevron-down" :size="10" />
       </button>
     </span>

@@ -50,7 +50,7 @@ withDefaults(
   justify-content: center;
   width: 52px;
   height: 52px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   background: var(--bg-hover);
   color: var(--text-3);
 }

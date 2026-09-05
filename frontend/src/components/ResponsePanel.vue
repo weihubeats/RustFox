@@ -649,12 +649,12 @@ onUnmounted(() => {
   box-shadow: 0 2px 10px color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
-/* 指标竖线分隔（border-white/10 h-3） */
+/* 指标竖线分隔 */
 .rp-sep {
   flex-shrink: 0;
   width: 1px;
   height: 14px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border);
 }
 
 .rp-meta {

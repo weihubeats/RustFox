@@ -337,7 +337,7 @@ async function copyJson(): Promise<void> {
 .hl-wrap {
   position: relative;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--code-bg);
   overflow: hidden;
   flex: 1;

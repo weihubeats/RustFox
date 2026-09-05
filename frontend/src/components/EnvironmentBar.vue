@@ -122,7 +122,7 @@ function colorClass(name: string): string {
   display: inline-flex;
   align-items: center;
   height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-hover);
   overflow: hidden;
@@ -131,7 +131,7 @@ function colorClass(name: string): string {
     box-shadow var(--dur) var(--ease);
 }
 .eb-group:hover {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-strong);
 }
 .eb-group:focus-within {
   border-color: var(--accent);
@@ -171,7 +171,7 @@ function colorClass(name: string): string {
   width: 1px;
   height: 18px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border);
 }
 
 .eb-eye {

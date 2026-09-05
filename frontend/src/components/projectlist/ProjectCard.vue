@@ -247,7 +247,7 @@ html[data-theme='light'] .proj-card:hover {
   gap: 12px;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
 }
 
 .proj-metrics {

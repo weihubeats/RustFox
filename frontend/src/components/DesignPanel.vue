@@ -770,7 +770,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 6px 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: #fff;
   font-family: inherit;
@@ -1166,7 +1166,7 @@ html[data-theme='light'] .body-json {
   overflow: auto;
   padding: 12px;
   border: 1px solid rgba(38, 38, 38, 0.8);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: #0a0a0a;
   font-size: 12px;
   line-height: 1.65;
@@ -1179,7 +1179,7 @@ html[data-theme='light'] .body-json {
   margin: 0;
   padding: 20px 12px;
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   color: var(--text-3);
   text-align: center;

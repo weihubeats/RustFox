@@ -197,7 +197,7 @@ defineExpose({ openAt, close })
   padding: 6px 12px;
   border: none;
   background: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-family: inherit;
   color: var(--text-2);

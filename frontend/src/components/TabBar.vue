@@ -273,7 +273,7 @@ async function createFolder(): Promise<void> {
 }
 .tab-add-group:hover {
   border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-active);
 }
 .tab-add-group:focus-within {
   outline: 2px solid var(--accent);
