@@ -10,14 +10,15 @@
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { version } from '../../package.json'
 import { useToast } from '../composables/useToast'
+import { takePendingUpdate, skipUpdateVersion } from '../composables/useAutoUpdate'
 import Icon from './ui/Icon.vue'
 import Modal from './ui/Modal.vue'
 import logo from '../assets/rustfox-logo.png'
 
-defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
 const toast = useToast()
@@ -44,6 +45,26 @@ const progress = ref<number | null>(null)
 const pendingVersion = ref<string | null>(null)
 const pendingNotes = ref('')
 let pending: Update | null = null
+
+/**
+ * 承接定时检查发现的更新：弹窗打开时若有暂存，直接展示版本号与说明，
+ * 免二次检查，一键下载安装。
+ */
+watch(
+  () => props.open,
+  (open) => {
+    if (!open || pendingVersion.value) return
+    const auto = takePendingUpdate()
+    if (auto?.available) {
+      pending?.close()
+      pending = auto
+      pendingVersion.value = auto.version
+      pendingNotes.value = auto.body ?? ''
+    } else {
+      auto?.close()
+    }
+  },
+)
 
 async function checkUpdates(): Promise<void> {
   if (checking.value) return
@@ -108,6 +129,18 @@ async function installUpdate(): Promise<void> {
     downloading.value = false
   }
 }
+
+/** 跳过此版本：关闭待安装、记录跳过，不再提醒直到出现更新的版本。 */
+function skipVersion(): void {
+  const v = pendingVersion.value
+  if (!v || downloading.value) return
+  pending?.close()
+  pending = null
+  pendingVersion.value = null
+  pendingNotes.value = ''
+  skipUpdateVersion(v)
+  toast.success(`已跳过 v${v}`, { message: '出现更新的版本时再提醒，可在设置中取消跳过' })
+}
 </script>
 
 <template>
@@ -151,14 +184,18 @@ async function installUpdate(): Promise<void> {
         <span v-if="downloading" class="a-update-status">
           {{ progress == null ? '下载中…' : `${Math.round(progress * 100)}%` }}
         </span>
-        <button
-          v-else
-          class="a-update-btn"
-          type="button"
-          @click="installUpdate"
-        >
-          下载并安装
-        </button>
+        <template v-else>
+          <button
+            class="a-update-btn"
+            type="button"
+            @click="installUpdate"
+          >
+            下载并安装
+          </button>
+          <button class="a-skip-btn" type="button" @click="skipVersion">
+            跳过此版本
+          </button>
+        </template>
       </div>
 
       <div class="a-copyright">© 2026 RustFox Team. Open source under MIT License.</div>
@@ -342,5 +379,19 @@ async function installUpdate(): Promise<void> {
 
 .a-update-btn:hover {
   background: var(--accent-hover, var(--accent));
+}
+
+.a-skip-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.a-skip-btn:hover {
+  color: var(--text-1);
+  text-decoration: underline;
 }
 </style>

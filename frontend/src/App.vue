@@ -14,6 +14,7 @@ import ProgressBar from './components/ProgressBar.vue'
 import Brand from './components/Brand.vue'
 import AboutDialog from './components/AboutDialog.vue'
 import { useToast } from './composables/useToast'
+import { startAutoUpdate } from './composables/useAutoUpdate'
 
 const toast = useToast()
 const route = useRoute()
@@ -25,6 +26,7 @@ const showFloatingBrand = computed(
 
 const showAbout = ref(false)
 let unlistenAbout: UnlistenFn | null = null
+let stopAutoUpdate: (() => void) | null = null
 
 onMounted(async () => {
   window.addEventListener('error', (event) => {
@@ -43,6 +45,24 @@ onMounted(async () => {
       unlistenAbout = await listen('rustfox://about', () => {
         showAbout.value = true
       })
+      // 定时检查更新：仅主窗口启动（实时调试弹出窗不重复检查），
+      // 发现新版弹一次提醒，点击直达关于弹窗一键下载安装。
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      if (getCurrentWindow().label === 'main') {
+        stopAutoUpdate = startAutoUpdate({
+          onUpdateAvailable: ({ version }) => {
+            toast.info(`发现新版本 v${version}`, {
+              duration: 15000,
+              action: {
+                label: '查看详情',
+                run: () => {
+                  showAbout.value = true
+                },
+              },
+            })
+          },
+        })
+      }
     }
   } catch {
     // 非 Tauri（浏览器预览）环境：忽略
@@ -51,6 +71,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unlistenAbout?.()
+  stopAutoUpdate?.()
 })
 </script>
 

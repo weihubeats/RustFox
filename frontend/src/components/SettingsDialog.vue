@@ -24,6 +24,10 @@ import {
   shortcutBindingsTick,
   type ShortcutBinding,
 } from '../composables/useShortcuts'
+import {
+  clearSkippedUpdateVersion,
+  skippedUpdateVersion,
+} from '../composables/useAutoUpdate'
 import EnvironmentManager from './EnvironmentManager.vue'
 import Modal from './ui/Modal.vue'
 import Icon, { type IconName } from './ui/Icon.vue'
@@ -142,6 +146,7 @@ onMounted(async () => {
   }
   await loadEnvironments()
   await loadCounters()
+  reloadSkipped()
 })
 
 // ---------- 通用设置：请求超时（自动保存） ----------
@@ -411,6 +416,9 @@ watch(activeTab, (tab) => {
   if (tab === 'logs') {
     void loadLogFiles().then(() => void loadLogTail())
   }
+  if (tab === 'general') {
+    reloadSkipped()
+  }
 })
 
 // ---------- 快捷键自定义 ----------
@@ -511,6 +519,19 @@ function resetOneShortcut(id: string): void {
 function resetAllShortcuts(): void {
   resetAllShortcutBindings()
   toast.success('快捷键已全部恢复默认')
+}
+
+// ---------- 软件更新：跳过的版本 ----------
+const skippedVersion = ref<string | null>(null)
+
+function reloadSkipped(): void {
+  skippedVersion.value = skippedUpdateVersion()
+}
+
+function unskipVersion(): void {
+  clearSkippedUpdateVersion()
+  skippedVersion.value = null
+  toast.success('已取消跳过', { message: '下次检查到该版本将重新提醒' })
 }
 
 // ---------- 通用派生 ----------
@@ -645,6 +666,17 @@ const projectSummary = computed(() => {
                     </span>
                   </button>
                 </div>
+                <div v-if="skippedVersion" class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
+                  <div class="flex items-center justify-between gap-4 pt-5">
+                    <div class="max-w-md">
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        已跳过版本 <span class="font-mono">v{{ skippedVersion }}</span>
+                      </div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">该版本不再提醒更新，出现更新的版本时自动恢复。</p>
+                    </div>
+                    <button class="rf-btn rf-btn-sm shrink-0" type="button" @click="unskipVersion">
+                      取消跳过
+                    </button>
                   </div>
                 </div>
               </div>
