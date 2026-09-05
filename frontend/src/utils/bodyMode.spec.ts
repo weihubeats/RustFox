@@ -9,6 +9,7 @@ import {
   applyRawSubtype,
   contentTypeOf,
   rawSubtypeOf,
+  restoreRaw,
   tabOf,
 } from './bodyMode'
 
@@ -75,6 +76,27 @@ describe('applyRawSubtype', () => {
     applyRawSubtype(req, 'html')
     expect(req.headers).toHaveLength(2)
     expect(req.headers[0]).toMatchObject({ key: 'Content-Type', value: 'text/html' })
+  })
+})
+
+describe('restoreRaw', () => {
+  it('显式还原子类型 + 文本 + MIME（含空文本）', () => {
+    const req = spec({ mode: 'none' })
+    restoreRaw(req, 'json', '{"a":1}')
+    expect(req.body).toEqual({ mode: 'json', raw: '{"a":1}' })
+    expect(contentTypeOf(req.headers)).toBe('application/json')
+
+    const empty = spec({ mode: 'none' })
+    restoreRaw(empty, 'text', '')
+    expect(empty.body).toEqual({ mode: 'text', raw: '' })
+    expect(contentTypeOf(empty.headers)).toBe('text/plain')
+  })
+
+  it('还原 xml：text 模式 + 对应 MIME', () => {
+    const req = spec({ mode: 'json', raw: '<a/>' })
+    restoreRaw(req, 'xml', '<a/>')
+    expect(req.body).toEqual({ mode: 'text', raw: '<a/>' })
+    expect(contentTypeOf(req.headers)).toBe('application/xml')
   })
 })
 

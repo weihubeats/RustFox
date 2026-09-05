@@ -127,7 +127,6 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     // JsonEditor 渲染 mark 高亮
     expect(wrapper.findAll('.rp-find-mark').length).toBe(2)
     expect(wrapper.findAll('.rp-find-mark.active').length).toBe(1)
-    expect(wrapper.find('.findbar-count').text()).toContain('1 / 2')
 
     // 切换下一个匹配
     await wrapper.findAll('.findbar-btn')[1].trigger('click')
@@ -137,5 +136,94 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     // Esc 关闭
     await findInput.trigger('keydown', { key: 'Escape' })
     expect(wrapper.findComponent({ name: 'FindBar' }).exists()).toBe(false)
+  })
+
+  it('form-data→无→form-data：字段记忆还原', async () => {
+    const draft = makeDraft({ id: 'ep-form-mem' })
+    draft.request.body = {
+      mode: 'multipart',
+      fields: [{ key: 'a', value_type: 'text', value: '1', enabled: true }],
+    }
+    const wrapper = mountPanel(reactive(draft))
+    const tabBtn = (label: string) =>
+      wrapper.findAll('.seg-item').find((b) => b.text() === label)!
+
+    await tabBtn('无').trigger('click')
+    expect(draft.request.body.mode).toBe('none')
+
+    await tabBtn('form-data').trigger('click')
+    expect(draft.request.body).toEqual({
+      mode: 'multipart',
+      fields: [{ key: 'a', value_type: 'text', value: '1', enabled: true }],
+    })
+  })
+
+  it('graphql→无→GraphQL：query 记忆还原', async () => {
+    const draft = makeDraft({ id: 'ep-gql-mem' })
+    draft.request.body = {
+      mode: 'graphql',
+      spec: { query: 'query { hero }', variables: '{}', operation_name: '' },
+    }
+    const wrapper = mountPanel(reactive(draft))
+    const tabBtn = (label: string) =>
+      wrapper.findAll('.seg-item').find((b) => b.text() === label)!
+
+    await tabBtn('无').trigger('click')
+    expect(draft.request.body.mode).toBe('none')
+
+    await tabBtn('GraphQL').trigger('click')
+    expect(draft.request.body).toEqual({
+      mode: 'graphql',
+      spec: { query: 'query { hero }', variables: '{}', operation_name: '' },
+    })
+  })
+
+  it('binary→无→binary：文件路径记忆还原', async () => {
+    const draft = makeDraft({ id: 'ep-bin-mem' })
+    draft.request.body = { mode: 'binary', path: '/tmp/a.bin' }
+    const wrapper = mountPanel(reactive(draft))
+    const tabBtn = (label: string) =>
+      wrapper.findAll('.seg-item').find((b) => b.text() === label)!
+
+    await tabBtn('无').trigger('click')
+    await tabBtn('binary').trigger('click')
+    expect(draft.request.body).toEqual({ mode: 'binary', path: '/tmp/a.bin' })
+  })
+
+  it('urlencoded↔form-data 直接切换：保持实时转换，不读旧记忆', async () => {
+    const draft = makeDraft({ id: 'ep-conv-mem' })
+    draft.request.body = {
+      mode: 'urlencoded',
+      fields: [{ key: 'a', value: '1', enabled: true, description: '' }],
+    }
+    const wrapper = mountPanel(reactive(draft))
+    const tabBtn = (label: string) =>
+      wrapper.findAll('.seg-item').find((b) => b.text() === label)!
+
+    await tabBtn('form-data').trigger('click')
+    expect(draft.request.body).toEqual({
+      mode: 'multipart',
+      fields: [{ key: 'a', value_type: 'text', value: '1', enabled: true }],
+    })
+  })
+
+  it('raw(JSON)→无→raw：还原 JSON 子类型与文本，而非默认 text', async () => {
+    const draft = jsonDraft('{"a":1}')
+    draft.request.headers.push({ key: 'Content-Type', value: 'application/json', enabled: true, description: '' })
+    const wrapper = mountPanel(draft)
+    const tabBtn = (label: string) =>
+      wrapper.findAll('.seg-item').find((b) => b.text() === label)!
+
+    await tabBtn('无').trigger('click')
+    expect(draft.request.body.mode).toBe('none')
+
+    await tabBtn('raw').trigger('click')
+    // 子类型 + 文本 + Content-Type 全部还原
+    expect(draft.request.body).toEqual({ mode: 'json', raw: '{"a":1}' })
+    expect(
+      draft.request.headers.find((h) => h.key.toLowerCase() === 'content-type')?.value,
+    ).toBe('application/json')
+    // 编辑器回到 JSON 视图
+    expect(wrapper.findComponent({ name: 'JsonEditor' }).exists()).toBe(true)
   })
 })

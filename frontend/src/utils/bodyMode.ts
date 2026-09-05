@@ -89,6 +89,15 @@ export function rawSubtypeOf(body: BodySpec, headers: KeyValue[]): RawSubtype {
 export function applyRawSubtype(req: RequestSpec, subtype: RawSubtype): void {
   const prev = req.body
   const raw = prev.mode === 'json' || prev.mode === 'text' ? prev.raw : ''
+  restoreRaw(req, subtype, raw)
+}
+
+/**
+ * 还原 raw（子类型 + 文本显式指定）：切到 none 会整体替换 body 并移除
+ * Content-Type，切回 raw 时仅靠推导只能默认 text——调用方传入离开前
+ * 记忆的子类型与文本，还原用户之前的选择。
+ */
+export function restoreRaw(req: RequestSpec, subtype: RawSubtype, raw: string): void {
   req.body = subtype === 'json' ? { mode: 'json', raw } : { mode: 'text', raw }
   syncContentType(req.headers, RAW_SUBTYPES.find((s) => s.value === subtype)?.mime ?? 'text/plain')
 }

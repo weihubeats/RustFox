@@ -17,9 +17,9 @@ import IconButton from './ui/IconButton.vue'
 import JsonEditor from './ui/JsonEditor.vue'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import SegmentedControl, { type SegmentOption } from './ui/SegmentedControl.vue'
-import { RAW_SUBTYPES, applyBodyTab, applyRawSubtype, rawSubtypeOf, tabOf } from '../utils/bodyMode'
+import { RAW_SUBTYPES, applyBodyTab, applyRawSubtype, rawSubtypeOf, removeContentType, restoreRaw, syncContentType, tabOf } from '../utils/bodyMode'
 import type { BodyTab, RawSubtype } from '../utils/bodyMode'
-import type { BodySpec, Endpoint, GraphQLSpec, KeyValue, MultipartField } from '../types/foxApi'
+import type { BodySpec, Endpoint, GraphQLSpec, KeyValue, MultipartField, RequestSpec } from '../types/foxApi'
 
 const props = defineProps<{ draft: Endpoint | null }>()
 
@@ -49,10 +49,75 @@ const BODY_TABS: SegmentOption[] = [
 
 const RAW_SUBTYPE_OPTIONS = RAW_SUBTYPES.map((s) => ({ value: s.value, label: s.label }))
 
+/** 各接口离开 raw 前的子类型 + 文本记忆（切回 raw 时还原，而非默认 text）。 */
+const rawMemory = new Map<string, { subtype: RawSubtype; raw: string }>()
+
+/** 各接口各 Tab 的完整 body 记忆（切走再切回时还原，而非重置；按接口隔离）。 */
+const bodyMemory = new Map<string, Partial<Record<BodyTab, BodySpec>>>()
+
+function cloneBody(b: BodySpec): BodySpec {
+  return JSON.parse(JSON.stringify(b)) as BodySpec
+}
+
+/** form-data ↔ urlencoded 可互转：直接切换时保留实时转换，不读旧记忆。 */
+function isConvertiblePair(from: BodyTab, to: BodyTab): boolean {
+  return (
+    (from === 'form-data' && to === 'x-www-form-urlencoded') ||
+    (from === 'x-www-form-urlencoded' && to === 'form-data')
+  )
+}
+
+/** 还原某 Tab 的记忆 body 后同步 Content-Type（与 applyBodyTab 的固定 MIME 一致）。 */
+function syncTabContentType(req: RequestSpec, tab: BodyTab): void {
+  switch (tab) {
+    case 'form-data':
+      removeContentType(req.headers)
+      break
+    case 'x-www-form-urlencoded':
+      syncContentType(req.headers, 'application/x-www-form-urlencoded')
+      break
+    case 'binary':
+      syncContentType(req.headers, 'application/octet-stream')
+      break
+    case 'graphql':
+      syncContentType(req.headers, 'application/json')
+      break
+    default:
+      break
+  }
+}
+
 const activeTab = computed({
   get: () => tabOf((bodyAny.value ?? { mode: 'none' }) as BodySpec, headersAny.value ?? []),
   set: (tab: string) => {
-    if (props.draft) applyBodyTab(props.draft.request, tab as BodyTab)
+    const d = props.draft
+    if (!d) return
+    const next = tab as BodyTab
+    // 离开时记住完整 body：切到 none 会整体替换 body 并移除 Content-Type，
+    // 切回时仅靠推导会重置——用记忆还原之前的选择（含 raw 子类型与文本）。
+    // 按接口 × Tab 分桶，切换接口互不干扰。
+    const prevTab = tabOf(d.request.body as BodySpec, d.request.headers ?? [])
+    if (next !== prevTab && prevTab !== 'none') {
+      if (prevTab === 'raw') {
+        const b = d.request.body as { raw?: string }
+        rawMemory.set(d.id, { subtype: rawSubtype.value, raw: b?.raw ?? '' })
+      } else {
+        const perDraft = bodyMemory.get(d.id) ?? {}
+        perDraft[prevTab] = cloneBody(d.request.body as BodySpec)
+        bodyMemory.set(d.id, perDraft)
+      }
+    }
+    applyBodyTab(d.request, next)
+    if (next === 'raw') {
+      const mem = rawMemory.get(d.id)
+      if (mem) restoreRaw(d.request, mem.subtype, mem.raw)
+    } else if (next !== 'none' && !isConvertiblePair(prevTab, next)) {
+      const mem = bodyMemory.get(d.id)?.[next]
+      if (mem) {
+        d.request.body = cloneBody(mem)
+        syncTabContentType(d.request, next)
+      }
+    }
   },
 })
 
