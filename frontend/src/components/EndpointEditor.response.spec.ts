@@ -169,6 +169,45 @@ describe('EndpointEditor：接口响应按 id 隔离', () => {
     expect(errors.errors).toEqual([])
   })
 
+  it('发送中显示 Apifox 式请求中占位（转圈+实时计时），完成后闪光提示新响应', async () => {
+    const errors = collectErrors()
+    let resolveA!: (v: ExecuteResponse) => void
+    apiMock.executeRequest.mockImplementation(
+      () =>
+        new Promise<ExecuteResponse>((r) => {
+          resolveA = r
+        }),
+    )
+    const { wrapper, store } = await mountEditor()
+
+    store.openEndpoint(endpointA)
+    await nextTick()
+    const sendP = wrapper.find('.bar-send').trigger('click')
+    await nextTick()
+    await flushPromises()
+
+    // 在途：请求中占位（转圈，无独立计时）+ 发送按钮实时计时，旧空态不再显示。
+    expect(wrapper.find('.req-loading').exists()).toBe(true)
+    expect(wrapper.find('.req-loading-title').text()).toContain('正在发送请求')
+    expect(wrapper.find('.bar-send').text()).toContain('发送中')
+    expect(wrapper.find('.bar-send-elapsed').text()).toMatch(/\d+\.\d+s/)
+    expect(wrapper.find('.response-hint').exists()).toBe(false)
+
+    resolveA(makeResponse('ep-a'))
+    await sendP
+    await flushPromises()
+    await nextTick()
+
+    // 完成：占位消失，响应面板出现并带到达闪光。
+    expect(wrapper.find('.req-loading').exists()).toBe(false)
+    expect(wrapper.findComponent(ResponsePanel).props('response').body).toContain('ep-a')
+    expect(wrapper.find('.response-anim.flash').exists()).toBe(true)
+
+    wrapper.unmount()
+    errors.restore()
+    expect(errors.errors).toEqual([])
+  })
+
   it('A 请求失败只影响 A：B 显示自己的成功结果', async () => {
     const errors = collectErrors()
     apiMock.executeRequest.mockImplementation((args: { endpoint_id: string | null }) =>

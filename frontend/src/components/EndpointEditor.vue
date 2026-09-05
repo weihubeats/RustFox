@@ -38,6 +38,7 @@ import MockPanel from './MockPanel.vue'
 import MockRuleDialog from './MockRuleDialog.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import EmptyState from './ui/EmptyState.vue'
+import Skeleton from './ui/Skeleton.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
@@ -68,9 +69,50 @@ const api = useFoxApi()
 const DocsPanel = defineAsyncComponent(() => import('./DocsPanel.vue'))
 const TestCasesPanel = defineAsyncComponent(() => import('./TestCasesPanel.vue'))
 
-const sending = ref(false)
+const sendingMap = ref<Map<string, { requestId: string; startedAt: number }>>(new Map())
+
+/** 当前接口是否在途（逐接口隔离：A 发送中切到 B，B 仍可独立发送）。 */
+const sending = computed(() => (draft.value ? sendingMap.value.has(draft.value.id) : false))
 /** 在途请求的取消标识（非空表示有请求可取消）。 */
-const activeRequestId = ref<string | null>(null)
+const activeRequestId = computed(() =>
+  draft.value ? (sendingMap.value.get(draft.value.id)?.requestId ?? null) : null,
+)
+/** 驱动「发送中计时」重绘的心跳（Apifox 式实时计时，仅在途时推进）。 */
+const elapsedTick = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | undefined
+
+function ensureElapsedTimer(): void {
+  if (elapsedTimer) return
+  elapsedTimer = setInterval(() => {
+    if (sendingMap.value.size === 0) {
+      clearInterval(elapsedTimer)
+      elapsedTimer = undefined
+      return
+    }
+    elapsedTick.value += 1
+  }, 100)
+}
+
+/** 当前在途耗时（ms），靠 elapsedTick 心跳刷新。 */
+const elapsedMs = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  elapsedTick.value
+  if (!draft.value) return 0
+  const f = sendingMap.value.get(draft.value.id)
+  return f ? Math.max(0, Date.now() - f.startedAt) : 0
+})
+/** 发送中实时计时文案（Apifox 式：0.0s 起跳，持续跳动）。 */
+const elapsedText = computed(() => `${(elapsedMs.value / 1000).toFixed(1)}s`)
+/** 响应体动画锚点：新响应到达时重启动画，旧响应在途时降 dim——仅视觉反馈，不新增展示块。 */
+const flashEl = ref<HTMLElement | null>(null)
+
+function triggerFlash(): void {
+  const el = flashEl.value
+  if (!el) return
+  el.classList.remove('flash')
+  void el.offsetWidth
+  el.classList.add('flash')
+}
 /**
  * 各接口的请求结果按 id 分桶：EndpointEditor 是单实例常驻，若用单个 ref，
  * 切到另一个接口会看到上一个接口的响应；且请求在途时切换接口，旧接口的
@@ -387,18 +429,24 @@ function buildUrl(): string {
 }
 
 async function send(): Promise<void> {
-  if (!draft.value || sending.value) return
+  if (!draft.value) return
   const targetId = draft.value.id
-  sending.value = true
+  if (sendingMap.value.has(targetId)) {
+    toast.info('请求发送中，点击取消按钮可中断')
+    return
+  }
+  const snapshot = draft.value
   sendErrors.value.set(targetId, null)
   const url = buildUrl()
   const rid = crypto.randomUUID()
-  activeRequestId.value = rid
+  sendingMap.value.set(targetId, { requestId: rid, startedAt: Date.now() })
+  ensureElapsedTimer()
   try {
-    const resp = await store.send(draft.value, url, rid)
+    const resp = await store.send(snapshot, url, rid)
     // 结果按发起请求时的接口 id 落桶：请求在途时切走再返回，不会错位。
     responses.value.set(targetId, resp)
     sendErrors.value.set(targetId, null)
+    triggerFlash()
     // 历史已迁至侧栏「请求历史」页签，发送后由 store 统一刷新。
     void store.loadHistories()
   } catch (err) {
@@ -410,17 +458,21 @@ async function send(): Promise<void> {
     } else {
       sendErrors.value.set(targetId, err instanceof Error ? err.message : String(err))
       responses.value.set(targetId, null)
+      triggerFlash()
     }
   } finally {
-    if (activeRequestId.value === rid) activeRequestId.value = null
-    sending.value = false
+    sendingMap.value.delete(targetId)
+    // 等响应分支挂载后再重启动画：完成瞬间仍是请求中占位，flashEl 为空。
+    await nextTick()
+    triggerFlash()
   }
 }
 
 /** 取消在途请求（后端中止连接，命令随即以 CANCELLED 返回）。 */
 function cancelSend(): void {
-  if (!activeRequestId.value) return
-  void api.cancelRequest(activeRequestId.value)
+  const rid = activeRequestId.value
+  if (!rid) return
+  void api.cancelRequest(rid)
   toast.info('正在取消请求…')
 }
 
@@ -540,8 +592,8 @@ const requestBodyHeight = ref(REQUEST_DEFAULT)
 const splitterDragging = ref(false)
 const requestBodyCollapsed = computed(() => requestBodyHeight.value <= REQUEST_MIN)
 
-/** 尚未产生响应（也没发送失败）时：请求区占满剩余高度，隐藏分割条与响应占位。 */
-const hasResponse = computed(() => !!response.value || !!sendError.value)
+/** 正在发送或已有结果时展示响应区（发送中显示请求中占位，见模板）。 */
+const hasResponse = computed(() => !!response.value || !!sendError.value || sending.value)
 
 let splitStartY = 0
 let splitStartHeight = 0
@@ -679,6 +731,10 @@ watch(
 
 onUnmounted(() => {
   onSplitterUp()
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = undefined
+  }
 })
 </script>
 
@@ -721,7 +777,8 @@ onUnmounted(() => {
 
     <template v-if="store.activeView === 'debug'">
       <div class="editor-row">
-      <div class="request-bar">
+      <div class="request-bar" :class="{ 'is-sending': sending }">
+        <div v-if="sending" class="req-progress" aria-hidden="true"></div>
         <CustomSelect
           class="method-select"
           :model-value="draft.method"
@@ -790,11 +847,14 @@ onUnmounted(() => {
         </button>
         <button
           v-else
-          class="rf-btn rf-btn-danger bar-send"
+          class="rf-btn rf-btn-danger bar-send is-sending"
           type="button"
+          title="请求发送中，点击取消"
           @click="cancelSend"
         >
-          <Icon name="stop" :size="14" /> 取消
+          <span class="btn-spinner" aria-hidden="true"></span>
+          <span>发送中 <span class="bar-send-elapsed">{{ elapsedText }}</span></span>
+          <Icon name="stop" :size="13" />
         </button>
       </div>
       <div class="editor-actions">
@@ -853,17 +913,31 @@ onUnmounted(() => {
       </div>
 
       <div class="response-zone">
-        <ResponsePanel v-if="response" :response="response" @save-example="saveExample" />
-        <div v-else-if="sendError" class="send-error" role="alert">
-          <span>发送失败：{{ sendError }}</span>
+        <!-- Apifox 式请求中占位：转圈 + 实时计时 + 骨架 shimmer，一眼可知「这次发出去了」。 -->
+        <div v-if="sending && !response && !sendError" class="req-loading" role="status" aria-live="polite">
+          <span class="req-loading-ring" aria-hidden="true"></span>
+          <p class="req-loading-title">正在发送请求…</p>
+          <p class="req-loading-sub">{{ draft.method }} {{ requestUrl }}</p>
+          <div class="req-loading-skel">
+            <Skeleton :lines="5" height="12px" />
+          </div>
+          <button class="rf-btn rf-btn-sm req-loading-cancel" type="button" @click="cancelSend">
+            取消请求
+          </button>
         </div>
-        <EmptyState
-          v-else
-          class="response-empty"
-          icon="send"
-          title="尚未发送请求"
-          description="点击发送按钮或按 Cmd + Enter (Ctrl + Enter) 获取响应结果"
-        />
+        <div v-else ref="flashEl" class="response-anim" :class="{ 'is-stale': sending }">
+          <ResponsePanel v-if="response" :response="response" @save-example="saveExample" />
+          <div v-else-if="sendError" class="send-error" role="alert">
+            <span>发送失败：{{ sendError }}</span>
+          </div>
+          <EmptyState
+            v-else
+            class="response-empty"
+            icon="send"
+            title="尚未发送请求"
+            description="点击发送按钮或按 Cmd + Enter (Ctrl + Enter) 获取响应结果"
+          />
+        </div>
       </div>
     </template>
     <p v-else class="response-hint">发送请求后，响应将显示在这里</p>
@@ -1263,6 +1337,159 @@ onUnmounted(() => {
   border-radius: 0;
   padding: 0 16px;
   font-weight: 600;
+}
+/* 发送中按钮：转圈 + 计时 + 呼吸脉冲（计时只在此处显示）。 */
+.bar-send.is-sending {
+  min-width: 168px;
+  animation: bar-send-pulse 1.4s ease-in-out infinite;
+}
+.bar-send-elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.btn-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes bar-send-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+  50% { box-shadow: 0 0 0 7px rgba(239, 68, 68, 0); }
+}
+
+/* 请求栏发送中：顶部流光 + 边框高亮（纯动画，无新增展示块）。 */
+.request-bar {
+  position: relative;
+}
+.request-bar.is-sending {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+.req-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  overflow: hidden;
+  background: transparent;
+  z-index: 2;
+}
+.req-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: req-slide 0.9s ease-in-out infinite;
+}
+@keyframes req-slide {
+  from { left: -40%; }
+  to { left: 100%; }
+}
+
+/* Apifox 式请求中占位：大转圈 + 跳动计时 + 骨架 shimmer。 */
+.req-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 20px 28px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  text-align: center;
+}
+.req-loading-ring {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: btn-spin 0.7s linear infinite;
+}
+.req-loading-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.req-loading-sub {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.req-loading-skel {
+  width: 100%;
+  margin-top: 6px;
+  opacity: 0.85;
+}
+.req-loading-cancel {
+  margin-top: 4px;
+}
+
+/* 响应体动画钩子：仅过渡 + 到达闪光，不新增展示块。 */
+.response-anim {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius);
+  transition:
+    opacity var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
+}
+/* 新请求在途时旧响应降 dim（过渡动画，告知「正在刷新」。 */
+.response-anim.is-stale {
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+/* 新响应到达：面板光晕闪光 + 状态徽章弹跳（Apifox 式到达感）。 */
+.response-anim.flash {
+  animation: resp-flash 1.1s ease-out;
+}
+.response-anim.flash :deep(.rp-status) {
+  animation: status-pop 0.55s ease-out;
+}
+@keyframes resp-flash {
+  0% {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 28px var(--accent-tint);
+    background: var(--accent-tint);
+  }
+  60% { box-shadow: 0 0 0 1px var(--accent); }
+  100% { box-shadow: 0 0 0 0 transparent; background: transparent; }
+}
+@keyframes status-pop {
+  0% { transform: scale(0.6); }
+  55% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-send.is-sending,
+  .btn-spinner,
+  .req-progress::after,
+  .req-loading-ring,
+  .response-anim.flash,
+  .response-anim.flash :deep(.rp-status) {
+    animation: none;
+  }
 }
 
 /* ---- 面包屑行（接口名称移至此处） ---- */
