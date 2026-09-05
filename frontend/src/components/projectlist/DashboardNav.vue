@@ -8,12 +8,15 @@
  */
 import { useRouter } from 'vue-router'
 import Icon from '../ui/Icon.vue'
+import { useLocaleStore } from '../../stores/locale'
 
 const router = useRouter()
+const locale = useLocaleStore()
+const t = locale.t
 
 const NAV_ITEMS = [
-  { key: 'dashboard', label: '仪表板', icon: 'gauge' as const, route: '/projects' },
-  { key: 'projects', label: 'API 项目', icon: 'folder' as const, route: '/projects' },
+  { key: 'dashboard', labelKey: 'pnav.dashboard', icon: 'gauge' as const, route: '/projects' },
+  { key: 'projects', labelKey: 'pnav.projects', icon: 'folder' as const, route: '/projects' },
 ]
 
 function navActive(item: (typeof NAV_ITEMS)[number]): boolean {
@@ -26,7 +29,7 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
 </script>
 
 <template>
-  <nav class="dash-nav" aria-label="主导航">
+  <nav class="dash-nav" :aria-label="t('pnav.mainNav')">
     <button
       v-for="item in NAV_ITEMS"
       :key="item.key"
@@ -36,7 +39,7 @@ function onNav(item: (typeof NAV_ITEMS)[number]): void {
       @click="onNav(item)"
     >
       <Icon :name="item.icon" :size="15" />
-      <span class="nav-label">{{ item.label }}</span>
+      <span class="nav-label">{{ t(item.labelKey) }}</span>
     </button>
   </nav>
 </template>

@@ -9,7 +9,8 @@
  */
 import { computed, ref, watch } from 'vue'
 import type { ExecuteResponse, HttpMethod, KeyValue, TestCase, TestCaseCategory } from '../types/foxApi'
-import { TEST_CASE_CATEGORIES, formatDuration, statusToneOf, statusTextOf } from '../utils/testCases'
+import { TEST_CASE_CATEGORIES, caseCategoryLabel, formatDuration, statusToneOf, statusTextOf } from '../utils/testCases'
+import { useLocaleStore } from '../stores/locale'
 import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import JsonCodeMirror from './JsonCodeMirror.vue'
@@ -43,6 +44,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
+const locale = useLocaleStore()
+const t = locale.t
+
 const name = ref('')
 const category = ref<TestCaseCategory>('正向')
 const method = ref<HttpMethod>('GET')
@@ -55,24 +59,25 @@ const bodyContent = ref('')
 const METHOD_OPTIONS = (['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as HttpMethod[]).map(
   (m) => ({ value: m, label: m }),
 )
-const BODY_OPTIONS = [
-  { value: 'none', label: '无 Body' },
+/** Body 类型下拉（value 为 body_type 标识，label 随语言刷新）。 */
+const bodyOptions = computed(() => [
+  { value: 'none', label: t('cases.bodyNone') },
   { value: 'json', label: 'JSON' },
   { value: 'form-data', label: 'Form-Data' },
   { value: 'raw', label: 'Raw' },
   { value: 'urlencoded', label: 'URL-Encoded' },
   { value: 'graphql', label: 'GraphQL' },
   { value: 'binary', label: 'Binary' },
-].map((o) => ({ value: o.value, label: o.label }))
+])
 
 // ---------- 请求参数 Tab ----------
 type ReqTab = 'params' | 'headers' | 'body'
 const activeTab = ref<ReqTab>('params')
-const REQ_TABS: { key: ReqTab; label: string }[] = [
-  { key: 'params', label: 'Params' },
-  { key: 'headers', label: 'Headers' },
-  { key: 'body', label: 'Body' },
-]
+const reqTabs = computed<{ key: ReqTab; label: string }[]>(() => [
+  { key: 'params', label: t('casedrawer.tabParams') },
+  { key: 'headers', label: t('casedrawer.tabHeaders') },
+  { key: 'body', label: t('casedrawer.tabBody') },
+])
 
 const result = ref<ExecuteResponse | null>(null)
 const runError = ref('')
@@ -137,7 +142,7 @@ const headerRows = computed({
 })
 
 // ---------- 请求参数 Tab ----------
-const bodyLabel = computed(() => BODY_OPTIONS.find((o) => o.value === bodyType.value)?.label ?? bodyType.value)
+const bodyLabel = computed(() => bodyOptions.value.find((o) => o.value === bodyType.value)?.label ?? bodyType.value)
 const bodyEditable = computed(() => bodyType.value !== 'none')
 
 // ---------- 底部操作 ----------
@@ -197,7 +202,7 @@ const prettyBody = computed(() => {
 // ---------- Method 联动：默认 Tab 与 Content-Type ----------
 const bodyTabHint = computed(() =>
   activeTab.value === 'body' && NO_BODY_METHODS.includes(method.value)
-    ? `${method.value} 请求通常不携带 Body`
+    ? t('casedrawer.noBodyHint', { m: method.value })
     : '',
 )
 
@@ -290,8 +295,8 @@ function onSplitterDblClick(): void {
       <div v-if="open" class="drw-mask" @mousedown.self="emit('update:open', false)">
         <aside class="drw" role="dialog" aria-modal="true">
           <header class="drw-head">
-            <h3 class="drw-title">用例详情 / 编辑</h3>
-            <button class="drw-close" type="button" title="关闭" @click="emit('update:open', false)">
+            <h3 class="drw-title">{{ t('casedrawer.title') }}</h3>
+            <button class="drw-close" type="button" :title="t('common.close')" @click="emit('update:open', false)">
               <Icon name="x" :size="15" />
             </button>
           </header>
@@ -299,17 +304,17 @@ function onSplitterDblClick(): void {
           <div class="drw-body">
             <!-- ① 用例基本信息 -->
             <section class="drw-sec">
-              <h4 class="drw-sec-title">用例基本信息</h4>
+              <h4 class="drw-sec-title">{{ t('casedrawer.basicInfo') }}</h4>
               <div class="drw-grid3">
                 <label class="drw-field drw-span2">
-                  <span class="drw-label">用例名称</span>
-                  <input v-model="name" class="drw-input" type="text" spellcheck="false" placeholder="如：内部划转-SGB" />
+                  <span class="drw-label">{{ t('testcase.name') }}</span>
+                  <input v-model="name" class="drw-input" type="text" spellcheck="false" :placeholder="t('testcase.namePh')" />
                 </label>
                 <label class="drw-field">
-                  <span class="drw-label">分组</span>
+                  <span class="drw-label">{{ t('casedrawer.category') }}</span>
                   <CustomSelect
                     :model-value="category"
-                    :options="TEST_CASE_CATEGORIES.map((c) => ({ value: c, label: c }))"
+                    :options="TEST_CASE_CATEGORIES.map((c) => ({ value: c, label: caseCategoryLabel(c) }))"
                     @update:model-value="category = String($event) as TestCaseCategory"
                   />
                 </label>
@@ -317,7 +322,7 @@ function onSplitterDblClick(): void {
 
               <!-- Method + Path 组合输入 -->
               <label class="drw-field">
-                <span class="drw-label">请求地址</span>
+                <span class="drw-label">{{ t('casedrawer.url') }}</span>
                 <div class="drw-url-group">
                   <CustomSelect
                     class="drw-method"
@@ -335,7 +340,7 @@ function onSplitterDblClick(): void {
                     class="drw-input drw-mono drw-path-input"
                     type="text"
                     spellcheck="false"
-                    placeholder="/funds/transfer 或 https://…"
+                    :placeholder="t('casedrawer.urlPh')"
                   />
                 </div>
               </label>
@@ -345,18 +350,18 @@ function onSplitterDblClick(): void {
             <div ref="splitArea" class="drw-split">
               <section class="drw-sec drw-req-sec" :style="{ flexBasis: reqPct }">
                 <div class="drw-sec-head">
-                  <h4 class="drw-sec-title">请求参数配置</h4>
+                  <h4 class="drw-sec-title">{{ t('casedrawer.reqConfig') }}</h4>
                   <div class="drw-tabs" role="tablist">
                     <button
-                      v-for="t in REQ_TABS"
-                      :key="t.key"
+                      v-for="tab in reqTabs"
+                      :key="tab.key"
                       class="drw-tab"
-                      :class="{ active: activeTab === t.key }"
+                      :class="{ active: activeTab === tab.key }"
                       type="button"
                       role="tab"
-                      @click="activeTab = t.key"
+                      @click="activeTab = tab.key"
                     >
-                      {{ t.label }}
+                      {{ tab.label }}
                     </button>
                   </div>
                 </div>
@@ -373,20 +378,20 @@ function onSplitterDblClick(): void {
                 />
                 <div v-else class="drw-body-pane">
                   <div class="drw-body-type">
-                    <span class="drw-label">Body 类型</span>
+                    <span class="drw-label">{{ t('casedrawer.bodyType') }}</span>
                     <CustomSelect
                       :model-value="bodyType"
-                      :options="BODY_OPTIONS"
+                      :options="bodyOptions"
                       @update:model-value="bodyType = String($event)"
                     />
                     <button
                       v-if="bodyEditable"
                       class="drw-fmt-btn"
                       type="button"
-                      title="自动格式化 JSON"
+                      :title="t('casedrawer.formatJson')"
                       @click="formatBody"
                     >
-                      格式化
+                      {{ t('casedrawer.format') }}
                     </button>
                     <span class="drw-body-hint">{{ bodyLabel }}</span>
                   </div>
@@ -394,11 +399,11 @@ function onSplitterDblClick(): void {
                     <JsonCodeMirror
                       ref="bodyEditorRef"
                       :model-value="bodyContent"
-                      :placeholder-text='bodyType === "json" ? "{\"key\": \"value\"}" : "请求内容…"'
+                      :placeholder-text='bodyType === "json" ? "{\"key\": \"value\"}" : t("casedrawer.bodyPh")'
                       @update:model-value="bodyContent = $event"
                     />
                   </div>
-                  <p v-else class="drw-none">当前类型无请求内容</p>
+                  <p v-else class="drw-none">{{ t('casedrawer.noBodyContent') }}</p>
                   <p v-if="bodyTabHint" class="drw-body-warn">{{ bodyTabHint }}</p>
                 </div>
               </section>
@@ -407,22 +412,22 @@ function onSplitterDblClick(): void {
                 class="drw-splitter"
                 role="separator"
                 aria-orientation="horizontal"
-                title="拖拽调整请求区 / 响应区比例，双击恢复 50%"
+                :title="t('casedrawer.splitterHint')"
                 @mousedown="onSplitterDown"
                 @dblclick="onSplitterDblClick"
               ></div>
 
               <section class="drw-sec drw-resp-sec">
-                <h4 class="drw-sec-title">运行响应结果</h4>
+                <h4 class="drw-sec-title">{{ t('casedrawer.respTitle') }}</h4>
 
                 <div v-if="running" class="drw-result drw-result-idle">
                   <span class="drw-spinner"></span>
-                  <span class="drw-result-msg">请求发送中…</span>
+                  <span class="drw-result-msg">{{ t('casedrawer.sending') }}</span>
                 </div>
                 <div v-else-if="runError" class="drw-result">
                   <div class="drw-result-bar">
-                    <span class="drw-badge err">Failed</span>
-                    <span class="drw-result-msg">请求失败：{{ runError }}</span>
+                    <span class="drw-badge err">{{ t('casedrawer.failed') }}</span>
+                    <span class="drw-result-msg">{{ t('casedrawer.runFailed', { v: runError }) }}</span>
                   </div>
                 </div>
                 <div v-else-if="result" class="drw-result drw-result-main">
@@ -436,11 +441,11 @@ function onSplitterDblClick(): void {
                       <button
                         class="drw-copy-btn"
                         type="button"
-                        title="复制 Response Body"
+                        :title="t('casedrawer.copyBody')"
                         @click="copyBody"
                       >
                         <Icon :name="copied ? 'check' : 'copy'" :size="12" />
-                        {{ copied ? '已复制' : '复制' }}
+                        {{ copied ? t('codegen.copied') : t('common.copy') }}
                       </button>
                     </span>
                   </div>
@@ -451,10 +456,10 @@ function onSplitterDblClick(): void {
                       readonly
                     />
                   </div>
-                  <p v-else class="drw-none">（空响应体）</p>
+                  <p v-else class="drw-none">{{ t('casedrawer.emptyBody') }}</p>
                 </div>
                 <div v-else class="drw-result drw-result-idle">
-                  <span class="drw-result-msg">尚无响应数据，点击下方「立即运行」发起请求</span>
+                  <span class="drw-result-msg">{{ t('casedrawer.noResult') }}</span>
                 </div>
               </section>
             </div>
@@ -468,11 +473,11 @@ function onSplitterDblClick(): void {
               @click="run"
             >
               <span v-if="running" class="drw-spinner"></span>
-              <Icon v-else name="play" :size="13" /> {{ running ? '运行中…' : '立即运行' }}
+              <Icon v-else name="play" :size="13" /> {{ running ? t('cases.running') : t('casedrawer.runNow') }}
             </button>
             <span class="drw-spacer"></span>
             <button class="rf-btn" type="button" :disabled="saving || running" @click="emit('update:open', false)">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               class="rf-btn rf-btn-primary"
@@ -480,7 +485,7 @@ function onSplitterDblClick(): void {
               :disabled="saving || running || !name.trim() || !urlPath.trim()"
               @click="save"
             >
-              <Icon name="save" :size="13" /> 保存修改
+              <Icon name="save" :size="13" /> {{ t('casedrawer.save') }}
             </button>
           </footer>
         </aside>

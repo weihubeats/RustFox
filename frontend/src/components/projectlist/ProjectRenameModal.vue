@@ -9,12 +9,15 @@ import { ref, watch } from 'vue'
 import Modal from '../ui/Modal.vue'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
+import { useLocaleStore } from '../../stores/locale'
 import type { Project } from '../../types/foxApi'
 
 const NAME_MAX = 50
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const props = defineProps<{ project: Project | null }>()
 
@@ -40,36 +43,36 @@ watch(
 async function confirmRename(): Promise<void> {
   const name = renameName.value.trim()
   if (!name) {
-    renameError.value = '项目名称不能为空'
+    renameError.value = t('workspace.projectNameRequired')
     return
   }
   if (name.length > NAME_MAX) {
-    renameError.value = `项目名称不能超过 ${NAME_MAX} 个字符`
+    renameError.value = t('pcreate.nameTooLong', { n: NAME_MAX })
     return
   }
   if (!props.project) return
   try {
     const saved = await api.saveProject({ ...props.project, name, updated_at: new Date().toISOString() })
     emit('close')
-    toast.success('项目已重命名')
+    toast.success(t('workspace.projectRenamed'))
     emit('saved', saved)
   } catch (e) {
-    toast.error('重命名失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('workspace.projectRenameFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   }
 }
 </script>
 
 <template>
-  <Modal :open="project !== null" title="重命名项目" width="420px" @close="emit('close')">
+  <Modal :open="project !== null" :title="t('workspace.renameProject')" width="420px" @close="emit('close')">
     <div class="form-field">
-      <label class="form-label" for="rename-project">项目名称</label>
+      <label class="form-label" for="rename-project">{{ t('workspace.projectName') }}</label>
       <input
         id="rename-project"
         v-model="renameName"
         class="rf-input"
         v-focus-end
         :class="{ 'rf-input-error': renameError }"
-        placeholder="项目名称"
+        :placeholder="t('workspace.projectName')"
         maxlength="60"
         spellcheck="false"
         @input="renameError = null"
@@ -78,9 +81,9 @@ async function confirmRename(): Promise<void> {
       <p v-if="renameError" class="rf-field-error" role="alert">{{ renameError }}</p>
     </div>
     <template #footer>
-      <button class="rf-btn" type="button" @click="emit('close')">取消</button>
+      <button class="rf-btn" type="button" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button class="rf-btn rf-btn-primary" type="button" :disabled="api.pending.value" @click="confirmRename">
-        保存
+        {{ t('common.save') }}
       </button>
     </template>
   </Modal>

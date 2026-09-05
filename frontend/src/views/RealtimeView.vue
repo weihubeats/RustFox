@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Icon from '../components/ui/Icon.vue'
 import Tabs, { type TabItem } from '../components/ui/Tabs.vue'
 import type { SseEventPayload, WsEventPayload } from '../types/foxApi'
@@ -20,6 +21,8 @@ import type { SseEventPayload, WsEventPayload } from '../types/foxApi'
 const router = useRouter()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 /**
  * 多窗口：实时视图可在独立窗口打开（边工作边监控 WS/SSE）。
@@ -44,17 +47,17 @@ async function popout(): Promise<void> {
     const label = `realtime-${Date.now()}`
     const win = new WebviewWindow(label, {
       url: '/realtime',
-      title: 'RustFox · 实时调试',
+      title: t('realtime.windowTitle'),
       width: 960,
       height: 700,
       minWidth: 640,
       minHeight: 480,
     })
     await win.once('tauri://error', (e: { payload: unknown }) => {
-      toast.error('新窗口打开失败', { message: String(e.payload) })
+      toast.error(t('realtime.popoutFail'), { message: String(e.payload) })
     })
   } catch (err) {
-    toast.error('新窗口打开失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('realtime.popoutFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -104,9 +107,9 @@ async function wsConnect(): Promise<void> {
     })
     wsConnId.value = id
     wsState.value = 'connecting'
-    wsPush('sys', 'sys', `正在连接 ${wsUrl.value.trim()}…`)
+    wsPush('sys', 'sys', t('realtime.connecting', { v: wsUrl.value.trim() }))
   } catch (err) {
-    toast.error('WS 连接失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('realtime.wsConnectFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     wsConnecting.value = false
   }
@@ -122,7 +125,7 @@ async function wsDisconnect(silent = false): Promise<void> {
     // 连接可能已失效：本地状态照常清理
   }
   wsState.value = 'closed'
-  if (!silent) wsPush('sys', 'sys', '已断开连接')
+  if (!silent) wsPush('sys', 'sys', t('realtime.disconnected'))
 }
 
 const wsSendText = ref('')
@@ -134,7 +137,7 @@ async function wsSend(frame: 'text' | 'ping'): Promise<void> {
     wsPush('out', frame, payload)
     wsSendText.value = ''
   } catch (err) {
-    toast.error('发送失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('realtime.sendFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -144,27 +147,27 @@ function onWsEvent(payload: WsEventPayload): void {
     const s = payload.state
     wsState.value =
       s === 'open' ? 'open' : s === 'connecting' ? 'connecting' : s === 'closed' ? 'closed' : 'error'
-    wsPush('sys', 'sys', `状态：${s}`)
+    wsPush('sys', 'sys', t('realtime.stateChanged', { v: s }))
   } else if (payload.kind === 'message') {
     wsPush('in', payload.frame, payload.text)
   } else {
     wsState.value = 'error'
-    wsPush('sys', 'sys', `失败：${payload.message}`)
+    wsPush('sys', 'sys', t('realtime.failed', { v: payload.message }))
   }
 }
 
 const wsStateText = computed(() => {
   switch (wsState.value) {
     case 'open':
-      return '已连接'
+      return t('realtime.stateOpen')
     case 'connecting':
-      return '连接中…'
+      return t('realtime.stateConnecting')
     case 'closed':
-      return '已断开'
+      return t('realtime.stateClosed')
     case 'error':
-      return '异常'
+      return t('realtime.stateError')
     default:
-      return '未连接'
+      return t('realtime.stateIdle')
   }
 })
 
@@ -220,7 +223,7 @@ async function sseConnect(): Promise<void> {
     sseConnId.value = id
     sseStatus.value = 'open'
   } catch (err) {
-    toast.error('SSE 订阅失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('realtime.sseConnectFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     sseConnecting.value = false
   }
@@ -237,7 +240,7 @@ async function sseDisconnect(silent = false): Promise<void> {
   }
   sseStatus.value = 'closed'
   if (!silent) {
-    sseLog.value.push({ t: nowTime(), event: 'sys', data: '已取消订阅', id: '' })
+    sseLog.value.push({ t: nowTime(), event: 'sys', data: t('realtime.sseUnsubscribed'), id: '' })
     cap(sseLog.value)
   }
 }
@@ -246,7 +249,7 @@ function onSseEvent(payload: SseEventPayload): void {
   if (payload.connection_id !== sseConnId.value) return
   if (payload.kind === 'open') {
     sseStatus.value = 'open'
-    sseLog.value.push({ t: nowTime(), event: 'sys', data: '订阅已建立', id: '' })
+    sseLog.value.push({ t: nowTime(), event: 'sys', data: t('realtime.sseOpened'), id: '' })
   } else if (payload.kind === 'chunk') {
     sseBuffer.value += payload.chunk
     // 单块超 1MB 未成帧：截断防内存膨胀（畸形流保护）。
@@ -254,11 +257,11 @@ function onSseEvent(payload: SseEventPayload): void {
     parseSseFrames()
   } else if (payload.kind === 'error') {
     sseStatus.value = 'error'
-    sseLog.value.push({ t: nowTime(), event: 'sys', data: `错误：${payload.message}`, id: '' })
+    sseLog.value.push({ t: nowTime(), event: 'sys', data: t('realtime.sseError', { v: payload.message }), id: '' })
   } else {
     sseStatus.value = 'closed'
     sseConnId.value = null
-    sseLog.value.push({ t: nowTime(), event: 'sys', data: '服务端关闭了流', id: '' })
+    sseLog.value.push({ t: nowTime(), event: 'sys', data: t('realtime.sseClosedByServer'), id: '' })
   }
   cap(sseLog.value)
 }
@@ -297,16 +300,16 @@ onUnmounted(() => {
         type="button"
         @click="router.push('/workspace')"
       >
-        ← 返回工作区
+        ← {{ t('realtime.backToWorkspace') }}
       </button>
       <button
         v-if="isMainWindow"
         class="rf-btn rf-btn-sm rf-btn-ghost"
         type="button"
-        title="在独立窗口打开（边工作边监控）"
+        :title="t('realtime.popoutHint')"
         @click="popout"
       >
-        新窗口打开
+        {{ t('realtime.popout') }}
       </button>
       <Tabs v-model="mainTab" :tabs="MAIN_TABS" size="sm" />
       <span class="rt-status" :class="mainTab === 'ws' ? `st-${wsState}` : `st-${sseStatus}`">
@@ -314,12 +317,12 @@ onUnmounted(() => {
           mainTab === 'ws'
             ? wsStateText
             : sseStatus === 'open'
-              ? '订阅中'
+              ? t('realtime.sseActive')
               : sseStatus === 'closed'
-                ? '已结束'
+                ? t('realtime.sseDone')
                 : sseStatus === 'error'
-                  ? '异常'
-                  : '未订阅'
+                  ? t('realtime.stateError')
+                  : t('realtime.sseIdle')
         }}
       </span>
     </div>
@@ -336,7 +339,7 @@ onUnmounted(() => {
         />
         <label class="rt-check">
           <input v-model="wsAutoReconnect" type="checkbox" :disabled="!!wsConnId" />
-          自动重连
+          {{ t('realtime.autoReconnect') }}
         </label>
         <button
           v-if="!wsConnId"
@@ -345,16 +348,16 @@ onUnmounted(() => {
           :disabled="wsConnecting || !wsUrl.trim()"
           @click="wsConnect"
         >
-          {{ wsConnecting ? '连接中…' : '连接' }}
+          {{ wsConnecting ? t('realtime.connectingShort') : t('realtime.connect') }}
         </button>
         <button v-else class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="wsDisconnect()">
-          断开
+          {{ t('realtime.disconnect') }}
         </button>
-        <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="wsLog = []">清空日志</button>
+        <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="wsLog = []">{{ t('realtime.clearLog') }}</button>
       </div>
 
       <div class="rt-log">
-        <div v-if="!wsLog.length" class="rt-empty">连接后在此查看收发的帧（文本 / 二进制 base64 / ping）</div>
+        <div v-if="!wsLog.length" class="rt-empty">{{ t('realtime.wsEmpty') }}</div>
         <div v-for="(m, i) in wsLog" :key="i" class="rt-line" :class="`dir-${m.dir}`">
           <span class="rt-time">{{ m.t }}</span>
           <span class="rt-dir">{{ m.dir === 'in' ? '↓' : m.dir === 'out' ? '↑' : '•' }}</span>
@@ -367,7 +370,7 @@ onUnmounted(() => {
         <input
           v-model="wsSendText"
           class="rf-input rt-url"
-          placeholder="输入要发送的文本帧…"
+          :placeholder="t('realtime.sendPh')"
           spellcheck="false"
           :disabled="!wsConnId || wsState !== 'open'"
           @keydown.enter="wsSend('text')"
@@ -378,13 +381,13 @@ onUnmounted(() => {
           :disabled="!wsConnId || wsState !== 'open' || !wsSendText"
           @click="wsSend('text')"
         >
-          <Icon name="send" :size="13" /> 发送
+          <Icon name="send" :size="13" /> {{ t('editor.send') }}
         </button>
         <button
           class="rf-btn rf-btn-sm rf-btn-ghost"
           type="button"
           :disabled="!wsConnId || wsState !== 'open' || !wsSendText"
-          title="以 Ping 帧发送输入内容"
+          :title="t('realtime.pingHint')"
           @click="wsSend('ping')"
         >
           Ping
@@ -409,17 +412,17 @@ onUnmounted(() => {
           :disabled="sseConnecting || !sseUrl.trim()"
           @click="sseConnect"
         >
-          {{ sseConnecting ? '订阅中…' : '订阅' }}
+          {{ sseConnecting ? t('realtime.subscribing') : t('realtime.subscribe') }}
         </button>
         <button v-else class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="sseDisconnect()">
-          取消订阅
+          {{ t('realtime.unsubscribe') }}
         </button>
-        <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="sseLog = []">清空日志</button>
-        <span v-if="sseLastId" class="hint-inline">续传位点：{{ sseLastId }}</span>
+        <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="sseLog = []">{{ t('realtime.clearLog') }}</button>
+        <span v-if="sseLastId" class="hint-inline">{{ t('realtime.lastEventId', { v: sseLastId }) }}</span>
       </div>
 
       <div class="rt-log">
-        <div v-if="!sseLog.length" class="rt-empty">订阅后在此查看事件流（event / data / id）</div>
+        <div v-if="!sseLog.length" class="rt-empty">{{ t('realtime.sseEmpty') }}</div>
         <div v-for="(m, i) in sseLog" :key="i" class="rt-line dir-in">
           <span class="rt-time">{{ m.t }}</span>
           <span class="rt-frame">{{ m.event }}</span>

@@ -7,6 +7,7 @@
 import { computed, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import CustomSelect from './ui/CustomSelect.vue'
 import type {
   ApiKeyLocation,
@@ -22,19 +23,21 @@ const props = defineProps<{ draft: Endpoint | null }>()
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
-const AUTH_TYPES: Array<{ value: string; label: string }> = [
-  { value: 'none', label: '无认证' },
+const AUTH_TYPES = computed<Array<{ value: string; label: string }>>(() => [
+  { value: 'none', label: t('auth.none') },
   { value: 'bearer', label: 'Bearer Token' },
   { value: 'basic', label: 'Basic' },
   { value: 'apikey', label: 'API Key' },
-  { value: 'dynamic_signature', label: '动态签名' },
+  { value: 'dynamic_signature', label: t('auth.dynamicSignature') },
   { value: 'oauth2', label: 'OAuth2' },
   { value: 'digest', label: 'Digest' },
   { value: 'hawk', label: 'Hawk' },
   { value: 'awsv4', label: 'AWS Signature V4' },
   { value: 'hmac', label: 'HMAC (AK-SK)' },
-]
+])
 const AUTH_IN_OPTIONS = [
   { value: 'header', label: 'Header' },
   { value: 'query', label: 'Query' },
@@ -44,28 +47,27 @@ const ALGORITHM_OPTIONS: Array<{ value: SignatureAlgorithm; label: string }> = [
   { value: 'sha256', label: 'SHA-256' },
   { value: 'hmac_sha256', label: 'HMAC-SHA256' },
 ]
-const ENCODING_OPTIONS: Array<{ value: SignatureEncoding; label: string }> = [
-  { value: 'hex_lower', label: 'Hex（小写）' },
-  { value: 'hex_upper', label: 'Hex（大写）' },
+const ENCODING_OPTIONS = computed<Array<{ value: SignatureEncoding; label: string }>>(() => [
+  { value: 'hex_lower', label: t('auth.hexLower') },
+  { value: 'hex_upper', label: t('auth.hexUpper') },
   { value: 'base64', label: 'Base64' },
-]
+])
 
 /** 载荷模板占位符提示文案（含字面 `{{ }}`，避免在模板文本里嵌套花括号）。 */
-const SIG_HINT =
-  '占位符 {{$key}} / {{$secret}} / {{$timestamp}}。时间戳在 Rust 后端发送前最后一刻生成（不经 IPC 往返），保证实时性；Key / Timestamp / Sig 三个请求头自动注入。'
+const SIG_HINT = computed(() => t('auth.sigHint'))
 
 /** 签名类认证的发送时行为说明。 */
-const SIGN_HINTS: Record<string, string> = {
-  digest: '发送时先不带凭据，收到 401 质询后自动应答重发（MD5 / SHA-256，qop=auth）。',
-  hawk: '发送时用时间戳 + 随机数实时计算 Hawk mac，有 Body 时附带 payload hash。',
-  awsv4: '发送时按区域 + 服务名做 SigV4 规范签名（x-amz-date + Authorization）。',
-  hmac: '发送时附带 X-Access-Key / X-Timestamp / X-Nonce / X-Signature 四个头。',
-}
+const SIGN_HINTS = computed<Record<string, string>>(() => ({
+  digest: t('auth.hintDigest'),
+  hawk: t('auth.hintHawk'),
+  awsv4: t('auth.hintAwsv4'),
+  hmac: t('auth.hintHmac'),
+}))
 
 /** 当前认证类型的行为说明（签名类才有）。 */
 const signHint = computed(() => {
-  const t = authAny.value?.type
-  return (t && SIGN_HINTS[t]) || ''
+  const type = authAny.value?.type
+  return (type && SIGN_HINTS.value[type]) || ''
 })
 
 /** Auth 编辑区；type 切换时替换为对应默认对象。所有分支字段统一为可选项。 */
@@ -131,14 +133,14 @@ const oauthStatus = computed(() => {
   const token = authAny.value?.token as
     | { access_token?: string; expires_at?: string }
     | undefined
-  if (!token?.access_token) return '未授权'
+  if (!token?.access_token) return t('auth.unauthorized')
   const expires = token.expires_at ? new Date(token.expires_at) : null
   const expiring = expires ? expires.getTime() - Date.now() < 5 * 60_000 : false
   return expires && !expiring
-    ? `已授权，有效期至 ${expires.toLocaleString('zh-CN')}`
+    ? t('auth.authorizedUntil', { v: expires.toLocaleString(locale.resolved === 'zh' ? 'zh-CN' : 'en-US') })
     : expiring
-      ? '令牌即将过期，发送时将自动刷新'
-      : '已授权（发送时自动刷新）'
+      ? t('auth.expiringSoon')
+      : t('auth.authorizedAuto')
 })
 
 /** 发起完整授权流：后端起本地回调 + 打开系统浏览器；完成后令牌写入草稿。 */
@@ -149,9 +151,9 @@ async function oauthAuthorize(): Promise<void> {
     const token = await api.oauthAuthorize(authAny.value as AuthSpec)
     const req = props.draft.request
     req.auth = { ...authAny.value, token } as AuthSpec
-    toast.success('OAuth2 授权成功，请保存 (⌘S) 持久化')
+    toast.success(t('auth.oauthOk'))
   } catch (err) {
-    toast.error('OAuth2 授权失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('auth.oauthFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     authorizing.value = false
   }
@@ -190,9 +192,8 @@ function setAuthType(type: string): void {
       req.auth = { type: 'dynamic_signature', config: defaultSignatureConfig() }
       advancedOpen.value = true
       // 安全警告：Secret 只参与签名计算，绝不明文入请求头 / 不落明文库。
-      toast.warning('App-Secret 仅用于签名计算，不会明文发送或存储', {
-        message:
-          'Key/Timestamp/Sig 三头由后端发送前实时生成；请勿把 Secret 值粘贴到 Header 或载荷模板之外。',
+      toast.warning(t('auth.secretWarn'), {
+        message: t('auth.secretWarnHint'),
         duration: 6000,
       })
       break
@@ -251,25 +252,25 @@ function setAuthType(type: string): void {
       <input
         v-model="authAny.username"
         class="rf-input rf-input-sm kv-key"
-        placeholder="用户名"
+        :placeholder="t('auth.username')"
       />
       <input
         v-model="authAny.password"
         class="rf-input rf-input-sm kv-value"
-        placeholder="密码"
+        :placeholder="t('auth.password')"
         type="password"
       />
     </div>
     <div v-else-if="authAny?.type === 'oauth2'" class="oauth-form">
       <p class="oauth-hint">
-        <span class="oauth-status" :class="{ ok: oauthStatus !== '未授权' }">{{ oauthStatus }}</span>
+        <span class="oauth-status" :class="{ ok: oauthStatus !== t('auth.unauthorized') }">{{ oauthStatus }}</span>
         <button
           class="rf-btn rf-btn-sm"
           type="button"
           :disabled="authorizing"
           @click="oauthAuthorize"
         >
-          {{ authorizing ? '授权中…' : '立即授权' }}
+          {{ authorizing ? t('auth.authorizing') : t('auth.authorizeNow') }}
         </button>
       </p>
       <div class="kv-row">
@@ -281,7 +282,7 @@ function setAuthType(type: string): void {
         <input v-model="authAny.token_url" class="rf-input rf-input-sm kv-value" placeholder="Token URL" />
       </div>
       <div class="kv-row">
-        <input v-model="authAny.scope" class="rf-input rf-input-sm kv-key" placeholder="Scope（空格分隔）" />
+        <input v-model="authAny.scope" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.scopePh')" />
         <input v-model="authAny.redirect_uri" class="rf-input rf-input-sm kv-value" placeholder="Redirect URI" />
       </div>
     </div>
@@ -299,12 +300,12 @@ function setAuthType(type: string): void {
       <input
         v-model="authAny.username"
         class="rf-input rf-input-sm kv-key"
-        placeholder="用户名"
+        :placeholder="t('auth.username')"
       />
       <input
         v-model="authAny.password"
         class="rf-input rf-input-sm kv-value"
-        placeholder="密码"
+        :placeholder="t('auth.password')"
         type="password"
       />
     </div>
@@ -324,11 +325,11 @@ function setAuthType(type: string): void {
         <input v-model="authAny.secret_key" class="rf-input rf-input-sm kv-value" placeholder="Secret Key" type="password" spellcheck="false" />
       </div>
       <div class="kv-row">
-        <input v-model="authAny.region" class="rf-input rf-input-sm kv-key" placeholder="Region（如 us-east-1）" spellcheck="false" />
-        <input v-model="authAny.service" class="rf-input rf-input-sm kv-value" placeholder="Service（如 iam / s3）" spellcheck="false" />
+        <input v-model="authAny.region" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.regionPh')" spellcheck="false" />
+        <input v-model="authAny.service" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.servicePh')" spellcheck="false" />
       </div>
       <div class="kv-row">
-        <input v-model="authAny.session_token" class="rf-input rf-input-sm kv-value" placeholder="Session Token（临时凭证选填）" spellcheck="false" />
+        <input v-model="authAny.session_token" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.sessionTokenPh')" spellcheck="false" />
       </div>
     </div>
     <div v-else-if="authAny?.type === 'hmac'" class="kv-row">
@@ -362,31 +363,31 @@ function setAuthType(type: string): void {
       </div>
       <div class="sig-adv">
         <button class="rf-btn rf-btn-sm sig-toggle" type="button" @click="advancedOpen = !advancedOpen">
-          {{ advancedOpen ? '收起高级配置' : '高级配置 ▾' }}
+          {{ advancedOpen ? t('auth.collapseAdv') : t('auth.expandAdv') }}
         </button>
         <div v-if="advancedOpen" class="sig-adv-body">
           <div class="kv-row">
             <input
               v-model="sigConfig.key_header"
               class="rf-input rf-input-sm kv-key"
-              placeholder="Key 头名"
+              :placeholder="t('auth.keyHeaderPh')"
               spellcheck="false"
             />
             <input
               v-model="sigConfig.timestamp_header"
               class="rf-input rf-input-sm kv-key"
-              placeholder="时间戳头名"
+              :placeholder="t('auth.tsHeaderPh')"
               spellcheck="false"
             />
             <input
               v-model="sigConfig.sig_header"
               class="rf-input rf-input-sm kv-value"
-              placeholder="签名头名"
+              :placeholder="t('auth.sigHeaderPh')"
               spellcheck="false"
             />
           </div>
           <div class="kv-row">
-            <span class="sig-label">算法</span>
+            <span class="sig-label">{{ t('auth.algorithm') }}</span>
             <CustomSelect
               :model-value="sigConfig.algorithm"
               :options="ALGORITHM_OPTIONS"
@@ -394,7 +395,7 @@ function setAuthType(type: string): void {
               class="sig-select"
               @update:model-value="sigConfig.algorithm = String($event)"
             />
-            <span class="sig-label">编码</span>
+            <span class="sig-label">{{ t('auth.encoding') }}</span>
             <CustomSelect
               :model-value="sigConfig.encoding"
               :options="ENCODING_OPTIONS"

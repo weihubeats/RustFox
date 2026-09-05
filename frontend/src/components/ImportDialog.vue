@@ -10,6 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Modal from './ui/Modal.vue'
 import type { ImportedEndpoint, ImportFormat, Project } from '../types/foxApi'
 
@@ -28,6 +29,8 @@ const emit = defineEmits<{ close: []; imported: [project: Project] }>()
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const text = ref('')
 const busy = ref(false)
@@ -37,13 +40,14 @@ const fileInput = ref<HTMLInputElement | null>(null)
 /** new-project 模式下的目标项目名。 */
 const projectName = ref('')
 
-const FORMAT_LABEL: Record<ImportFormat, string> = {
+/** 格式展示名：品牌名保持原文，带说明的走字典（computed 随语言切换）。 */
+const FORMAT_LABEL = computed<Record<ImportFormat, string>>(() => ({
   openapi30: 'OpenAPI 3.0',
-  openapi31: 'OpenAPI 3.1（已转换为 3.0 子集）',
+  openapi31: t('importdlg.formatOpenapi31'),
   swagger20: 'Swagger 2.0',
-  postman21: 'Postman 集合 v2.1',
-  unknown: '无法识别',
-}
+  postman21: t('importdlg.formatPostman'),
+  unknown: t('importdlg.formatUnknown'),
+}))
 
 async function pickFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
@@ -59,10 +63,15 @@ async function parse(): Promise<void> {
   busy.value = true
   try {
     result.value = await api.importDocument(text.value)
-    toast.success(`识别为 ${FORMAT_LABEL[result.value.format]}，共 ${result.value.endpoints.length} 个接口`)
+    toast.success(
+      t('importdlg.detected', {
+        format: FORMAT_LABEL.value[result.value.format],
+        n: result.value.endpoints.length,
+      }),
+    )
   } catch (err) {
     result.value = null
-    toast.error('解析失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('importdlg.parseFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -85,26 +94,26 @@ async function confirm(): Promise<void> {
       const now = new Date().toISOString()
       const name =
         projectName.value.trim() ||
-        `导入项目 ${new Date().toLocaleDateString('zh-CN')}`
+        t('importdlg.defaultProjectName', { v: new Date().toLocaleDateString() })
       const project = await api.saveProject({
         id: crypto.randomUUID(),
         name,
-        description: `由 ${FORMAT_LABEL[result.value.format]} 导入`,
+        description: t('importdlg.importedFrom', { v: FORMAT_LABEL.value[result.value.format] }),
         variables: {},
         created_at: now,
         updated_at: now,
       })
       await store.switchProject(project.id)
       const summary = await store.importEndpoints(result.value.endpoints)
-      toast.success(`已创建「${project.name}」并导入 ${summary.endpoints} 个接口`)
+      toast.success(t('importdlg.createdProject', { name: project.name, n: summary.endpoints }))
       emit('imported', project)
     } else {
       const summary = await store.importEndpoints(result.value.endpoints)
-      toast.success(`已导入 ${summary.endpoints} 个接口（含 ${summary.examples} 个示例）`)
+      toast.success(t('importdlg.imported', { n: summary.endpoints, m: summary.examples }))
     }
     emit('close')
   } catch (err) {
-    toast.error('导入失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('importdlg.importFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -117,21 +126,21 @@ const canConfirm = computed(
 </script>
 
 <template>
-  <Modal :open="true" :title="mode === 'new-project' ? '导入为新项目' : '导入文档'" width="560px" @close="emit('close')">
+  <Modal :open="true" :title="mode === 'new-project' ? t('importdlg.titleNewProject') : t('workspace.importDocFile')" width="560px" @close="emit('close')">
     <p class="import-hint">
       {{
         mode === 'new-project'
-          ? '将解析结果写入一个新建项目（自动设为激活）。支持 OpenAPI / Swagger / Postman。'
-          : '支持 OpenAPI 3.0 / Swagger 2.0 / Postman Collection v2.1，自动识别格式，导入到当前项目。'
+          ? t('importdlg.hintNewProject')
+          : t('importdlg.hint')
       }}
     </p>
 
     <label v-if="mode === 'new-project'" class="import-name-row">
-      <span class="import-name-label">新项目名称</span>
+      <span class="import-name-label">{{ t('importdlg.nameLabel') }}</span>
       <input
         v-model="projectName"
         class="rf-input"
-        placeholder="例如：支付网关"
+        :placeholder="t('importdlg.namePh')"
         spellcheck="false"
       />
     </label>
@@ -140,29 +149,34 @@ const canConfirm = computed(
       v-model="text"
       class="rf-input import-text"
       spellcheck="false"
-      placeholder="粘贴 OpenAPI / Swagger / Postman JSON…"
+      :placeholder="t('importdlg.textPh')"
     ></textarea>
     <div class="import-tools">
       <button class="rf-btn rf-btn-sm" type="button" :disabled="busy" @click="fileInput?.click()">
-        选择文件
+        {{ t('importdlg.pickFile') }}
       </button>
       <button class="rf-btn rf-btn-sm" type="button" :disabled="busy || !text.trim()" @click="parse">
-        {{ busy ? '解析中…' : '解析' }}
+        {{ busy ? t('importdlg.parsing') : t('importdlg.parse') }}
       </button>
       <input ref="fileInput" type="file" accept=".json,.yaml,.yml,application/json" class="import-file" @change="pickFile" />
     </div>
 
     <div v-if="result" class="import-preview">
       <p class="import-hint">
-        {{ FORMAT_LABEL[result.format] }}：{{ result.endpoints.length }} 个接口
-        （{{ result.endpoints.filter((e) => e.folder_hint).length }} 个按分组建文件夹）
+        {{
+          t('importdlg.preview', {
+            format: FORMAT_LABEL[result.format],
+            n: result.endpoints.length,
+            m: result.endpoints.filter((e) => e.folder_hint).length,
+          })
+        }}
       </p>
       <ul class="import-list">
         <li v-for="(ep, i) in result.endpoints.slice(0, 12)" :key="i" class="import-row">
           <span class="import-method">{{ ep.method }}</span>
           <span class="import-path">{{ ep.path }}</span>
         </li>
-        <li v-if="result.endpoints.length > 12" class="import-hint">… 其余 {{ result.endpoints.length - 12 }} 个略</li>
+        <li v-if="result.endpoints.length > 12" class="import-hint">{{ t('importdlg.more', { n: result.endpoints.length - 12 }) }}</li>
       </ul>
     </div>
 
@@ -174,9 +188,9 @@ const canConfirm = computed(
         :disabled="!canConfirm"
         @click="confirm"
       >
-        {{ mode === 'new-project' ? '创建并导入' : '确认导入' }}
+        {{ mode === 'new-project' ? t('importdlg.createAndImport') : t('importdlg.confirmImport') }}
       </button>
-      <button class="rf-btn rf-btn-sm" type="button" @click="emit('close')">取消</button>
+      <button class="rf-btn rf-btn-sm" type="button" @click="emit('close')">{{ t('common.cancel') }}</button>
     </template>
   </Modal>
 </template>

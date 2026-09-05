@@ -17,6 +17,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import { escapeHtml, highlightGraphQL, highlightJSON } from '../utils/highlight'
 import Modal from '../components/ui/Modal.vue'
@@ -39,6 +40,8 @@ const emit = defineEmits<{
 }>()
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 const api = useFoxApi()
 const toast = useToast()
@@ -169,18 +172,18 @@ function buildArgs(): ExecuteRequestArgs {
 // ---------- 发送 ----------
 async function send() {
   if (!url.value.trim()) {
-    statusText.value = '请输入接口地址'
-    toast.warning('请输入接口地址')
+    statusText.value = t('graphql.urlRequired')
+    toast.warning(t('graphql.urlRequired'))
     return
   }
   if (!gql.value.query.trim()) {
-    statusText.value = '请输入 GraphQL Query'
-    toast.warning('请输入 GraphQL Query')
+    statusText.value = t('graphql.queryRequired')
+    toast.warning(t('graphql.queryRequired'))
     return
   }
   if (!variablesValid.value) {
-    statusText.value = 'Variables 不是合法 JSON 对象'
-    toast.warning('Variables 不是合法 JSON 对象')
+    statusText.value = t('graphql.varsNotObject')
+    toast.warning(t('graphql.varsNotObject'))
     return
   }
   statusText.value = ''
@@ -202,7 +205,7 @@ async function send() {
     statusText.value = message
     responseRaw.value = true
     sendFailed.value = true
-    toast.error('请求发送失败', { message, duration: 6000 })
+    toast.error(t('graphql.sendFail'), { message, duration: 6000 })
   } finally {
     sending.value = false
   }
@@ -218,7 +221,7 @@ function parseResponseErrors(body: string): { message: string; locations?: strin
     const parsed = JSON.parse(body)
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.errors)) {
       return parsed.errors.map((entry: Record<string, unknown>) => ({
-        message: String(entry.message ?? '未知错误'),
+        message: String(entry.message ?? t('graphql.unknownError')),
         locations: Array.isArray(entry.locations)
           ? entry.locations
               .map((loc: Record<string, unknown>) => `${loc.line}:${loc.column}`)
@@ -236,15 +239,15 @@ function parseResponseErrors(body: string): { message: string; locations?: strin
 // ---------- 保存 ----------
 function save() {
   if (!variablesValid.value) {
-    statusText.value = 'Variables 不是合法 JSON 对象'
+    statusText.value = t('graphql.varsNotObject')
     return
   }
   saving.value = true
   try {
     emit('save', { mode: 'graphql', spec: { ...gql.value } })
     pushHistory()
-    statusText.value = '已保存'
-    toast.success('GraphQL 请求已保存')
+    statusText.value = t('graphql.saved')
+    toast.success(t('graphql.savedToast'))
   } finally {
     saving.value = false
   }
@@ -363,7 +366,7 @@ async function copyCode() {
     copied.value = true
     setTimeout(() => (copied.value = false), 1500)
   } catch {
-    statusText.value = '复制失败，请手动选择'
+    statusText.value = t('graphql.copyFail')
   }
 }
 </script>
@@ -371,11 +374,11 @@ async function copyCode() {
 <template>
   <div class="gql-root">
     <div class="row rf-mb-2">
-      <button class="rf-btn rf-btn-sm" type="button" @click="router.push('/workspace')">← 返回工作区</button>
-      <input v-model="url" class="rf-input gql-url" placeholder="GraphQL 接口地址（支持 &#123;&#123;变量&#125;&#125; 与环境替换）" spellcheck="false" />
-      <button class="rf-btn rf-btn-sm" :disabled="saving" @click="save">保存</button>
+      <button class="rf-btn rf-btn-sm" type="button" @click="router.push('/workspace')">← {{ t('graphql.backToWorkspace') }}</button>
+      <input v-model="url" class="rf-input gql-url" :placeholder="t('graphql.urlPh')" spellcheck="false" />
+      <button class="rf-btn rf-btn-sm" :disabled="saving" @click="save">{{ t('common.save') }}</button>
       <button class="rf-btn rf-btn-sm rf-btn-primary" :disabled="sending" @click="send">
-        {{ sending ? '发送中…' : '发送' }}
+        {{ sending ? t('graphql.sending') : t('editor.send') }}
       </button>
       <button
         v-if="sendFailed"
@@ -383,17 +386,17 @@ async function copyCode() {
         :disabled="sending"
         @click="retrySend"
       >
-        {{ sending ? '重试中…' : '重试' }}
+        {{ sending ? t('common.retrying') : t('common.retry') }}
       </button>
-      <button class="rf-btn rf-btn-sm rf-btn-ghost" @click="openHistory">历史</button>
-      <button class="rf-btn rf-btn-sm rf-btn-ghost" @click="openCodegen">生成代码</button>
+      <button class="rf-btn rf-btn-sm rf-btn-ghost" @click="openHistory">{{ t('graphql.historyBtn') }}</button>
+      <button class="rf-btn rf-btn-sm rf-btn-ghost" @click="openCodegen">{{ t('graphql.codegen') }}</button>
     </div>
 
     <div class="gql-grid">
       <div class="gql-pane">
         <div class="pane-title">
           <span>Query</span>
-          <span class="hint-inline">GraphQL 查询（支持 &#123;&#123;变量&#125;&#125; 插值）</span>
+          <span class="hint-inline">{{ t('graphql.queryHint') }}</span>
         </div>
         <div class="hl-wrap">
           <pre class="hl-pre" aria-hidden="true" v-html="queryHtml"></pre>
@@ -413,7 +416,7 @@ async function copyCode() {
         <div class="pane-title">
           <span>Variables</span>
           <span class="hint-inline" :class="{ 'vars-invalid': !variablesValid }">
-            {{ variablesValid ? 'JSON 对象' : 'JSON 无效' }}
+            {{ variablesValid ? t('graphql.varsValid') : t('graphql.varsInvalid') }}
           </span>
         </div>
         <div class="hl-wrap">
@@ -433,7 +436,7 @@ async function copyCode() {
           <input
             v-model="gql.operation_name"
             class="rf-input rf-input-sm"
-            placeholder="可选，多操作时指定"
+            :placeholder="t('graphql.opNamePh')"
             spellcheck="false"
           />
         </label>
@@ -445,32 +448,32 @@ async function copyCode() {
         {{ statusText || (response ? `${response.status} · ${response.durationMs}ms` : '') }}
       </div>
       <button v-if="response" class="rf-btn rf-btn-sm rf-btn-ghost" @click="responseRaw = !responseRaw">
-        {{ responseRaw ? '格式化' : '原始' }}
+        {{ responseRaw ? t('response.pretty') : t('response.raw') }}
       </button>
     </div>
 
     <div v-if="responseErrors.length" class="resp-errors">
       <div v-for="(err, i) in responseErrors" :key="i" class="resp-error">
         <span class="err-msg">{{ err.message }}</span>
-        <span v-if="err.locations" class="hint-inline">位置 {{ err.locations }}</span>
-        <span v-if="err.path" class="hint-inline">路径 {{ err.path }}</span>
+        <span v-if="err.locations" class="hint-inline">{{ t('graphql.errLocations', { v: err.locations }) }}</span>
+        <span v-if="err.path" class="hint-inline">{{ t('graphql.errPath', { v: err.path }) }}</span>
       </div>
     </div>
 
     <div v-if="response" class="resp-body">
       <p v-if="responseTooLarge && !responseRaw" class="resp-too-large">
-        响应超过 1 MB，已跳过格式化与高亮，仅显示前 200 KB（切换「原始」可查看全部文本）
+        {{ t('graphql.respTooLarge') }}
       </p>
       <pre v-if="!responseRaw" class="resp-pre" v-html="responseHtml"></pre>
       <pre v-else class="resp-pre">{{ response.body }}</pre>
     </div>
     <div v-else class="resp-empty">
-      <p class="hint">发送请求后在此查看响应（data / errors 区分展示）</p>
+      <p class="hint">{{ t('graphql.respEmpty') }}</p>
     </div>
 
     <!-- 历史 -->
-    <Modal v-model:open="historyOpen" title="历史记录" width="560px">
-      <div v-if="!history.length" class="empty">暂无历史</div>
+    <Modal v-model:open="historyOpen" :title="t('graphql.historyTitle')" width="560px">
+      <div v-if="!history.length" class="empty">{{ t('graphql.historyEmpty') }}</div>
       <ul v-else class="history-list">
         <li v-for="(entry, i) in history" :key="i" class="history-item" @click="applyHistory(entry)">
           <pre class="history-query">{{ entry.query }}</pre>
@@ -478,19 +481,19 @@ async function copyCode() {
         </li>
       </ul>
       <template #footer>
-        <button class="rf-btn rf-btn-sm rf-btn-danger" @click="clearHistory">清空历史</button>
+        <button class="rf-btn rf-btn-sm rf-btn-danger" @click="clearHistory">{{ t('graphql.clearHistory') }}</button>
       </template>
     </Modal>
 
     <!-- 生成代码 -->
-    <Modal v-model:open="codegenOpen" title="生成代码" width="640px">
+    <Modal v-model:open="codegenOpen" :title="t('graphql.codegen')" width="640px">
       <div class="rf-tabs">
         <button class="rf-tab" :class="{ active: codegenTab === 'curl' }" @click="codegenTab = 'curl'">curl</button>
         <button class="rf-tab" :class="{ active: codegenTab === 'apollo' }" @click="codegenTab = 'apollo'">JavaScript (Apollo Client)</button>
       </div>
       <pre class="codegen-out">{{ codegenTab === 'curl' ? curlCode : apolloCode }}</pre>
       <template #footer>
-        <button class="rf-btn rf-btn-sm rf-btn-primary" @click="copyCode">{{ copied ? '已复制' : '复制' }}</button>
+        <button class="rf-btn rf-btn-sm rf-btn-primary" @click="copyCode">{{ copied ? t('codegen.copied') : t('common.copy') }}</button>
       </template>
     </Modal>
   </div>

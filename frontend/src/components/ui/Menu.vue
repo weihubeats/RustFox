@@ -7,6 +7,7 @@
  * - 外部点击 / Esc / 滚动 / 窗口缩放自动关闭。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import Icon from './Icon.vue'
 import type { IconName } from './Icon.vue'
 
@@ -38,6 +39,9 @@ const view = ref<View>({ kind: 'list' })
 const items = ref<MenuItem[]>([])
 const pos = ref({ left: 0, top: 0 })
 const menuEl = ref<HTMLElement | null>(null)
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const menuStyle = computed(() => ({ left: `${pos.value.left}px`, top: `${pos.value.top}px` }))
 
@@ -158,9 +162,9 @@ defineExpose({ openAt, close })
       <template v-else>
         <p class="rf-menu-confirm-title">{{ view.item.confirm }}</p>
         <div class="rf-menu-confirm-actions">
-          <button class="rf-btn rf-btn-sm" type="button" @click="backToList">取消</button>
+          <button class="rf-btn rf-btn-sm" type="button" @click="backToList">{{ t('common.cancel') }}</button>
           <button class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="onConfirm">
-            删除
+            {{ t('confirm.ok') }}
           </button>
         </div>
       </template>

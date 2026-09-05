@@ -6,6 +6,7 @@
 import Drawer from './ui/Drawer.vue'
 import LoadTestPanel from './LoadTestPanel.vue'
 import TestsPanel from './TestsPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import type { Endpoint } from '../types/foxApi'
 
 defineProps<{
@@ -15,19 +16,22 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 </script>
 
 <template>
-  <Drawer :open="open" title="接口工具（断言测试 / 压测）" width="560px" @close="emit('close')">
+  <Drawer :open="open" :title="t('tools.title')" width="560px" @close="emit('close')">
     <div class="tools">
       <section class="tool-sec">
-        <h3 class="tool-title">断言测试</h3>
-        <p class="tool-hint">配置状态码 / 响应头 / JSONPath 断言并运行，结果逐条展示。</p>
+        <h3 class="tool-title">{{ t('tools.testsTitle') }}</h3>
+        <p class="tool-hint">{{ t('tools.testsHint') }}</p>
         <TestsPanel :draft="draft" :url="url" />
       </section>
 
       <section class="tool-sec">
-        <h3 class="tool-title">压测（并发基准）</h3>
+        <h3 class="tool-title">{{ t('tools.loadTitle') }}</h3>
         <LoadTestPanel :draft="draft" :url="url" />
       </section>
     </div>

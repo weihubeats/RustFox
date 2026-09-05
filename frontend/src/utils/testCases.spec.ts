@@ -1,13 +1,16 @@
 /**
  * testCases.ts 单测：请求快照提取 + 用例回填（各 Body 类型 / 容错降级）。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import type { RequestSpec } from '../types/foxApi'
+import { useLocaleStore } from '../stores/locale'
 import {
   applyCaseToRequest,
   bodyContentOf,
   bodyTypeLabel,
   bodyTypeOf,
+  caseCategoryLabel,
   formatDuration,
   restoreBody,
   snapshotRequest,
@@ -71,6 +74,25 @@ describe('bodyTypeOf / bodyContentOf', () => {
     expect(bodyTypeLabel('json')).toBe('JSON')
     expect(bodyTypeLabel('form-data')).toBe('Form-Data')
     expect(bodyTypeLabel('unknown')).toBe('unknown')
+  })
+})
+
+describe('caseCategoryLabel（分组展示文案）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
+  })
+
+  it('存库原值 → 展示文案；未知原值原样返回', () => {
+    expect(caseCategoryLabel('正向')).toBe('正向')
+    expect(caseCategoryLabel('边界值')).toBe('边界值')
+    expect(caseCategoryLabel('安全性')).toBe('安全性')
+    expect(caseCategoryLabel('未知分组')).toBe('未知分组')
+  })
+
+  it('bodyTypeLabel：none 显示「无 Body」', () => {
+    expect(bodyTypeLabel('none')).toBe('无 Body')
   })
 })
 

@@ -10,6 +10,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Brand from '../components/Brand.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import EndpointTree from '../components/EndpointTree.vue'
@@ -37,6 +38,8 @@ const router = useRouter()
 const route = useRoute()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const loading = ref(false)
 const showCurlImport = ref(false)
@@ -120,9 +123,9 @@ function onSidebarResizeUp(): void {
 type SidebarTab = 'collections' | 'history' | 'cookies'
 const sidebarTab = ref<SidebarTab>('collections')
 const sidebarTabs = computed<TabItem[]>(() => [
-  { key: 'collections', label: '接口目录' },
-  { key: 'history', label: '请求历史', count: store.histories.length || undefined },
-  { key: 'cookies', label: 'Cookie' },
+  { key: 'collections', label: t('workspace.collections') },
+  { key: 'history', label: t('workspace.history'), count: store.histories.length || undefined },
+  { key: 'cookies', label: t('workspace.cookies') },
 ])
 
 // ---------- Mock 服务 ----------
@@ -144,13 +147,13 @@ async function toggleMock(): Promise<void> {
     if (mockAddress.value) {
       await api.mockStop()
       mockAddress.value = null
-      toast.success('Mock 服务已停止')
+      toast.success(t('workspace.mockStopped'))
     } else {
       mockAddress.value = await api.mockStart()
-      toast.success(`Mock 服务已启动：${mockAddress.value}`)
+      toast.success(t('workspace.mockStarted', { v: mockAddress.value }))
     }
   } catch (err) {
-    toast.error('Mock 服务操作失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.mockFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     mockBusy.value = false
   }
@@ -186,9 +189,9 @@ async function exportOpenapi(): Promise<void> {
     a.download = `${store.project.name}-openapi.json`
     a.click()
     URL.revokeObjectURL(url)
-    toast.success('已导出 OpenAPI 3.0 JSON')
+    toast.success(t('workspace.exportedOpenapi'))
   } catch (err) {
-    toast.error('导出失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.exportFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -221,7 +224,7 @@ function openCreateProject(): void {
 async function confirmCreateProject(): Promise<void> {
   const name = newProjectName.value.trim()
   if (!name) {
-    projectFormError.value = '项目名称不能为空'
+    projectFormError.value = t('workspace.projectNameRequired')
     return
   }
   const now = new Date().toISOString()
@@ -236,9 +239,9 @@ async function confirmCreateProject(): Promise<void> {
     })
     showCreateProject.value = false
     await store.switchProject(p.id)
-    toast.success('项目创建成功', { message: name })
+    toast.success(t('workspace.projectCreated'), { message: name })
   } catch (err) {
-    toast.error('创建项目失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.projectCreateFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -254,7 +257,7 @@ function openRenameProject(): void {
 async function confirmRenameProject(): Promise<void> {
   const name = renameProjectName.value.trim()
   if (!name) {
-    projectFormError.value = '项目名称不能为空'
+    projectFormError.value = t('workspace.projectNameRequired')
     return
   }
   const current = store.project
@@ -263,9 +266,9 @@ async function confirmRenameProject(): Promise<void> {
     const saved = await api.saveProject({ ...current, name, updated_at: new Date().toISOString() })
     store.project = saved
     renamingProject.value = false
-    toast.success('项目已重命名')
+    toast.success(t('workspace.projectRenamed'))
   } catch (err) {
-    toast.error('重命名失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.projectRenameFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -276,10 +279,10 @@ async function confirmDeleteProject(): Promise<void> {
     await api.deleteProject(target.id)
     await api.setActiveProject(null).catch(() => undefined)
     store.closeProjectTab(target.id)
-    toast.success('项目已删除', { message: target.name })
+    toast.success(t('workspace.projectDeleted'), { message: target.name })
     router.replace('/projects')
   } catch (err) {
-    toast.error('删除项目失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.projectDeleteFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -292,24 +295,24 @@ const addBtn = ref<HTMLElement | null>(null)
 const expandTick = ref(0)
 const collapseTick = ref(0)
 
-const CREATE_ITEMS: MenuItem[] = [
-  { key: 'new-request', label: '新建 API 请求', icon: 'file-plus', iconAccent: true, shortcut: '⌘N' },
-  { key: 'new-folder', label: '新建文件夹', icon: 'folder-plus' },
-  { key: 'import-curl', label: '导入 cURL', icon: 'terminal', dividerBefore: true },
-  { key: 'import-doc', label: '导入接口 (Postman / Swagger)', icon: 'upload' },
-]
+const CREATE_ITEMS = computed<MenuItem[]>(() => [
+  { key: 'new-request', label: t('workspace.newRequest'), icon: 'file-plus', iconAccent: true, shortcut: '⌘N' },
+  { key: 'new-folder', label: t('workspace.newFolder'), icon: 'folder-plus' },
+  { key: 'import-curl', label: t('workspace.importCurl'), icon: 'terminal', dividerBefore: true },
+  { key: 'import-doc', label: t('workspace.importDoc'), icon: 'upload' },
+])
 
 function openCreateMenu(): void {
-  if (addBtn.value) menuRef.value?.openAt(addBtn.value, CREATE_ITEMS, 'right')
+  if (addBtn.value) menuRef.value?.openAt(addBtn.value, CREATE_ITEMS.value, 'right')
 }
 
-const DOCS_ITEMS: MenuItem[] = [
-  { key: 'import', label: '导入文档', icon: 'upload' },
-  { key: 'export', label: '导出 OpenAPI', icon: 'download' },
-]
+const DOCS_ITEMS = computed<MenuItem[]>(() => [
+  { key: 'import', label: t('workspace.importDocFile'), icon: 'upload' },
+  { key: 'export', label: t('workspace.exportOpenapi'), icon: 'download' },
+])
 
 function openDocsMenu(): void {
-  if (docsBtn.value) menuRef.value?.openAt(docsBtn.value, DOCS_ITEMS, 'right')
+  if (docsBtn.value) menuRef.value?.openAt(docsBtn.value, DOCS_ITEMS.value, 'right')
 }
 
 function onDocsSelect(item: MenuItem): void {
@@ -322,11 +325,11 @@ function openMockMenu(): void {
   menuRef.value?.openAt(mockBtn.value, [
     {
       key: 'toggle',
-      label: mockBusy.value ? '处理中…' : mockAddress.value ? '停止 Mock' : '启动 Mock',
+      label: mockBusy.value ? t('workspace.processing') : mockAddress.value ? t('workspace.mockStop') : t('workspace.mockStart'),
       icon: mockAddress.value ? 'stop' : 'play',
       disabled: mockBusy.value,
     },
-    { key: 'rules', label: 'Mock 规则', icon: 'shield', dividerBefore: true },
+    { key: 'rules', label: t('workspace.mockRules'), icon: 'shield', dividerBefore: true },
   ], 'right')
 }
 
@@ -374,7 +377,7 @@ onMounted(() => {
       if (payload.type !== 'endpoint-imported') return
       if (!store.project || payload.project_id !== store.project.id) return
       await store.refresh()
-      toast.info(`AI Agent 已导入接口「${payload.name ?? '未命名'}」`)
+      toast.info(t('workspace.agentImported', { name: payload.name ?? t('workspace.untitled') }))
     }).then((unlisten) => {
       unlistenAgent = unlisten
     })
@@ -414,20 +417,20 @@ onBeforeUnmount(() => {
 
       <div class="tb-region tb-right">
         <button ref="docsBtn" class="rf-btn rf-btn-sm tb-action" type="button" @click="openDocsMenu">
-          <Icon name="file" :size="13" /> 文档 (Docs) <Icon name="chevron-down" :size="12" />
+          <Icon name="file" :size="13" /> {{ t('workspace.docs') }} <Icon name="chevron-down" :size="12" />
         </button>
         <button ref="mockBtn" class="rf-btn rf-btn-sm tb-action" type="button" @click="openMockMenu">
           <span class="mock-dot" :class="{ on: mockAddress }"></span>
           Mock <Icon name="chevron-down" :size="12" />
         </button>
         <EnvironmentBar />
-        <div class="tb-tool-group" role="toolbar" aria-label="工作台工具">
+        <div class="tb-tool-group" role="toolbar" :aria-label="t('workspace.tools')">
           <IconButton
             class="tb-tool"
             :class="{ active: route.path === '/graphql' }"
             name="code"
             :size="15"
-            title="GraphQL 工作台"
+            :title="t('workspace.graphql')"
             @click="router.push('/graphql')"
           />
           <IconButton
@@ -435,17 +438,17 @@ onBeforeUnmount(() => {
             :class="{ active: route.path === '/realtime' }"
             name="zap"
             :size="15"
-            title="实时调试（WebSocket / SSE）"
+            :title="t('workspace.realtime')"
             @click="router.push('/realtime')"
           />
           <IconButton
             class="tb-tool"
             name="keyboard"
             :size="15"
-            title="快捷键（Ctrl+/）"
+            :title="t('workspace.shortcutsHint')"
             @click="showShortcuts = true"
           />
-          <IconButton class="tb-tool" name="settings" :size="15" title="设置" @click="showSettings = true" />
+          <IconButton class="tb-tool" name="settings" :size="15" :title="t('settings.title')" @click="showSettings = true" />
         </div>
       </div>
     </div>
@@ -462,44 +465,44 @@ onBeforeUnmount(() => {
                 v-model="apiSearchInput"
                 class="ss-input"
                 type="text"
-                placeholder="搜索接口名称或路径..."
+                :placeholder="t('workspace.searchPh')"
                 spellcheck="false"
               />
               <button
                 v-if="apiSearchInput"
                 class="ss-clear"
                 type="button"
-                title="清除搜索"
-                aria-label="清除搜索"
+                :title="t('common.clearSearch')"
+                :aria-label="t('common.clearSearch')"
                 @click="clearApiSearch"
               >
                 <Icon name="x" :size="12" />
               </button>
             </div>
             <div class="sidebar-tools">
-              <Tooltip content="新建（⌘N）">
+              <Tooltip :content="t('workspace.newHint')">
                 <button
                   ref="addBtn"
                   class="tool-add"
                   type="button"
-                  aria-label="新建接口 / 文件夹 / 导入"
+                  :aria-label="t('workspace.newAria')"
                   @click="openCreateMenu"
                 >
                   <Icon name="plus" :size="14" />
                 </button>
               </Tooltip>
-              <Tooltip content="全部折叠">
+              <Tooltip :content="t('workspace.collapseAll')">
                 <IconButton name="chevrons-down-up" :size="14" @click="collapseTick++" />
               </Tooltip>
-              <Tooltip content="全部展开">
+              <Tooltip :content="t('workspace.expandAll')">
                 <IconButton name="chevrons-up-down" :size="14" @click="expandTick++" />
               </Tooltip>
             </div>
           </div>
           <div v-if="store.loadError" class="rf-inline-error" role="alert">
-            <span class="rf-inline-error-text">加载失败：{{ store.loadError }}</span>
+            <span class="rf-inline-error-text">{{ t('workspace.loadFail', { v: store.loadError }) }}</span>
             <button class="rf-btn rf-btn-sm" type="button" :disabled="loading" @click="load">
-              {{ loading ? '重试中…' : '重试' }}
+              {{ loading ? t('common.retrying') : t('common.retry') }}
             </button>
           </div>
           <div v-else class="tree-wrap">
@@ -521,8 +524,8 @@ onBeforeUnmount(() => {
         :class="{ active: sidebarResizing }"
         role="separator"
         aria-orientation="vertical"
-        aria-label="调整侧栏宽度"
-        title="拖拽调整宽度，双击恢复默认"
+        :aria-label="t('workspace.resizeSidebar')"
+        :title="t('workspace.resizeHint')"
         @mousedown="onSidebarResizeDown"
         @dblclick="sidebarWidth = 300"
       ></div>
@@ -538,14 +541,14 @@ onBeforeUnmount(() => {
 
     <Menu ref="menuRef" @select="onMenuSelect" />
 
-    <Modal v-model:open="showCreateProject" title="新建项目" width="420px" @close="showCreateProject = false">
+    <Modal v-model:open="showCreateProject" :title="t('workspace.createProject')" width="420px" @close="showCreateProject = false">
       <div class="form-field">
-        <label class="form-label">项目名称</label>
+        <label class="form-label">{{ t('workspace.projectName') }}</label>
         <input
           v-model="newProjectName"
           class="rf-input"
           :class="{ 'rf-input-error': projectFormError }"
-          placeholder="例如：电子商务后端 API"
+          :placeholder="t('workspace.projectNamePh')"
           maxlength="60"
           spellcheck="false"
           @input="projectFormError = null"
@@ -553,33 +556,33 @@ onBeforeUnmount(() => {
         />
       </div>
       <div class="form-field">
-        <label class="form-label">描述（可选）</label>
+        <label class="form-label">{{ t('workspace.projectDesc') }}</label>
         <textarea
           v-model="newProjectDesc"
           class="rf-textarea"
           :maxlength="200"
-          placeholder="项目用途与说明…"
+          :placeholder="t('workspace.projectDescPh')"
           rows="3"
         ></textarea>
       </div>
       <p v-if="projectFormError" class="rf-field-error" role="alert">{{ projectFormError }}</p>
       <template #footer>
-        <button class="rf-btn" type="button" @click="showCreateProject = false">取消</button>
+        <button class="rf-btn" type="button" @click="showCreateProject = false">{{ t('common.cancel') }}</button>
         <button class="rf-btn rf-btn-primary" type="button" :disabled="api.pending.value" @click="confirmCreateProject">
-          创建
+          {{ t('workspace.create') }}
         </button>
       </template>
     </Modal>
 
-    <Modal v-model:open="renamingProject" title="重命名项目" width="420px" @close="renamingProject = false">
+    <Modal v-model:open="renamingProject" :title="t('workspace.renameProject')" width="420px" @close="renamingProject = false">
       <div class="form-field">
-        <label class="form-label">项目名称</label>
+        <label class="form-label">{{ t('workspace.projectName') }}</label>
         <input
           v-model="renameProjectName"
           class="rf-input"
           v-focus-end
           :class="{ 'rf-input-error': projectFormError }"
-          placeholder="项目名称"
+          :placeholder="t('workspace.projectName')"
           maxlength="60"
           spellcheck="false"
           @input="projectFormError = null"
@@ -588,9 +591,9 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="projectFormError" class="rf-field-error" role="alert">{{ projectFormError }}</p>
       <template #footer>
-        <button class="rf-btn" type="button" @click="renamingProject = false">取消</button>
+        <button class="rf-btn" type="button" @click="renamingProject = false">{{ t('common.cancel') }}</button>
         <button class="rf-btn rf-btn-primary" type="button" :disabled="api.pending.value" @click="confirmRenameProject">
-          保存
+          {{ t('common.save') }}
         </button>
       </template>
     </Modal>

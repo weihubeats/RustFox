@@ -7,6 +7,7 @@
  * - 打开期间锁定 body 滚动；Teleport 到 body，双主题。
  */
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import IconButton from './IconButton.vue'
 
 const props = withDefaults(
@@ -30,6 +31,9 @@ const emit = defineEmits<{
 }>()
 
 const titleId = `rf-modal-title-${Math.random().toString(36).slice(2, 9)}`
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const dialogEl = ref<HTMLElement | null>(null)
 
@@ -130,7 +134,7 @@ onBeforeUnmount(() => {
         >
           <div v-if="title" class="m-head">
             <h3 :id="titleId" class="m-title">{{ title }}</h3>
-            <IconButton v-if="closable" name="x" :size="14" title="关闭" @click="requestClose" />
+            <IconButton v-if="closable" name="x" :size="14" :title="t('common.close')" @click="requestClose" />
           </div>
           <div class="m-body">
             <slot />

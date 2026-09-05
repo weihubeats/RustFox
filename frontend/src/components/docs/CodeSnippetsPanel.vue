@@ -10,6 +10,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import Tabs from '../ui/Tabs.vue'
 import type { TabItem } from '../ui/Tabs.vue'
+import { useLocaleStore } from '../../stores/locale'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
@@ -30,6 +31,8 @@ onBeforeUnmount(() => {
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 /** 文档页代码语言选单（对应后端 Lang）。 */
 const LANG_TABS: Array<{ value: CodeLang; label: string }> = [
@@ -76,7 +79,7 @@ async function generate(): Promise<void> {
   } catch (err) {
     if (disposed) return
     code.value = ''
-    toast.error('生成代码失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('codegen.genFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     if (!disposed) generating.value = false
   }
@@ -86,9 +89,9 @@ async function copyCode(): Promise<void> {
   if (!code.value) return
   const ok = await copyText(code.value)
   if (ok) {
-    toast.success('代码已复制到剪贴板')
+    toast.success(t('codegen.copiedClipboard'))
   } else {
-    toast.error('复制失败，请手动选择文本')
+    toast.error(t('response.copyFail'))
   }
 }
 
@@ -107,16 +110,16 @@ watch(
 <template>
   <section class="csp doc-card">
     <header class="csp-head">
-      <h4 class="doc-sec-title">代码生成 (Code)</h4>
+      <h4 class="doc-sec-title">{{ t('docs.secCode') }}</h4>
       <button class="rf-btn rf-btn-sm" type="button" :disabled="!code" @click="copyCode">
-        <Icon name="copy" :size="12" /> 复制代码
+        <Icon name="copy" :size="12" /> {{ t('snippets.copyCode') }}
       </button>
     </header>
     <Tabs v-model="lang" :tabs="langTabs" size="sm" class="csp-tabs" />
     <div class="csp-body">
-      <pre v-if="generating" class="csp-hint">生成中…</pre>
+      <pre v-if="generating" class="csp-hint">{{ t('codegen.generating') }}</pre>
       <pre v-else-if="code" class="csp-code" v-html="codeHtml"></pre>
-      <p v-else class="csp-hint">无法生成代码（请检查请求配置）</p>
+      <p v-else class="csp-hint">{{ t('snippets.genEmpty') }}</p>
     </div>
   </section>
 </template>

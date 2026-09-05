@@ -4,8 +4,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, reactive } from 'vue'
 import AuthPanel from './AuthPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 import { collectErrors } from '../testUtils/componentTest'
 import type { Endpoint } from '../types/foxApi'
@@ -31,6 +33,9 @@ function draftWithoutConfig(): Endpoint {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
 })
 
 describe('AuthPanel：动态签名交互稳定性', () => {

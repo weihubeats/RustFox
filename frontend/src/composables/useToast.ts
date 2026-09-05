@@ -16,6 +16,7 @@
  * 渲染：在 App 根组件挂载 <ToastHost />（见 components/ToastHost.vue）。
  */
 import { readonly, ref } from 'vue'
+import { tFallback } from '../stores/locale'
 
 export type ToastType = 'success' | 'info' | 'warning' | 'error'
 
@@ -43,11 +44,19 @@ const toasts = ref<ToastItem[]>([])
 let nextId = 1
 
 /** 类型 → 面板主题色（CSS 变量，双主题自动跟随）。 */
-export const TOAST_TYPE_META: Record<ToastType, { label: string; color: string }> = {
-  success: { label: '成功', color: 'var(--success)' },
-  info: { label: '提示', color: 'var(--info)' },
-  warning: { label: '警告', color: 'var(--warning)' },
-  error: { label: '错误', color: 'var(--danger)' },
+export const TOAST_TYPE_META: Record<ToastType, { color: string }> = {
+  success: { color: 'var(--success)' },
+  info: { color: 'var(--info)' },
+  warning: { color: 'var(--warning)' },
+  error: { color: 'var(--danger)' },
+}
+
+/** 类型 → 默认标题文案键（调用方未传 title 时按当前语言取词）。 */
+const TYPE_TITLE_KEY: Record<ToastType, string> = {
+  success: 'toast.typeSuccess',
+  info: 'toast.typeInfo',
+  warning: 'toast.typeWarning',
+  error: 'toast.typeError',
 }
 
 function push(item: Omit<ToastItem, 'id'>): number {
@@ -76,7 +85,7 @@ function toast(opts: {
   action?: ToastAction
 }): number {
   const type = opts.type
-  const title = opts.title ?? TOAST_TYPE_META[type].label
+  const title = opts.title ?? tFallback(TYPE_TITLE_KEY[type])
   return push({
     type,
     title,

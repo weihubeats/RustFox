@@ -5,14 +5,16 @@
  */
 import { useRouter } from 'vue-router'
 import logo from '../assets/rustfox-logo.png'
+import { useLocaleStore } from '../stores/locale'
 
 withDefaults(defineProps<{ title: string; subtitle?: string }>(), { subtitle: '' })
 
 const router = useRouter()
+const t = useLocaleStore().t
 </script>
 
 <template>
-  <button type="button" class="brand" title="回到项目首页" @click="router.push('/projects')">
+  <button type="button" class="brand" :title="t('app.backHome')" @click="router.push('/projects')">
     <span class="brand-logo" aria-hidden="true">
       <img :src="logo" alt="" width="18" height="18" />
     </span>

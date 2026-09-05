@@ -7,6 +7,7 @@ import { ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { formatDuration } from '../utils/format'
 import Icon from './ui/Icon.vue'
 import type { Endpoint, EndpointResult } from '../types/foxApi'
@@ -19,6 +20,8 @@ const props = defineProps<{
 const api = useFoxApi()
 const toast = useToast()
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 const testsJson = ref('')
 const testResult = ref<EndpointResult | null>(null)
@@ -46,7 +49,7 @@ async function runTests(): Promise<void> {
       ? JSON.parse(testsJson.value)
       : null
   } catch {
-    toast.error('测试配置不是合法 JSON')
+    toast.error(t('tests.invalidJson'))
     return
   }
   testing.value = true
@@ -57,7 +60,7 @@ async function runTests(): Promise<void> {
       environment_id: store.activeEnvId,
     })
   } catch (err) {
-    toast.error('测试运行失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('tests.runFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     testing.value = false
   }
@@ -67,22 +70,22 @@ async function runTests(): Promise<void> {
 <template>
   <div class="panel">
     <div class="tp-head">
-      <span class="tp-title">断言配置 (JSON)</span>
-      <span class="tp-hint">保存在当前接口的 request.tests 中，随接口一起保存</span>
+      <span class="tp-title">{{ t('tests.title') }}</span>
+      <span class="tp-hint">{{ t('tests.hint') }}</span>
     </div>
     <textarea
       v-model="testsJson"
       class="rf-input tp-input"
       spellcheck="false"
-      placeholder='{ "assertions": [{ "type": "status", "op": "eq", "expected": 200 }] }（op 还支持 matches/regex、empty；type 还支持 graphql_errors、length）'
+      :placeholder="t('tests.ph')"
     ></textarea>
     <div class="tp-run-row">
       <button class="rf-btn rf-btn-sm" type="button" :disabled="testing" @click="runTests">
         <Icon :name="testing ? 'refresh' : 'beaker'" :size="13" :stroke-width="testing ? 1.8 : 1.5" />
-        {{ testing ? '测试中…' : '运行测试' }}
+        {{ testing ? t('tests.testing') : t('tests.run') }}
       </button>
       <span v-if="testResult" class="tp-badge" :class="testResult.ok ? 'ok' : 'fail'">
-        {{ testResult.ok ? '通过' : '失败' }} · {{ testResult.status ?? '-' }} ·
+        {{ testResult.ok ? t('tests.pass') : t('tests.fail') }} · {{ testResult.status ?? '-' }} ·
         {{ formatDuration(testResult.duration_ms) }}
       </span>
     </div>
@@ -101,7 +104,7 @@ async function runTests(): Promise<void> {
       </li>
     </ul>
     <p v-else-if="testResult && !testResult.ok" class="tp-hint-empty">
-      {{ testResult.request_error ?? '未配置断言' }}
+      {{ testResult.request_error ?? t('tests.noAssertions') }}
     </p>
   </div>
 </template>

@@ -8,6 +8,7 @@ import { onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import type { Endpoint, MockRule } from '../types/foxApi'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
@@ -18,6 +19,8 @@ const emit = defineEmits<{ openManager: [] }>()
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const rules = ref<MockRule[]>([])
 const reloading = ref(false)
@@ -39,9 +42,9 @@ async function reload(): Promise<void> {
   reloading.value = true
   try {
     const n = await api.mockReload()
-    toast.success(`Mock 定义已热重载（${n} 条），无需重启`)
+    toast.success(t('mockpanel.reloaded', { n }))
   } catch (err) {
-    toast.error('热重载失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('mockpanel.reloadFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     reloading.value = false
   }
@@ -58,44 +61,44 @@ const others = (): MockRule[] =>
 <template>
   <div class="mkp">
     <div class="mkp-bar">
-      <span class="mkp-title">Mock 规则（{{ rules.length }}）</span>
+      <span class="mkp-title">{{ t('mockpanel.title', { n: rules.length }) }}</span>
       <span class="mkp-actions">
         <button
           class="rf-btn rf-btn-sm"
           type="button"
           :disabled="reloading"
-          title="运行中原子替换路由与模板，无需重启服务"
+          :title="t('mockpanel.reloadHint')"
           @click="reload"
         >
-          <Icon name="refresh" :size="13" /> {{ reloading ? '重载中…' : '热重载' }}
+          <Icon name="refresh" :size="13" /> {{ reloading ? t('mockpanel.reloading') : t('mockpanel.reload') }}
         </button>
         <button class="rf-btn rf-btn-sm" type="button" @click="emit('openManager')">
-          <Icon name="settings" :size="13" /> 打开 Mock 管理
+          <Icon name="settings" :size="13" /> {{ t('mockpanel.openManager') }}
         </button>
       </span>
     </div>
 
     <div v-if="related().length" class="mkp-sec">
-      <span class="mkp-sec-label">本接口</span>
+      <span class="mkp-sec-label">{{ t('mockpanel.thisEndpoint') }}</span>
       <div class="mkp-list">
         <div v-for="r in related()" :key="r.id" class="mkp-row">
           <span class="mkp-method" :class="`m-select-${r.method.toLowerCase()}`">{{ r.method }}</span>
           <code class="mkp-path">{{ r.path }}</code>
           <span class="mkp-name">{{ r.name }}</span>
-          <span class="mkp-status" :class="{ on: r.enabled }">{{ r.enabled ? '已启用' : '已停用' }}</span>
+          <span class="mkp-status" :class="{ on: r.enabled }">{{ r.enabled ? t('mockpanel.enabled') : t('mockpanel.disabled') }}</span>
           <span class="mkp-code">{{ r.response_status }}</span>
         </div>
       </div>
     </div>
 
     <div v-if="others().length" class="mkp-sec">
-      <span class="mkp-sec-label">项目其他规则</span>
+      <span class="mkp-sec-label">{{ t('mockpanel.otherRules') }}</span>
       <div class="mkp-list">
         <div v-for="r in others()" :key="r.id" class="mkp-row">
           <span class="mkp-method" :class="`m-select-${r.method.toLowerCase()}`">{{ r.method }}</span>
           <code class="mkp-path">{{ r.path }}</code>
           <span class="mkp-name">{{ r.name }}</span>
-          <span class="mkp-status" :class="{ on: r.enabled }">{{ r.enabled ? '已启用' : '已停用' }}</span>
+          <span class="mkp-status" :class="{ on: r.enabled }">{{ r.enabled ? t('mockpanel.enabled') : t('mockpanel.disabled') }}</span>
         </div>
       </div>
     </div>
@@ -104,8 +107,8 @@ const others = (): MockRule[] =>
       v-if="!rules.length"
       icon="server"
       compact
-      title="暂无 Mock 规则"
-      description="点「打开 Mock 管理」新建规则，为接口返回模拟响应"
+      :title="t('mockpanel.empty')"
+      :description="t('mockpanel.emptyHint')"
     />
   </div>
 </template>

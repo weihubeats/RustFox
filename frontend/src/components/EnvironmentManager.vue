@@ -18,6 +18,7 @@ import { computed, ref, watch } from 'vue'
 import { join } from '@tauri-apps/api/path'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { defaultModule, envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
@@ -39,6 +40,8 @@ const props = defineProps<{ open: boolean; initialEnvId?: string | null }>()
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 const toast = useToast()
 const api = useFoxApi()
 
@@ -68,10 +71,18 @@ const effectiveDefaultId = computed<string | null>(
 
 /** 全局组：全局变量 / 全局参数已启用；Vault Secrets 仍为占位（置灰）。 */
 const globalItems = [
-  { key: 'global_variables', label: '全局变量', desc: '跨项目共享，{{name}} 按名引用（优先级最低）', enabled: true },
-  { key: 'global_params', label: '全局参数', desc: '每个请求自动注入 query / header', enabled: true },
-  { key: 'vault_secrets', label: 'Vault Secrets', desc: '密钥托管（规划中）', enabled: false },
+  { key: 'global_variables', labelKey: 'envmgr.globalVars', descKey: 'envmgr.globalVarsDesc', enabled: true },
+  { key: 'global_params', labelKey: 'envmgr.globalParams', descKey: 'envmgr.globalParamsDesc', enabled: true },
+  { key: 'vault_secrets', labelKey: 'envmgr.vaultSecrets', descKey: 'envmgr.vaultDesc', enabled: false },
 ]
+
+/** 全局组条目 hover 标题：标签 + 描述（未启用追加「规划中」）。 */
+function globalItemTitle(item: (typeof globalItems)[number]): string {
+  return t(item.enabled ? 'envmgr.itemTitle' : 'envmgr.itemTitleSoon', {
+    label: t(item.labelKey),
+    desc: t(item.descKey),
+  })
+}
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
@@ -197,7 +208,7 @@ function addEnvironment(): void {
   const now = new Date().toISOString()
   const env: Environment = {
     id: crypto.randomUUID(),
-    name: '新环境',
+    name: t('envmgr.newEnvName'),
     modules: [],
     variables: [],
     created_at: now,
@@ -220,18 +231,18 @@ const exchanging = ref(false)
 async function exportSelected(): Promise<void> {
   if (!selected.value || exchanging.value) return
   if (dirty.value) {
-    toast.warning('有未保存的修改，导出的是已保存版本')
+    toast.warning(t('envmgr.exportUnsavedWarn'))
   }
   exchanging.value = true
   try {
     const doc = await api.exportEnvironment(selected.value.id, exchangeFormat.value)
-    const dir = await openDialog({ directory: true, title: '选择环境导出目录' })
+    const dir = await openDialog({ directory: true, title: t('envmgr.exportDirTitle') })
     if (!dir || Array.isArray(dir)) return
     const path = await join(dir, doc.suggested_name)
     await api.writeTextFile(path, doc.content)
-    toast.success('环境导出成功', { message: doc.suggested_name })
+    toast.success(t('envmgr.exportSuccess'), { message: doc.suggested_name })
   } catch (err) {
-    toast.error('环境导出失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('envmgr.exportFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     exchanging.value = false
   }
@@ -252,7 +263,7 @@ function openImport(): void {
 
 async function importFromFile(): Promise<void> {
   try {
-    const file = await openDialog({ multiple: false, title: '选择环境文件' })
+    const file = await openDialog({ multiple: false, title: t('envmgr.importFileTitle') })
     if (!file || Array.isArray(file)) return
     importText.value = await api.readTextFile(file)
     await previewImport()
@@ -265,7 +276,7 @@ async function previewImport(): Promise<void> {
   importError.value = ''
   importPreview.value = null
   if (!importText.value.trim()) {
-    importError.value = '请粘贴环境 JSON 或从文件读取'
+    importError.value = t('envmgr.importEmptyError')
     return
   }
   importing.value = true
@@ -286,10 +297,11 @@ async function confirmImport(): Promise<void> {
   try {
     const taken = new Set(envs.value.map((e) => e.name))
     let name = preview.name
-    if (taken.has(name)) name = `${name} 导入`
+    if (taken.has(name)) name = `${name}${t('envmgr.importDupSuffix')}`
     let n = 2
     while (taken.has(name)) {
-      name = `${preview.name} 导入 ${n++}`
+      name = `${preview.name}${t('envmgr.importDupSuffixN', { n })}`
+      n += 1
     }
     const now = new Date().toISOString()
     const env: Environment = {
@@ -304,8 +316,12 @@ async function confirmImport(): Promise<void> {
     envs.value.push(saved)
     select(saved)
     importOpen.value = false
-    toast.success(`环境导入成功：${saved.name}`, {
-      message: `${preview.variables.length} 变量 · ${preview.modules.length} 模块（${preview.format}）`,
+    toast.success(t('envmgr.importSuccess', { name: saved.name }), {
+      message: t('envmgr.importSummary', {
+        vars: preview.variables.length,
+        modules: preview.modules.length,
+        format: preview.format,
+      }),
     })
   } catch (err) {
     importError.value = err instanceof Error ? err.message : String(err)
@@ -322,7 +338,7 @@ function addModule(): void {
   env.modules.push({
     id: crypto.randomUUID(),
     project_id: null,
-    module_name: isFirst ? '默认' : '新模块',
+    module_name: isFirst ? t('envmgr.defaultModuleName') : t('envmgr.newModuleName'),
     base_url: '',
     is_default: isFirst,
   })
@@ -378,9 +394,9 @@ async function save(): Promise<void> {
       globalParams.value = clone(store.globalParams)
       paramsDirty.value = false
       confirmLeave.value = false
-      toast.success('全局参数已保存')
+      toast.success(t('envmgr.globalParamsSaved'))
     } catch (err) {
-      toast.error('保存全局参数失败', { message: err instanceof Error ? err.message : String(err) })
+      toast.error(t('envmgr.globalParamsSaveFail'), { message: err instanceof Error ? err.message : String(err) })
     } finally {
       busy.value = false
     }
@@ -396,9 +412,9 @@ async function save(): Promise<void> {
       globalVars.value = clone(store.globalVariables)
       globalDirty.value = false
       confirmLeave.value = false
-      toast.success('全局变量已保存')
+      toast.success(t('envmgr.globalVarsSaved'))
     } catch (err) {
-      toast.error('保存全局变量失败', { message: err instanceof Error ? err.message : String(err) })
+      toast.error(t('envmgr.globalVarsSaveFail'), { message: err instanceof Error ? err.message : String(err) })
     } finally {
       busy.value = false
     }
@@ -407,7 +423,7 @@ async function save(): Promise<void> {
   if (!selected.value) return
   const name = selected.value.name.trim()
   if (!name) {
-    toast.warning('环境名称不能为空')
+    toast.warning(t('envmgr.nameRequired'))
     return
   }
   const env = selected.value
@@ -435,9 +451,9 @@ async function save(): Promise<void> {
     envs.value = clone(store.environments)
     dirty.value = false
     confirmLeave.value = false
-    toast.success(`环境已保存：${saved.name}`)
+    toast.success(t('envmgr.saved', { name: saved.name }))
   } catch (err) {
-    toast.error('保存环境失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('envmgr.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -465,9 +481,9 @@ async function remove(env: Environment): Promise<void> {
     if (selected.value?.id === env.id) {
       select(envs.value[Math.min(idx, Math.max(envs.value.length - 1, 0))] ?? null)
     }
-    toast.success(`环境已删除：${env.name}`)
+    toast.success(t('envmgr.deleted', { name: env.name }))
   } catch (err) {
-    toast.error('删除环境失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('envmgr.deleteFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 </script>
@@ -475,18 +491,18 @@ async function remove(env: Environment): Promise<void> {
 <template>
   <Modal
     :open="open"
-    title="环境管理"
+    :title="t('settings.environments')"
     width="min(1120px, 94vw)"
     :guard-close="guardClose"
     @update:open="emit('update:open', $event)"
   >
     <div class="em">
       <div v-if="confirmLeave" class="em-confirm" role="alert">
-        <span class="em-confirm-text">当前环境有未保存的修改</span>
+        <span class="em-confirm-text">{{ t('envmgr.unsavedWarning') }}</span>
         <span class="em-confirm-actions">
-          <button class="rf-btn rf-btn-sm" type="button" @click="keepEditing">继续编辑</button>
+          <button class="rf-btn rf-btn-sm" type="button" @click="keepEditing">{{ t('envmgr.keepEditing') }}</button>
           <button class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="discardChanges">
-            放弃修改
+            {{ t('envmgr.discard') }}
           </button>
         </span>
       </div>
@@ -494,7 +510,7 @@ async function remove(env: Environment): Promise<void> {
         <!-- ============ 左侧 Sidebar ============ -->
         <aside class="em-side">
           <div class="em-group">
-            <div class="em-group-title">全局</div>
+            <div class="em-group-title">{{ t('envmgr.groupGlobal') }}</div>
             <div
               v-for="item in globalItems"
               :key="item.key"
@@ -505,18 +521,14 @@ async function remove(env: Environment): Promise<void> {
                   (item.key === 'global_params' && scope === 'params'),
                 disabled: !item.enabled,
               }"
-              :title="
-                item.enabled
-                  ? `${item.label}：${item.desc}`
-                  : `${item.label}：${item.desc}（规划中）`
-              "
+              :title="globalItemTitle(item)"
               @click="
                 item.enabled &&
                   (item.key === 'global_params' ? guard(selectParams) : guard(selectGlobal))
               "
             >
               <span class="edot ed-global"></span>
-              <span class="em-global-name">{{ item.label }}</span>
+              <span class="em-global-name">{{ t(item.labelKey) }}</span>
               <span v-if="!item.enabled" class="em-global-soon">soon</span>
               <span v-else-if="item.key === 'global_variables'" class="em-global-count">
                 {{ store.globalVariables.filter((v) => v.enabled).length }}
@@ -528,7 +540,7 @@ async function remove(env: Environment): Promise<void> {
           </div>
 
           <div class="em-group em-group-envs">
-            <div class="em-group-title">环境</div>
+            <div class="em-group-title">{{ t('envmgr.groupEnvs') }}</div>
             <div class="em-list-body">
               <div
                 v-for="env in envs"
@@ -540,10 +552,10 @@ async function remove(env: Environment): Promise<void> {
                 <span class="edot" :class="`ed-${envColorClass(env.name)}`"></span>
                 <span class="em-row-name" v-tooltip-overflow="env.name">{{ env.name }}</span>
                 <span v-if="envBaseUrl(env, store.project?.id)" class="em-row-url">{{ envBaseUrl(env, store.project?.id) }}</span>
-                <span v-if="env.id === activeEnvId" class="em-row-active">当前</span>
+                <span v-if="env.id === activeEnvId" class="em-row-active">{{ t('envmgr.current') }}</span>
                 <Popconfirm
-                  :title="`删除环境「${env.name}」？删除后不可恢复。`"
-                  confirm-text="删除"
+                  :title="t('envmgr.deleteConfirm', { name: env.name })"
+                  :confirm-text="t('common.delete')"
                   @confirm="remove(env)"
                 >
                   <IconButton name="trash" :size="12" tone="danger" class="em-row-del" />
@@ -551,7 +563,7 @@ async function remove(env: Environment): Promise<void> {
               </div>
             </div>
             <button class="rf-btn rf-btn-sm em-add" type="button" @click="addEnvironment">
-              <Icon name="plus" :size="13" /> 新建环境
+              <Icon name="plus" :size="13" /> {{ t('envmgr.addEnv') }}
             </button>
             <div class="em-exchange-row">
               <CustomSelect
@@ -564,19 +576,19 @@ async function remove(env: Environment): Promise<void> {
                 class="rf-btn rf-btn-sm"
                 type="button"
                 :disabled="!selected || exchanging"
-                title="导出选中环境为文件"
+                :title="t('envmgr.exportTitle')"
                 @click="exportSelected"
               >
-                <Icon name="upload" :size="13" /> 导出
+                <Icon name="upload" :size="13" /> {{ t('envmgr.export') }}
               </button>
               <button
                 class="rf-btn rf-btn-sm"
                 type="button"
                 :disabled="exchanging"
-                title="从 RustFox / Postman 环境文件导入"
+                :title="t('envmgr.importTitle')"
                 @click="openImport"
               >
-                <Icon name="download" :size="13" /> 导入
+                <Icon name="download" :size="13" /> {{ t('envmgr.import') }}
               </button>
             </div>
           </div>
@@ -589,27 +601,27 @@ async function remove(env: Environment): Promise<void> {
               <input
                 v-model="selected.name"
                 class="rf-input em-name"
-                placeholder="环境名称（必填）"
+                :placeholder="t('envmgr.namePh')"
                 spellcheck="false"
                 @input="onAnyChange"
               />
               <span class="em-editor-meta">
-                {{ selected.modules.length }} 模块 · {{ variablesCount() }} 变量生效
+                {{ t('envmgr.editorMeta', { modules: selected.modules.length, vars: variablesCount() }) }}
               </span>
             </div>
 
             <!-- 前置 URL 配置表 -->
             <div class="em-section">
               <div class="em-section-head">
-                <span class="em-section-title">前置 URL（服务 / 模块）</span>
+                <span class="em-section-title">{{ t('envmgr.sectionModules') }}</span>
                 <span class="em-section-hint">
-                  项目模块随项目自动同步（只填基址）；未绑定模块的接口使用**所在项目**的模块基址
+                  {{ t('envmgr.modulesHint') }}
                 </span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-mod">
-                  <span class="em-col-mod">模块</span>
-                  <span class="em-col-base">前置 URL</span>
+                  <span class="em-col-mod">{{ t('envmgr.colModule') }}</span>
+                  <span class="em-col-base">{{ t('envmgr.colBaseUrl') }}</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
@@ -619,21 +631,21 @@ async function remove(env: Environment): Promise<void> {
                   :class="{ 'is-default': m.id === effectiveDefaultId }"
                 >
                   <template v-if="m.project_id">
-                    <span class="em-col-mod em-mod-project" :title="'项目模块：随项目「' + m.module_name + '」自动同步'">
+                    <span class="em-col-mod em-mod-project" :title="t('envmgr.projectModuleTitle', { name: m.module_name })">
                       <Icon name="folder" :size="12" class="em-mod-ic" />
                       <span class="em-mod-name" v-tooltip-overflow="m.module_name">{{ m.module_name }}</span>
                     <span
                       v-if="m.id === effectiveDefaultId"
                       class="em-mod-effective"
-                      title="当前激活项目实际使用的默认基址（项目绑定模块优先）"
-                    >本项目默认</span>
+                      :title="t('envmgr.effectiveDefaultTitle')"
+                    >{{ t('envmgr.projectDefault') }}</span>
                     </span>
                   </template>
                   <template v-else>
                     <input
                       v-model="m.module_name"
                       class="rf-input rf-input-sm em-col-mod"
-                      placeholder="如 支付 / 收单 / api"
+                      :placeholder="t('envmgr.moduleNamePh')"
                       spellcheck="false"
                       @input="onAnyChange"
                     />
@@ -641,7 +653,7 @@ async function remove(env: Environment): Promise<void> {
                   <input
                     v-model="m.base_url"
                     class="rf-input rf-input-sm em-col-base"
-                    placeholder="https://service.example.com（可含 {{变量}}）"
+                    :placeholder="t('envmgr.baseUrlPh')"
                     spellcheck="false"
                     @input="onAnyChange"
                   />
@@ -650,14 +662,14 @@ async function remove(env: Environment): Promise<void> {
                     name="trash"
                     :size="13"
                     tone="danger"
-                    title="删除模块"
+                    :title="t('envmgr.deleteModule')"
                     class="em-col-op"
                     @click="removeModule(i)"
                   />
 
                 </div>
                 <button class="rf-btn rf-btn-sm em-add-var" type="button" @click="addModule">
-                  <Icon name="plus" :size="13" /> 添加模块
+                  <Icon name="plus" :size="13" /> {{ t('envmgr.addModule') }}
                 </button>
               </div>
             </div>
@@ -665,15 +677,15 @@ async function remove(env: Environment): Promise<void> {
             <!-- 环境变量表 -->
             <div class="em-section">
               <div class="em-section-head">
-                <span class="em-section-title">环境变量</span>
-                <span class="em-section-hint">本地值优先覆盖远程值；停用不参与注入</span>
+                <span class="em-section-title">{{ t('envmgr.sectionVars') }}</span>
+                <span class="em-section-hint">{{ t('envmgr.varsHint') }}</span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-var">
-                  <span class="em-col-key">变量名</span>
-                  <span class="em-col-remote">远程值</span>
-                  <span class="em-col-local">本地值</span>
-                  <span class="em-col-enabled">启用</span>
+                  <span class="em-col-key">{{ t('envmgr.colKey') }}</span>
+                  <span class="em-col-remote">{{ t('envmgr.colRemote') }}</span>
+                  <span class="em-col-local">{{ t('envmgr.colLocal') }}</span>
+                  <span class="em-col-enabled">{{ t('envmgr.colEnabled') }}</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
@@ -685,21 +697,21 @@ async function remove(env: Environment): Promise<void> {
                   <input
                     v-model="v.key"
                     class="rf-input rf-input-sm em-col-key"
-                    placeholder="如 token"
+                    :placeholder="t('envmgr.varKeyPh')"
                     spellcheck="false"
                     @input="onAnyChange"
                   />
                   <input
                     v-model="v.remote_value"
                     class="rf-input rf-input-sm em-col-remote"
-                    placeholder="远程 / 公共值"
+                    :placeholder="t('envmgr.varRemotePh')"
                     spellcheck="false"
                     @input="onAnyChange"
                   />
                   <input
                     v-model="v.local_value"
                     class="rf-input rf-input-sm em-col-local"
-                    placeholder="本地覆盖值（可选）"
+                    :placeholder="t('envmgr.varLocalPh')"
                     spellcheck="false"
                     @input="onAnyChange"
                   />
@@ -714,13 +726,13 @@ async function remove(env: Environment): Promise<void> {
                     name="trash"
                     :size="13"
                     tone="danger"
-                    title="删除变量"
+                    :title="t('envmgr.deleteVar')"
                     class="em-col-op"
                     @click="removeVariable(i)"
                   />
                 </div>
                 <button class="rf-btn rf-btn-sm em-add-var" type="button" @click="addVariable">
-                  <Icon name="plus" :size="13" /> 添加变量
+                  <Icon name="plus" :size="13" /> {{ t('envmgr.addVar') }}
                 </button>
               </div>
             </div>
@@ -729,22 +741,22 @@ async function remove(env: Environment): Promise<void> {
           <!-- 全局变量详情 -->
           <template v-else-if="scope === 'global'">
             <div class="em-editor-head">
-              <span class="em-editor-title">全局变量</span>
+              <span class="em-editor-title">{{ t('envmgr.globalVars') }}</span>
               <span class="em-editor-meta">
-                跨项目共享 · 优先级最低（环境 > 项目 > 全局） · {{ globalVars.filter((v) => v.enabled).length }} 个生效
+                {{ t('envmgr.globalVarsMeta', { n: globalVars.filter((v) => v.enabled).length }) }}
               </span>
             </div>
             <div class="em-section">
               <div class="em-section-head">
-                <span class="em-section-title">变量</span>
-                <span class="em-section-hint">本地值优先覆盖远程值；停用不参与注入；&#123;&#123;变量&#125;&#125; 在请求中兜底可用</span>
+                <span class="em-section-title">{{ t('envmgr.varsTitle') }}</span>
+                <span class="em-section-hint">{{ t('envmgr.globalVarsHint') }}</span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-var">
-                  <span class="em-col-key">变量名</span>
-                  <span class="em-col-remote">远程值</span>
-                  <span class="em-col-local">本地值</span>
-                  <span class="em-col-enabled">启用</span>
+                  <span class="em-col-key">{{ t('envmgr.colKey') }}</span>
+                  <span class="em-col-remote">{{ t('envmgr.colRemote') }}</span>
+                  <span class="em-col-local">{{ t('envmgr.colLocal') }}</span>
+                  <span class="em-col-enabled">{{ t('envmgr.colEnabled') }}</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
@@ -756,21 +768,21 @@ async function remove(env: Environment): Promise<void> {
                   <input
                     v-model="v.key"
                     class="rf-input rf-input-sm em-col-key"
-                    placeholder="如 domain"
+                    :placeholder="t('envmgr.globalVarKeyPh')"
                     spellcheck="false"
                     @input="onGlobalChange"
                   />
                   <input
                     v-model="v.remote_value"
                     class="rf-input rf-input-sm em-col-remote"
-                    placeholder="远程 / 公共值"
+                    :placeholder="t('envmgr.varRemotePh')"
                     spellcheck="false"
                     @input="onGlobalChange"
                   />
                   <input
                     v-model="v.local_value"
                     class="rf-input rf-input-sm em-col-local"
-                    placeholder="本地覆盖值（可选）"
+                    :placeholder="t('envmgr.varLocalPh')"
                     spellcheck="false"
                     @input="onGlobalChange"
                   />
@@ -785,7 +797,7 @@ async function remove(env: Environment): Promise<void> {
                     name="trash"
                     :size="13"
                     tone="danger"
-                    title="删除变量"
+                    :title="t('envmgr.deleteVar')"
                     class="em-col-op"
                     @click="removeGlobalVariable(i)"
                   />
@@ -795,7 +807,7 @@ async function remove(env: Environment): Promise<void> {
                   type="button"
                   @click="addGlobalVariable"
                 >
-                  <Icon name="plus" :size="13" /> 添加变量
+                  <Icon name="plus" :size="13" /> {{ t('envmgr.addVar') }}
                 </button>
               </div>
             </div>
@@ -803,22 +815,22 @@ async function remove(env: Environment): Promise<void> {
           <!-- 全局参数详情 -->
           <template v-else-if="scope === 'params'">
             <div class="em-editor-head">
-              <span class="em-editor-title">全局参数</span>
+              <span class="em-editor-title">{{ t('envmgr.globalParams') }}</span>
               <span class="em-editor-meta">
-                每个请求自动注入 · 请求显式同名优先 · {{ globalParams.filter((p) => p.enabled).length }} 个生效
+                {{ t('envmgr.globalParamsMeta', { n: globalParams.filter((p) => p.enabled).length }) }}
               </span>
             </div>
             <div class="em-section">
               <div class="em-section-head">
-                <span class="em-section-title">参数</span>
-                <span class="em-section-hint">query = 拼入 URL 查询参数；header = 注入请求头；值支持 &#123;&#123;变量&#125;&#125;</span>
+                <span class="em-section-title">{{ t('envmgr.paramsTitle') }}</span>
+                <span class="em-section-hint">{{ t('envmgr.globalParamsHint') }}</span>
               </div>
               <div class="em-table">
                 <div class="em-th em-th-param">
-                  <span class="em-col-key">参数名</span>
-                  <span class="em-col-remote">值</span>
-                  <span class="em-col-loc">位置</span>
-                  <span class="em-col-enabled">启用</span>
+                  <span class="em-col-key">{{ t('envmgr.colParamKey') }}</span>
+                  <span class="em-col-remote">{{ t('envmgr.colValue') }}</span>
+                  <span class="em-col-loc">{{ t('envmgr.colLocation') }}</span>
+                  <span class="em-col-enabled">{{ t('envmgr.colEnabled') }}</span>
                   <span class="em-col-op"></span>
                 </div>
                 <div
@@ -830,14 +842,14 @@ async function remove(env: Environment): Promise<void> {
                   <input
                     v-model="p.key"
                     class="rf-input rf-input-sm em-col-key"
-                    placeholder="如 X-Request-Id"
+                    :placeholder="t('envmgr.paramKeyPh')"
                     spellcheck="false"
                     @input="onParamsChange"
                   />
                   <input
                     v-model="p.value"
                     class="rf-input rf-input-sm em-col-remote"
-                    placeholder="值（可含 {{变量}}）"
+                    :placeholder="t('envmgr.paramValuePh')"
                     spellcheck="false"
                     @input="onParamsChange"
                   />
@@ -860,33 +872,33 @@ async function remove(env: Environment): Promise<void> {
                     name="trash"
                     :size="13"
                     tone="danger"
-                    title="删除参数"
+                    :title="t('envmgr.deleteParam')"
                     class="em-col-op"
                     @click="removeGlobalParam(i)"
                   />
                 </div>
                 <button class="rf-btn rf-btn-sm em-add-var" type="button" @click="addGlobalParam">
-                  <Icon name="plus" :size="13" /> 添加参数
+                  <Icon name="plus" :size="13" /> {{ t('envmgr.addParam') }}
                 </button>
               </div>
             </div>
           </template>
           <p v-else class="em-empty">
-            暂无环境。点击左侧「新建环境」创建，或从工作区顶部环境选择器进入。
+            {{ t('envmgr.empty') }}
           </p>
         </section>
       </div>
     </div>
 
     <template #footer>
-      <button class="rf-btn" type="button" @click="cancel">取消</button>
+      <button class="rf-btn" type="button" @click="cancel">{{ t('common.cancel') }}</button>
       <button
         class="rf-btn rf-btn-primary"
         type="button"
         :disabled="busy || (!dirty && !globalDirty && !paramsDirty)"
         @click="save"
       >
-        {{ busy ? '保存中…' : '保存' }}
+        {{ busy ? t('envmgr.saving') : t('common.save') }}
       </button>
     </template>
   </Modal>
@@ -895,12 +907,12 @@ async function remove(env: Environment): Promise<void> {
   <Modal
     v-if="importOpen"
     :open="importOpen"
-    title="导入环境"
+    :title="t('envmgr.importModalTitle')"
     width="560px"
     @update:open="importOpen = $event"
     @close="importOpen = false"
   >
-    <p class="em-import-hint">粘贴 RustFox 环境 JSON 或 Postman Environment，或从文件读取（自动识别格式）。</p>
+    <p class="em-import-hint">{{ t('envmgr.importHint') }}</p>
     <textarea
       v-model="importText"
       class="rf-input em-import-input"
@@ -909,7 +921,7 @@ async function remove(env: Environment): Promise<void> {
     ></textarea>
     <div class="em-import-actions">
       <button class="rf-btn rf-btn-sm" type="button" @click="importFromFile">
-        <Icon name="folder" :size="13" /> 从文件读取
+        <Icon name="folder" :size="13" /> {{ t('envmgr.importFromFile') }}
       </button>
       <button
         class="rf-btn rf-btn-sm rf-btn-primary"
@@ -917,33 +929,33 @@ async function remove(env: Environment): Promise<void> {
         :disabled="importing || !importText.trim()"
         @click="previewImport"
       >
-        {{ importing ? '解析中…' : '解析预览' }}
+        {{ importing ? t('envmgr.parsing') : t('envmgr.parsePreview') }}
       </button>
     </div>
     <p v-if="importError" class="em-import-error">{{ importError }}</p>
     <div v-if="importPreview" class="em-import-preview">
       <div class="em-import-row">
-        <span class="em-import-label">名称</span>
+        <span class="em-import-label">{{ t('envmgr.previewName') }}</span>
         <span>{{ importPreview.name }}</span>
       </div>
       <div class="em-import-row">
-        <span class="em-import-label">格式</span>
+        <span class="em-import-label">{{ t('envmgr.previewFormat') }}</span>
         <span>{{ importPreview.format === 'postman' ? 'Postman' : 'RustFox' }}</span>
       </div>
       <div class="em-import-row">
-        <span class="em-import-label">内容</span>
-        <span>{{ importPreview.variables.length }} 变量 · {{ importPreview.modules.length }} 模块</span>
+        <span class="em-import-label">{{ t('envmgr.previewContent') }}</span>
+        <span>{{ t('envmgr.previewSummary', { vars: importPreview.variables.length, modules: importPreview.modules.length }) }}</span>
       </div>
     </div>
     <template #footer>
-      <button class="rf-btn" type="button" @click="importOpen = false">取消</button>
+      <button class="rf-btn" type="button" @click="importOpen = false">{{ t('common.cancel') }}</button>
       <button
         class="rf-btn rf-btn-primary"
         type="button"
         :disabled="!importPreview || importing"
         @click="confirmImport"
       >
-        {{ importing ? '导入中…' : '导入为新环境' }}
+        {{ importing ? t('envmgr.importing') : t('envmgr.importAsNew') }}
       </button>
     </template>
   </Modal>

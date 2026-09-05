@@ -11,6 +11,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { copyText } from '../utils/clipboard'
 import CodeExportDialog from './CodeExportDialog.vue'
 import Icon from './ui/Icon.vue'
@@ -40,6 +41,8 @@ onBeforeUnmount(() => {
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const wrapEl = ref<HTMLElement | null>(null)
 const openMenu = ref(false)
@@ -103,12 +106,12 @@ async function pickLang(lang: CodeLang): Promise<void> {
     if (ok) {
       flashCopied()
     } else {
-      toast.error('复制失败，已打开代码预览，请手动复制')
+      toast.error(t('codegen.copyFailPreview'))
       showFallback.value = true
     }
   } catch (err) {
     if (disposed) return
-    toast.error('生成代码失败', {
+    toast.error(t('codegen.genFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
@@ -122,7 +125,7 @@ async function pickLang(lang: CodeLang): Promise<void> {
     <button type="button" class="rf-btn ce-trigger" :class="{ 'ce-copied': copied }" @click="toggleMenu">
       <Icon v-if="copied" name="check" :size="14" />
       <Icon v-else name="code" :size="13" />
-      {{ copied ? '已复制' : '导出代码' }}
+      {{ copied ? t('codegen.copied') : t('codegen.export') }}
       <Icon name="chevron-down" :size="11" class="ce-caret" :class="{ 'ce-caret-open': openMenu }" />
     </button>
 

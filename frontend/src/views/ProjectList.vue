@@ -15,6 +15,7 @@ import Sortable from 'sortablejs'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import Icon from '../components/ui/Icon.vue'
@@ -40,6 +41,8 @@ const api = useFoxApi()
 const toast = useToast()
 const router = useRouter()
 const workspace = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 const projects = ref<Project[]>([])
 const counts = ref<Record<string, number>>({})
@@ -54,14 +57,14 @@ const totalProjects = computed(() => projects.value.length)
 
 const totalApis = computed(() => totalEndpointCount(counts.value))
 
-/** 按时段问候（Hero 欢迎语）。 */
+/** 按时段问候（Hero 欢迎语，整句键）。 */
 const greeting = computed(() => {
   const h = new Date().getHours()
-  if (h < 5) return '夜深了'
-  if (h < 11) return '早上好'
-  if (h < 14) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
+  if (h < 5) return t('projectlist.greetLateNight')
+  if (h < 11) return t('projectlist.greetMorning')
+  if (h < 14) return t('projectlist.greetNoon')
+  if (h < 18) return t('projectlist.greetAfternoon')
+  return t('projectlist.greetEvening')
 })
 
 /** 最近活动条目的 Method Badge（GraphQL 端点单独识别为粉色 GQL）。 */
@@ -125,7 +128,7 @@ async function onDragEnd(): Promise<void> {
   try {
     await api.updateProjectsOrder(ordered.map((p) => p.id))
   } catch (e) {
-    toast.error('排序保存失败', { message: e instanceof Error ? e.message : String(e), duration: 4000 })
+    toast.error(t('projectlist.orderSaveFail'), { message: e instanceof Error ? e.message : String(e), duration: 4000 })
   } finally {
     savingOrder.value = false
   }
@@ -212,7 +215,7 @@ async function load(): Promise<void> {
     await loadCounts()
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
-    toast.error('项目列表加载失败', { message: loadError.value, duration: 6000 })
+    toast.error(t('projectTabs.loadFail'), { message: loadError.value, duration: 6000 })
   } finally {
     loading.value = false
   }
@@ -236,7 +239,7 @@ async function enter(project: Project): Promise<void> {
     await workspace.switchProject(project.id)
     router.push('/workspace')
   } catch (e) {
-    toast.error('进入项目失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('projectlist.enterFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   }
 }
 
@@ -271,14 +274,14 @@ function inDropZone(px: number, py: number): boolean {
 
 async function importDroppedFile(path?: string): Promise<void> {
   if (!path) {
-    toast.error('拖拽导入失败', { message: '未取到文件路径' })
+    toast.error(t('projectlist.dropImportFail'), { message: t('projectlist.dropNoPath') })
     return
   }
   try {
     droppedText.value = await api.readTextFile(path)
     showImport.value = true
   } catch (e) {
-    toast.error('读取文件失败', { message: e instanceof Error ? e.message : String(e), duration: 5000 })
+    toast.error(t('projectlist.readFileFail'), { message: e instanceof Error ? e.message : String(e), duration: 5000 })
   }
 }
 
@@ -344,15 +347,15 @@ async function duplicate(p: Project): Promise<void> {
     const copy = await api.saveProject({
       ...p,
       id: crypto.randomUUID(),
-      name: `${p.name} 副本`,
+      name: t('projectlist.copyName', { name: p.name }),
       created_at: now,
       updated_at: now,
     })
     projects.value.push(copy)
     counts.value[copy.id] = 0
-    toast.success('项目已复制', { message: copy.name })
+    toast.success(t('projectlist.duplicated'), { message: copy.name })
   } catch (e) {
-    toast.error('复制项目失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('projectlist.duplicateFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   }
 }
 
@@ -381,16 +384,16 @@ useWindowDrag(topBarEl)
 <template>
   <div class="dash">
     <header ref="topBarEl" class="dash-top">
-      <button class="top-brand" type="button" title="回到项目首页" @click="router.push('/projects')">
+      <button class="top-brand" type="button" :title="t('app.backHome')" @click="router.push('/projects')">
         <span class="top-logo" aria-hidden="true">
           <img :src="logo" alt="" width="18" height="18" />
         </span>
         <span class="top-title">RustFox</span>
-        <span class="top-tag">API 调试工具</span>
+        <span class="top-tag">{{ t('app.tagline') }}</span>
       </button>
       <ProjectTabs class="top-tabs" @new-project="showCreate = true" />
       <div class="top-right">
-        <IconButton name="settings" :size="15" title="设置" @click="showSettings = true" />
+        <IconButton name="settings" :size="15" :title="t('settings.title')" @click="showSettings = true" />
       </div>
     </header>
 
@@ -399,9 +402,9 @@ useWindowDrag(topBarEl)
 
       <main class="dash-main">
         <div v-if="loadError" class="rf-inline-error" role="alert">
-          <span class="rf-inline-error-text">加载失败：{{ loadError }}</span>
+          <span class="rf-inline-error-text">{{ t('workspace.loadFail', { v: loadError }) }}</span>
           <button class="rf-btn rf-btn-sm" type="button" :disabled="loading" @click="load">
-            {{ loading ? '重试中…' : '重试' }}
+            {{ loading ? t('common.retrying') : t('common.retry') }}
           </button>
         </div>
 
@@ -412,18 +415,18 @@ useWindowDrag(topBarEl)
               <span class="stat-icon tint-indigo"><Icon name="gauge" :size="17" /></span>
               <div class="stat-body">
                 <div class="hero-greet">
-                  <p class="hero-title">{{ greeting }}，欢迎回来</p>
-                  <p class="hero-sub">管理你的 API 项目与接口资产</p>
+                  <p class="hero-title">{{ greeting }}</p>
+                  <p class="hero-sub">{{ t('projectlist.heroSub') }}</p>
                 </div>
                 <div class="hero-stats">
                   <div class="hero-stat">
                     <span class="hero-value num">{{ totalProjects }}</span>
-                    <span class="hero-label"><Icon name="folder" :size="12" /> 总项目数</span>
+                    <span class="hero-label"><Icon name="folder" :size="12" /> {{ t('projectlist.totalProjects') }}</span>
                   </div>
                   <span class="hero-divider" aria-hidden="true"></span>
                   <div class="hero-stat">
                     <span class="hero-value num">{{ totalApis }}</span>
-                    <span class="hero-label"><Icon name="plug" :size="12" /> 总接口数</span>
+                    <span class="hero-label"><Icon name="plug" :size="12" /> {{ t('projectlist.totalApis') }}</span>
                   </div>
                 </div>
               </div>
@@ -433,7 +436,7 @@ useWindowDrag(topBarEl)
             <div class="stat-card">
               <span class="stat-icon tint-violet"><Icon name="clock" :size="16" /></span>
               <div class="stat-body">
-                <span class="stat-label">最近活动</span>
+                <span class="stat-label">{{ t('projectlist.recentActivity') }}</span>
                 <div v-if="recentProjects.length" class="timeline">
                   <button
                     v-for="p in recentProjects"
@@ -454,7 +457,7 @@ useWindowDrag(topBarEl)
                     </span>
                   </button>
                 </div>
-                <span v-else class="stat-sub">暂无活动</span>
+                <span v-else class="stat-sub">{{ t('projectlist.noActivity') }}</span>
               </div>
             </div>
 
@@ -462,18 +465,18 @@ useWindowDrag(topBarEl)
             <div class="stat-card">
               <span class="stat-icon tint-amber"><Icon name="zap" :size="16" /></span>
               <div class="stat-body">
-                <span class="stat-label">快速开始</span>
+                <span class="stat-label">{{ t('projectlist.quickStart') }}</span>
                 <div class="quick-row">
-                  <button class="quick-btn primary" type="button" title="发送临时不保存的请求" @click="showScratch = true">
-                    <Icon name="send" :size="12" /> 快速请求
+                  <button class="quick-btn primary" type="button" :title="t('projectlist.scratchHint')" @click="showScratch = true">
+                    <Icon name="send" :size="12" /> {{ t('projectlist.quickRequest') }}
                   </button>
                   <button
                     class="quick-btn ghost"
                     type="button"
-                    title="从 Postman / Swagger / OpenAPI 导入为新项目"
+                    :title="t('projectlist.importHint')"
                     @click="droppedText = ''; showImport = true"
                   >
-                    <Icon name="download" :size="12" /> 导入项目
+                    <Icon name="download" :size="12" /> {{ t('projectlist.importProject') }}
                   </button>
                 </div>
               </div>
@@ -486,12 +489,12 @@ useWindowDrag(topBarEl)
               <input
                 v-model="search"
                 class="toolbar-filter-input"
-                placeholder="按名称过滤项目…"
+                :placeholder="t('projectlist.filterPh')"
                 spellcheck="false"
               />
             </div>
             <button class="btn-new" type="button" @click="showCreate = true">
-              <Icon name="plus" :size="15" /> 新建 API 项目
+              <Icon name="plus" :size="15" /> {{ t('projectlist.newProject') }}
             </button>
           </section>
 
@@ -516,7 +519,7 @@ useWindowDrag(topBarEl)
             />
           </div>
 
-          <div v-else-if="loading" class="sk-grid" aria-busy="true" aria-label="加载中">
+          <div v-else-if="loading" class="sk-grid" aria-busy="true" :aria-label="t('common.loading')">
             <div v-for="i in 6" :key="i" class="sk-card">
               <Skeleton width="46px" height="46px" radius="12px" />
               <div class="sk-lines">
@@ -534,35 +537,35 @@ useWindowDrag(topBarEl)
             class="add-card"
             :class="{ 'drop-active': dropActive }"
             role="group"
-            aria-label="快捷创建或导入项目"
+            :aria-label="t('projectlist.dropzoneAria')"
           >
             <span class="add-icon">
               <Icon :name="dropActive ? 'download' : 'folder-plus'" :size="20" />
             </span>
             <p class="add-text">
-              <template v-if="dropActive">松开鼠标，导入拖入的文档文件</template>
+              <template v-if="dropActive">{{ t('projectlist.dropActiveHint') }}</template>
               <template v-else>
-                拖入 Postman / Swagger / OpenAPI 文件即可导入，或
+                {{ t('projectlist.dropHint') }}
               </template>
             </p>
             <div class="add-actions">
               <button class="add-btn" type="button" @click="showCreate = true">
-                <Icon name="plus" :size="13" /> 新建项目
+                <Icon name="plus" :size="13" /> {{ t('workspace.createProject') }}
               </button>
               <button class="add-btn" type="button" @click="droppedText = ''; showImport = true">
-                <Icon name="download" :size="13" /> 导入外部文档
+                <Icon name="download" :size="13" /> {{ t('projectlist.importExternal') }}
               </button>
             </div>
           </div>
 
           <div v-else-if="!filtered.length && !loading" class="dash-empty">
             <span class="empty-icon"><Icon name="folder" :size="30" /></span>
-            <p class="empty-title">{{ search ? '没有匹配的项目' : '还没有项目' }}</p>
+            <p class="empty-title">{{ search ? t('projectlist.noMatchTitle') : t('projectlist.emptyTitle') }}</p>
             <p class="empty-hint">
-              {{ search ? '换个关键词试试，或创建一个新项目。' : '创建你的第一个 API 项目，开始设计、调试与 Mock。' }}
+              {{ search ? t('projectlist.noMatchHint') : t('projectlist.emptyHint') }}
             </p>
             <button class="rf-btn rf-btn-primary" type="button" @click="showCreate = true">
-              <Icon name="plus" :size="14" /> 新建 API 项目
+              <Icon name="plus" :size="14" /> {{ t('projectlist.newProject') }}
             </button>
           </div>
         </template>

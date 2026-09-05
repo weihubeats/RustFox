@@ -2,9 +2,11 @@
  * MockPanel 单测：规则列表渲染 + 「打开 Mock 管理」按钮 emit openManager + 热重载。
  * store / api 以模块级 mock 替换（无需 Pinia 实例）。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import MockPanel from './MockPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 
 vi.mock('../stores/workspace', () => ({
@@ -23,6 +25,12 @@ vi.mock('../composables/useFoxApi', () => ({
 }))
 
 describe('MockPanel', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
+  })
+
   it('点击「打开 Mock 管理」应触发 openManager 事件', async () => {
     const wrapper = mount(MockPanel, { props: { draft: makeDraft({ id: 'ep-1' }) } })
     const btn = wrapper.findAll('button').find((b) => b.text().includes('打开 Mock 管理'))

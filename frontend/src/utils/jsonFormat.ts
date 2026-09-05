@@ -7,8 +7,9 @@
  * 保序、保重键、保数字原文的语法树做纯文本排版：输出风格与
  * `JSON.stringify(x, null, 2)` 完全一致，但完整保留上述信息。
  */
+import { tFallback } from '../stores/locale'
 
-/** 解析 / 排版失败（含中文位置信息）。 */
+/** 解析 / 排版失败（错误消息含位置信息，随当前语言展示）。 */
 export class JsonFormatError extends Error {}
 
 type Node =
@@ -76,7 +77,7 @@ function parseJson(src: string): Node {
   }
 
   function fail(msg: string): never {
-    throw new JsonFormatError(`${msg}（位置 ${i}）`)
+    throw new JsonFormatError(msg + tFallback('jsonfmt.position', { v: i }))
   }
 
   /** 数字 / true / false / null：保留原文（避免 1.50 → 1.5 之类的规整）。 */
@@ -93,10 +94,10 @@ function parseJson(src: string): Node {
       }
       if (c === '\\') {
         const e = src[i + 1]
-        if (e === undefined) fail('字符串未闭合')
+        if (e === undefined) fail(tFallback('jsonfmt.unterminated'))
         if (e === 'u') {
           const hex = src.slice(i + 2, i + 6)
-          if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('非法 \\u 转义')
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail(tFallback('jsonfmt.badUnicode'))
           out += String.fromCharCode(parseInt(hex, 16))
           i += 6
           continue
@@ -111,7 +112,7 @@ function parseJson(src: string): Node {
           r: '\r',
           t: '\t',
         }
-        if (!(e in simple)) fail(`非法转义 "\\${e}"`)
+        if (!(e in simple)) fail(tFallback('jsonfmt.badEscape', { v: e }))
         out += simple[e]
         i += 2
         continue
@@ -119,12 +120,12 @@ function parseJson(src: string): Node {
       out += c
       i += 1
     }
-    fail('字符串未闭合')
+    fail(tFallback('jsonfmt.unterminated'))
   }
 
   function parseValue(): Node {
     skipWs()
-    if (i >= n) fail('JSON 不完整')
+    if (i >= n) fail(tFallback('jsonfmt.incomplete'))
     const c = src[i]
     if (c === '{') return parseObject()
     if (c === '[') return parseArray()
@@ -135,7 +136,7 @@ function parseJson(src: string): Node {
       i += m[0].length
       return { kind: 'raw', text: m[0] }
     }
-    fail(`非法字符 "${c}"`)
+    fail(tFallback('jsonfmt.badChar', { v: c }))
   }
 
   function parseObject(): Node {
@@ -148,10 +149,10 @@ function parseJson(src: string): Node {
     }
     for (;;) {
       skipWs()
-      if (src[i] !== '"') fail('期望对象键（字符串）')
+      if (src[i] !== '"') fail(tFallback('jsonfmt.expectKey'))
       const key = parseString()
       skipWs()
-      if (src[i] !== ':') fail("期望 ':'")
+      if (src[i] !== ':') fail(tFallback('jsonfmt.expectColon'))
       i += 1
       const value = parseValue()
       entries.push({ key, value })
@@ -164,7 +165,7 @@ function parseJson(src: string): Node {
         i += 1
         return { kind: 'object', entries }
       }
-      fail("期望 ',' 或 '}'")
+      fail(tFallback('jsonfmt.expectObjEnd'))
     }
   }
 
@@ -187,13 +188,13 @@ function parseJson(src: string): Node {
         i += 1
         return { kind: 'array', items }
       }
-      fail("期望 ',' 或 ']'")
+      fail(tFallback('jsonfmt.expectArrEnd'))
     }
   }
 
   const node = parseValue()
   skipWs()
-  if (i < n) fail('JSON 结束后有多余内容')
+  if (i < n) fail(tFallback('jsonfmt.trailing'))
   return node
 }
 

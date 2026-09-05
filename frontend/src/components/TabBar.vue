@@ -9,6 +9,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { methodTone } from '../utils/methodTone'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
@@ -18,6 +19,8 @@ import Tooltip from './ui/Tooltip.vue'
 
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const emit = defineEmits<{
   'import-curl': []
@@ -66,15 +69,15 @@ const tabs = computed(() =>
 const addMenu = ref<InstanceType<typeof Menu> | null>(null)
 const addArrowEl = ref<HTMLButtonElement | null>(null)
 
-const ADD_MENU_ITEMS: MenuItem[] = [
-  { key: 'endpoint', label: '新建 HTTP 请求', icon: 'zap', shortcut: '⌘N' },
-  { key: 'curl', label: '导入 cURL...', icon: 'terminal', dividerBefore: true },
-  { key: 'openapi', label: '导入 OpenAPI / Swagger...', icon: 'download' },
-  { key: 'folder', label: '新建目录分组...', icon: 'folder-plus', dividerBefore: true },
-]
+const ADD_MENU_ITEMS = computed<MenuItem[]>(() => [
+  { key: 'endpoint', label: t('tabbar.newRequest'), icon: 'zap', shortcut: '⌘N' },
+  { key: 'curl', label: t('tabbar.importCurl'), icon: 'terminal', dividerBefore: true },
+  { key: 'openapi', label: t('tabbar.importOpenapi'), icon: 'download' },
+  { key: 'folder', label: t('tabbar.newFolderMenu'), icon: 'folder-plus', dividerBefore: true },
+])
 
 function openAddMenu(): void {
-  if (addArrowEl.value) addMenu.value?.openAt(addArrowEl.value, ADD_MENU_ITEMS)
+  if (addArrowEl.value) addMenu.value?.openAt(addArrowEl.value, ADD_MENU_ITEMS.value)
 }
 
 function onAddMenuSelect(item: MenuItem): void {
@@ -96,14 +99,14 @@ async function createFolder(): Promise<void> {
       id: crypto.randomUUID(),
       project_id: store.project?.id ?? '',
       parent_id: null,
-      name: '新建文件夹',
+      name: t('tabbar.newFolder'),
       sort_order: 0,
       created_at: now,
       updated_at: now,
     })
-    toast.success('已创建文件夹，可在左侧重命名')
+    toast.success(t('tabbar.folderCreated'))
   } catch (err) {
-    toast.error('创建文件夹失败', {
+    toast.error(t('tabbar.folderCreateFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   }
@@ -122,22 +125,22 @@ async function createFolder(): Promise<void> {
     >
       <span class="method-tag" :class="methodTone(tab.method)">{{ tab.method }}</span>
       <span class="tab-title" v-tooltip-overflow="tab.title">{{ tab.title }}</span>
-      <span v-if="tab.dirty" class="tab-dirty" title="未保存"><Icon name="dot" :size="7" /></span>
+      <span v-if="tab.dirty" class="tab-dirty" :title="t('tabbar.unsaved')"><Icon name="dot" :size="7" /></span>
       <Popconfirm
         v-if="tab.dirty"
-        title="该接口有未保存的修改，确认关闭？"
+        :title="t('tabbar.closeConfirm')"
         @confirm="close(tab.id)"
       >
-        <IconButton class="tab-close" name="x" :size="12" title="关闭" />
+        <IconButton class="tab-close" name="x" :size="12" :title="t('common.close')" />
       </Popconfirm>
-      <IconButton v-else class="tab-close" name="x" :size="12" title="关闭" @click.stop="close(tab.id)" />
+      <IconButton v-else class="tab-close" name="x" :size="12" :title="t('common.close')" @click.stop="close(tab.id)" />
     </div>
-    <Tooltip content="新建请求 (⌘N)">
+    <Tooltip :content="t('tabbar.newRequestHint')">
       <div class="tab-add-group">
         <button
           class="tab-add tab-add-main"
           type="button"
-          aria-label="新建 HTTP 请求"
+          :aria-label="t('tabbar.newRequest')"
           @click="store.openNewEndpoint(null)"
         >
           <Icon name="plus" :size="15" />
@@ -147,8 +150,8 @@ async function createFolder(): Promise<void> {
           ref="addArrowEl"
           class="tab-add tab-add-arrow"
           type="button"
-          aria-label="新建类型菜单"
-          title="新建类型菜单"
+          :aria-label="t('tabbar.newTypeMenu')"
+          :title="t('tabbar.newTypeMenu')"
           @click="openAddMenu"
         >
           <Icon name="chevron-down" :size="12" />

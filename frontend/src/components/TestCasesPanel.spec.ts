@@ -4,8 +4,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { reactive } from 'vue'
 import TestCasesPanel from './TestCasesPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 import type { Endpoint, TestCase } from '../types/foxApi'
 
@@ -69,6 +71,9 @@ function mountPanel(d: Endpoint) {
 
 describe('TestCasesPanel', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
     store.set([['ep-1', [makeCase('c1', '内部划转-SGB', '正向'), makeCase('c2', '金额超限', '边界值')]]])
     store.meta.clear()
     vi.clearAllMocks()

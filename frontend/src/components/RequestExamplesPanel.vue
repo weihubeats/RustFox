@@ -7,6 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { smartTabFor } from '../utils/requestBar'
 import type { Endpoint, RequestExample } from '../types/foxApi'
 import EmptyState from './ui/EmptyState.vue'
@@ -16,6 +17,8 @@ import Popconfirm from './ui/Popconfirm.vue'
 const props = defineProps<{ draft: Endpoint | null }>()
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 /** 用例名称输入（默认 = 当前 method + path，打开接口时预填）。 */
 const nameInput = ref('')
@@ -58,7 +61,7 @@ function apply(example: RequestExample): void {
 async function duplicate(example: RequestExample): Promise<void> {
   const d = props.draft
   if (!d) return
-  const saved = await store.saveRequestAsExample(d.id, `${example.name} 副本`, example.request)
+  const saved = await store.saveRequestAsExample(d.id, t('examples.copyName', { name: example.name }), example.request)
   if (saved) nameInput.value = ''
 }
 
@@ -90,33 +93,33 @@ function shortTime(iso: string): string {
         v-model="nameInput"
         class="rex-name"
         type="text"
-        :placeholder="draft ? `${draft.method} ${draft.path}` : '用例名称'"
+        :placeholder="draft ? `${draft.method} ${draft.path}` : t('examples.namePh')"
         @keyup.enter="saveCurrent"
       />
       <button class="rex-save-btn" type="button" :disabled="!draft" @click="saveCurrent">
-        保存当前请求
+        {{ t('examples.saveCurrent') }}
       </button>
     </div>
 
     <div v-if="examples.length" class="rex-list">
       <div v-for="ex in examples" :key="ex.id" class="rex-row" @dblclick="apply(ex)">
-        <div class="rex-main" title="双击回填到编辑器">
+        <div class="rex-main" :title="t('examples.dblclickHint')">
           <div class="rex-title">{{ ex.name }}</div>
           <div class="rex-meta">
-            保存于 {{ shortTime(ex.created_at) }}
+            {{ t('examples.savedAt', { v: shortTime(ex.created_at) }) }}
             <template v-if="ex.request.active_tab"> · Tab: {{ ex.request.active_tab }}</template>
           </div>
         </div>
         <div class="rex-actions">
-          <IconButton name="download" :size="12" title="回填到编辑器" @click="apply(ex)" />
-          <IconButton name="copy" :size="12" title="复制为副本" @click="duplicate(ex)" />
+          <IconButton name="download" :size="12" :title="t('examples.applyBack')" @click="apply(ex)" />
+          <IconButton name="copy" :size="12" :title="t('examples.duplicate')" @click="duplicate(ex)" />
           <Popconfirm
-            :title="`删除用例「${ex.name}」？删除后不可恢复。`"
-            confirm-text="删除"
+            :title="t('examples.deleteConfirm', { name: ex.name })"
+            :confirm-text="t('common.delete')"
             danger
             @confirm="remove(ex)"
           >
-            <IconButton name="trash" :size="12" title="删除用例" />
+            <IconButton name="trash" :size="12" :title="t('examples.delete')" />
           </Popconfirm>
         </div>
       </div>
@@ -125,8 +128,8 @@ function shortTime(iso: string): string {
       v-else
       icon="list"
       compact
-      title="暂无请求用例"
-      description="编辑好请求后，点击「保存当前请求」把常用参数/请求头/Body 存为快照，之后可一键回填"
+      :title="t('examples.empty')"
+      :description="t('examples.emptyHint')"
     />
   </div>
 </template>

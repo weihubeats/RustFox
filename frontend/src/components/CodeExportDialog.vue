@@ -6,20 +6,24 @@
  */
 import CodePanel from './CodePanel.vue'
 import Modal from './ui/Modal.vue'
+import { useLocaleStore } from '../stores/locale'
 import type { Endpoint } from '../types/foxApi'
 
 defineProps<{ draft: Endpoint | null; url: string }>()
 const emit = defineEmits<{ close: [] }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 </script>
 
 <template>
-  <Modal :open="true" title="导出接口代码" width="680px" @close="emit('close')">
+  <Modal :open="true" :title="t('codeexport.title')" width="680px" @close="emit('close')">
     <p class="modal-hint">
-      按当前请求配置生成对应语言的代码片段，可直接粘贴到项目中使用。
+      {{ t('codeexport.hint') }}
     </p>
     <CodePanel :draft="draft" :url="url" auto-generate />
     <template #footer>
-      <button class="rf-btn rf-btn-primary" type="button" @click="emit('close')">关闭</button>
+      <button class="rf-btn rf-btn-primary" type="button" @click="emit('close')">{{ t('common.close') }}</button>
     </template>
   </Modal>
 </template>

@@ -10,6 +10,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { copyText } from '../utils/clipboard'
 import { escapeHtml, highlightJSONText } from '../utils/highlight'
 import { EDITOR_INDENT } from '../constants/editorTheme'
@@ -27,6 +28,8 @@ const props = defineProps<{ response: ExecuteResponse }>()
 const emit = defineEmits<{ saveExample: [] }>()
 
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 // ---------- 状态 ----------
 const activeTab = ref<'body' | 'headers' | 'cookies'>('body')
@@ -226,14 +229,14 @@ const copySource = computed(() =>
 
 async function copyBody(): Promise<void> {
   const ok = await copyText(copySource.value)
-  if (ok) toast.success('已复制响应正文')
-  else toast.error('复制失败，请手动选择文本')
+  if (ok) toast.success(t('response.copied'))
+  else toast.error(t('response.copyFail'))
 }
 
 const MODE_OPTIONS = computed<SegmentOption[]>(() => [
-  { value: 'pretty', label: '格式化', icon: 'list' },
-  { value: 'raw', label: '原始', icon: 'code' },
-  ...(isPreviewable.value ? [{ value: 'preview', label: '预览', icon: 'eye' as const }] : []),
+  { value: 'pretty', label: t('response.pretty'), icon: 'list' },
+  { value: 'raw', label: t('response.raw'), icon: 'code' },
+  ...(isPreviewable.value ? [{ value: 'preview', label: t('response.preview'), icon: 'eye' as const }] : []),
 ])
 
 /** 响应类型不支持预览时，强制退回「格式化」，避免残留 preview 状态。 */
@@ -415,17 +418,17 @@ onUnmounted(() => {
       </span>
       <span class="rp-sep"></span>
       <span class="rp-meta">
-        <span class="rp-meta-label">耗时</span>
+        <span class="rp-meta-label">{{ t('response.duration') }}</span>
         <span class="rp-meta-value"><Icon name="clock" :size="12" /> {{ formatDuration(response.duration_ms) }}</span>
       </span>
       <span class="rp-sep"></span>
       <span class="rp-meta">
-        <span class="rp-meta-label">大小</span>
+        <span class="rp-meta-label">{{ t('response.size') }}</span>
         <span class="rp-meta-value"><Icon name="package" :size="12" /> {{ sizeText }}</span>
       </span>
       <span v-if="response.content_type" class="rp-sep"></span>
       <span v-if="response.content_type" class="rp-type">{{ response.content_type }}</span>
-      <span v-if="response.truncated" class="rp-truncated" title="后端已截断过长的响应正文">已截断</span>
+      <span v-if="response.truncated" class="rp-truncated" :title="t('response.truncatedHint')">{{ t('response.truncated') }}</span>
 
       <Tabs v-model="activeTab" :tabs="responseTabs" size="sm" class="rp-inline-tabs" />
       <span class="rp-toolbar-spacer"></span>
@@ -439,7 +442,7 @@ onUnmounted(() => {
         @update:model-value="viewMode = $event as ViewMode"
       />
       <span class="rp-actions">
-        <Tooltip content="在响应中查找 (⌘F)" placement="bottom">
+        <Tooltip :content="t('response.findHint')" placement="bottom">
           <button
             class="rp-icon-btn"
             type="button"
@@ -449,22 +452,22 @@ onUnmounted(() => {
             <Icon name="search" :size="13" />
           </button>
         </Tooltip>
-        <Tooltip v-if="treeVisible" :content="treeExpanded ? '收起全部节点' : '展开全部节点'" placement="bottom">
+        <Tooltip v-if="treeVisible" :content="treeExpanded ? t('response.collapseAll') : t('response.expandAll')" placement="bottom">
           <button class="rp-icon-btn" type="button" @click="toggleTreeAll">
             <Icon :name="treeExpanded ? 'chevron-up' : 'chevron-down'" :size="13" />
           </button>
         </Tooltip>
-        <Tooltip content="将当前响应保存为示例" placement="bottom">
+        <Tooltip :content="t('response.saveExample')" placement="bottom">
           <button class="rp-icon-btn" type="button" @click="emit('saveExample')">
             <Icon name="save" :size="13" />
           </button>
         </Tooltip>
-        <Tooltip content="复制响应正文" placement="bottom">
+        <Tooltip :content="t('response.copyBody')" placement="bottom">
           <button class="rp-icon-btn" type="button" @click="copyBody">
             <Icon name="copy" :size="13" />
           </button>
         </Tooltip>
-        <Tooltip :content="collapsed ? '展开响应区' : '折叠响应区'" placement="bottom">
+        <Tooltip :content="collapsed ? t('response.expand') : t('response.collapse')" placement="bottom">
           <button class="rp-icon-btn" type="button" @click="toggleCollapsed">
             <Icon :name="collapsed ? 'chevron-down' : 'chevron-up'" :size="13" />
           </button>
@@ -484,10 +487,10 @@ onUnmounted(() => {
       />
       <div class="rp-scroll">
         <p v-if="bodyTooLarge" class="rp-note">
-          响应超过 1 MB，已按原始文本显示（跳过 JSON 解析与树形渲染以保证流畅）
+          {{ t('response.tooLarge') }}
         </p>
-        <p v-if="linesTruncated" class="rp-note">响应行数超过 100,000，超出部分未展示</p>
-        <p v-if="!response.body.trim()" class="rp-empty">响应正文为空</p>
+        <p v-if="linesTruncated" class="rp-note">{{ t('response.linesTruncated') }}</p>
+        <p v-if="!response.body.trim()" class="rp-empty">{{ t('response.emptyBody') }}</p>
         <JsonTree
           v-else-if="viewMode === 'pretty' && isJson"
           ref="treeRef"
@@ -507,7 +510,7 @@ onUnmounted(() => {
             type="button"
             @click="showMoreLines"
           >
-            显示更多（{{ visibleLines }} / {{ prettyLines.length }} 行）
+            {{ t('response.showMore', { shown: visibleLines, total: prettyLines.length }) }}
           </button>
         </div>
         <div v-else-if="viewMode === 'raw'" class="rp-lines">
@@ -516,7 +519,7 @@ onUnmounted(() => {
             <span class="rp-line-text" v-html="highlightText(ln, searchQuery)"></span>
           </div>
           <button v-if="hasMoreRaw" class="rp-more" type="button" @click="showMoreLines">
-            显示更多（{{ visibleLines }} / {{ rawLines.length }} 行）
+            {{ t('response.showMore', { shown: visibleLines, total: rawLines.length }) }}
           </button>
         </div>
         <iframe
@@ -524,15 +527,15 @@ onUnmounted(() => {
           class="rp-frame"
           sandbox="allow-same-origin"
           :srcdoc="response.body"
-          title="响应预览"
+          :title="t('response.previewTitle')"
         ></iframe>
         <img
           v-else-if="isImage"
           class="rp-frame rp-preview-img"
           :src="`data:${response.content_type};base64,${response.body}`"
-          alt="响应图片预览"
+          :alt="t('response.imageAlt')"
         />
-        <div v-else class="rp-preview-note">该文件类型不支持内嵌预览，请切换到「原始」视图查看</div>
+        <div v-else class="rp-preview-note">{{ t('response.noPreview') }}</div>
       </div>
     </div>
 
@@ -541,7 +544,7 @@ onUnmounted(() => {
         <span class="rp-header-key">{{ h.k }}</span>
         <span class="rp-header-val">{{ h.v }}</span>
       </div>
-      <p v-if="!headerRows.length" class="rp-empty">无响应头</p>
+      <p v-if="!headerRows.length" class="rp-empty">{{ t('response.noHeaders') }}</p>
     </div>
 
     <div v-show="!collapsed" v-else class="rp-scroll">
@@ -556,12 +559,12 @@ onUnmounted(() => {
           </span>
         </div>
         <div v-if="c.domain || c.path || c.expires" class="rp-cookie-meta">
-          <span v-if="c.domain">域：{{ c.domain }}</span>
-          <span v-if="c.path">路径：{{ c.path }}</span>
-          <span v-if="c.expires">过期：{{ c.expires }}</span>
+          <span v-if="c.domain">{{ t('response.cookieDomain', { v: c.domain }) }}</span>
+          <span v-if="c.path">{{ t('response.cookiePath', { v: c.path }) }}</span>
+          <span v-if="c.expires">{{ t('response.cookieExpires', { v: c.expires }) }}</span>
         </div>
       </div>
-      <p v-if="!cookies.length" class="rp-empty">响应未携带 Set-Cookie</p>
+      <p v-if="!cookies.length" class="rp-empty">{{ t('response.noCookies') }}</p>
     </div>
   </div>
 </template>

@@ -11,11 +11,14 @@ import CustomSelect from '../ui/CustomSelect.vue'
 import Icon from '../ui/Icon.vue'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
+import { useLocaleStore } from '../../stores/locale'
 import { formatBytes, formatDuration } from '../../utils/format'
 import type { BodySpec, ExecuteResponse, HttpMethod } from '../../types/foxApi'
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -44,7 +47,7 @@ watch(open, (v) => {
 async function sendScratch(): Promise<void> {
   const url = scratchUrl.value.trim()
   if (!url) {
-    toast.warning('请输入请求地址')
+    toast.warning(t('scratch.urlRequired'))
     return
   }
   scratchSending.value = true
@@ -76,7 +79,7 @@ async function sendScratch(): Promise<void> {
       environment_id: null,
     })
   } catch (e) {
-    toast.error('请求失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('scratch.sendFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   } finally {
     scratchSending.value = false
   }
@@ -84,7 +87,7 @@ async function sendScratch(): Promise<void> {
 </script>
 
 <template>
-  <Modal v-model:open="open" title="快速请求（暂存区）" width="580px" @close="open = false">
+  <Modal v-model:open="open" :title="t('scratch.title')" width="580px" @close="open = false">
     <div class="scratch-row">
       <CustomSelect
         v-model="scratchMethod"
@@ -105,14 +108,14 @@ async function sendScratch(): Promise<void> {
         :disabled="scratchSending"
         @click="sendScratch"
       >
-        <Icon name="send" :size="13" /> {{ scratchSending ? '发送中…' : '发送' }}
+        <Icon name="send" :size="13" /> {{ scratchSending ? t('scratch.sending') : t('editor.send') }}
       </button>
     </div>
     <textarea
       v-if="scratchMethod !== 'GET'"
       v-model="scratchBody"
       class="rf-input scratch-ta"
-      placeholder="请求体（JSON 或纯文本，可选）"
+      :placeholder="t('scratch.bodyPh')"
       spellcheck="false"
     ></textarea>
     <div v-if="scratchRes" class="scratch-res">
@@ -125,7 +128,7 @@ async function sendScratch(): Promise<void> {
       </div>
       <pre class="sr-body">{{ scratchRes.body }}</pre>
     </div>
-    <p v-else class="rf-hint scratch-hint">响应将显示在这里（暂存请求不写入历史）。</p>
+    <p v-else class="rf-hint scratch-hint">{{ t('scratch.resHint') }}</p>
   </Modal>
 </template>
 

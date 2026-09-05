@@ -42,7 +42,8 @@ export interface ShortcutBinding {
   key: string
 }
 
-/** 可自定义快捷键的默认表（唯一默认源；组件注册时引用，设置页直接展示）。 */
+/** 可自定义快捷键的默认表（唯一默认源；组件注册时引用，设置页直接展示）。
+ * group / description 存 i18n 键，展示时经 locale.t 解析。 */
 export interface ShortcutDefault {
   id: string
   group: string
@@ -54,35 +55,35 @@ export interface ShortcutDefault {
 export const SHORTCUT_DEFAULTS: ShortcutDefault[] = [
   {
     id: 'workspace.shortcuts-help',
-    group: '通用',
-    description: '打开快捷键帮助',
+    group: 'shortcutGroup.common',
+    description: 'shortcut.help',
     binding: { mod: 'ctrl', shift: false, alt: false, key: '/' },
   },
   {
     id: 'editor.save',
-    group: '请求编辑',
-    description: '保存当前接口',
+    group: 'shortcutGroup.editor',
+    description: 'shortcut.save',
     inInput: true,
     binding: { mod: 'ctrl', shift: false, alt: false, key: 's' },
   },
   {
     id: 'editor.send',
-    group: '请求编辑',
-    description: '发送当前请求',
+    group: 'shortcutGroup.editor',
+    description: 'shortcut.send',
     inInput: true,
     binding: { mod: 'ctrl', shift: false, alt: false, key: 'Enter' },
   },
   {
     id: 'editor.new-request-t',
-    group: '请求编辑',
-    description: '新建接口',
+    group: 'shortcutGroup.editor',
+    description: 'shortcut.newRequest',
     inInput: true,
     binding: { mod: 'ctrl', shift: false, alt: false, key: 't' },
   },
   {
     id: 'editor.new-request-n',
-    group: '请求编辑',
-    description: '新建接口',
+    group: 'shortcutGroup.editor',
+    description: 'shortcut.newRequest',
     inInput: true,
     binding: { mod: 'ctrl', shift: false, alt: false, key: 'n' },
   },

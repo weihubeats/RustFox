@@ -13,6 +13,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { ref, watch } from 'vue'
 import { version } from '../../package.json'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { takePendingUpdate, skipUpdateVersion } from '../composables/useAutoUpdate'
 import Icon from './ui/Icon.vue'
 import Modal from './ui/Modal.vue'
@@ -22,6 +23,8 @@ const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const GITHUB_URL = 'https://github.com/weihubeats/RustFox'
 
@@ -30,7 +33,7 @@ async function openGitHub(): Promise<void> {
   try {
     await openUrl(GITHUB_URL)
   } catch (err) {
-    toast.error('打开 GitHub 失败', {
+    toast.error(t('about.githubFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   }
@@ -80,10 +83,10 @@ async function checkUpdates(): Promise<void> {
       pendingNotes.value = update.body ?? ''
     } else {
       update?.close()
-      toast.info(`当前已是最新版本 v${version}`)
+      toast.info(t('about.upToDate', { v: version }))
     }
   } catch (err) {
-    toast.error('检查更新失败', {
+    toast.error(t('about.checkFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
@@ -119,10 +122,10 @@ async function installUpdate(): Promise<void> {
     update.close()
     pending = null
     pendingVersion.value = null
-    toast.success('更新已安装，即将重启')
+    toast.success(t('about.installed'))
     setTimeout(() => relaunch(), 800)
   } catch (err) {
-    toast.error('下载更新失败', {
+    toast.error(t('about.downloadFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
@@ -139,14 +142,14 @@ function skipVersion(): void {
   pendingVersion.value = null
   pendingNotes.value = ''
   skipUpdateVersion(v)
-  toast.success(`已跳过 v${v}`, { message: '出现更新的版本时再提醒，可在设置中取消跳过' })
+  toast.success(t('about.skipped', { v }), { message: t('about.skippedHint') })
 }
 </script>
 
 <template>
   <Modal
     :open="open"
-    title="关于 RustFox"
+    :title="t('about.title')"
     width="380px"
     @update:open="emit('update:open', $event)"
   >
@@ -157,21 +160,21 @@ function skipVersion(): void {
 
       <div class="a-title">RustFox</div>
       <div class="a-version">v{{ version }}</div>
-      <div class="a-subtitle">High-Performance Native API Testing Suite</div>
+      <div class="a-subtitle">{{ t('about.subtitle') }}</div>
 
       <div class="a-links">
         <button class="a-link" type="button" @click="openGitHub">
-          <Icon name="globe" :size="12" /> GitHub Repository
+          <Icon name="globe" :size="12" /> {{ t('about.github') }}
         </button>
         <span class="a-dot" aria-hidden="true"></span>
         <button class="a-link" type="button" :disabled="checking" @click="checkUpdates">
-          <Icon name="refresh" :size="12" /> {{ checking ? '检查中…' : 'Check for Updates' }}
+          <Icon name="refresh" :size="12" /> {{ checking ? t('about.checking') : t('about.check') }}
         </button>
       </div>
 
       <div v-if="pendingVersion" class="a-update">
         <div class="a-update-title">
-          发现新版本 <span class="a-update-version">v{{ pendingVersion }}</span>
+          {{ t('about.newVersion') }} <span class="a-update-version">v{{ pendingVersion }}</span>
         </div>
         <p v-if="pendingNotes" class="a-update-notes">{{ pendingNotes }}</p>
         <div v-if="downloading" class="a-update-progress">
@@ -182,7 +185,7 @@ function skipVersion(): void {
           ></div>
         </div>
         <span v-if="downloading" class="a-update-status">
-          {{ progress == null ? '下载中…' : `${Math.round(progress * 100)}%` }}
+          {{ progress == null ? t('about.downloading') : `${Math.round(progress * 100)}%` }}
         </span>
         <template v-else>
           <button
@@ -190,15 +193,15 @@ function skipVersion(): void {
             type="button"
             @click="installUpdate"
           >
-            下载并安装
+            {{ t('about.install') }}
           </button>
           <button class="a-skip-btn" type="button" @click="skipVersion">
-            跳过此版本
+            {{ t('about.skip') }}
           </button>
         </template>
       </div>
 
-      <div class="a-copyright">© 2026 RustFox Team. Open source under MIT License.</div>
+      <div class="a-copyright">{{ t('about.copyright') }}</div>
     </div>
   </Modal>
 </template>

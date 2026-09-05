@@ -2,6 +2,7 @@
  * 项目列表展示相关的纯工具函数：
  * 头像配色 / 名称缩写 / 相对时间。
  */
+import { tFallback } from '../../stores/locale'
 
 /** 头像配色盘（按名称哈希取色，保证同名项目颜色稳定） */
 export const PALETTE = [
@@ -33,11 +34,11 @@ export function initials(name: string): string {
 export function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const min = Math.floor(diff / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
+  if (min < 1) return tFallback('projectlist.timeJustNow')
+  if (min < 60) return tFallback('projectlist.timeMinAgo', { n: min })
   const hours = Math.floor(min / 60)
-  if (hours < 24) return `${hours} 小时前`
+  if (hours < 24) return tFallback('projectlist.timeHourAgo', { n: hours })
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days} 天前`
+  if (days < 30) return tFallback('projectlist.timeDayAgo', { n: days })
   return iso.slice(0, 10)
 }

@@ -3,10 +3,14 @@
  * HeadersPanel：请求头面板（Postman 式 kv 表格：幽灵行自动追加、空行自动清理）。
  */
 import { computed } from 'vue'
+import { useLocaleStore } from '../stores/locale'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import type { Endpoint, KeyValue } from '../types/foxApi'
 
 const props = defineProps<{ draft: Endpoint | null }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const headers = computed(() => props.draft?.request.headers ?? [])
 
@@ -27,20 +31,20 @@ function applyHeaders(rows: KVRow[]): void {
   <div class="panel">
     <label
       class="cookie-toggle"
-      title="关闭后本次请求不携带 Jar 中的同域 Cookie（显式写的 Cookie 头不受影响）"
+      :title="t('headers.cookieHint')"
     >
       <input
         :checked="cookiesEnabled"
         type="checkbox"
         @change="onCookiesToggle(($event.target as HTMLInputElement).checked)"
       />
-      Cookie 自动回放
+      {{ t('headers.cookieReplay') }}
     </label>
     <KeyValueTable
       :model-value="headers"
       key-placeholder="Header"
       value-placeholder="Value"
-      description-placeholder="描述"
+      :description-placeholder="t('headers.descPh')"
       @update:model-value="applyHeaders"
     />
   </div>

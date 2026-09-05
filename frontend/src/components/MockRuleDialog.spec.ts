@@ -4,7 +4,9 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import MockRuleDialog from './MockRuleDialog.vue'
+import { useLocaleStore } from '../stores/locale'
 
 vi.mock('../stores/workspace', () => ({
   useWorkspaceStore: () => ({
@@ -26,6 +28,9 @@ vi.mock('../composables/useToast', () => ({
 
 describe('MockRuleDialog', () => {
   it('应渲染 Modal 弹层（标题含规则计数）', async () => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
     mount(MockRuleDialog)
     await flushPromises()
     // Modal Teleport 到 body，需查 document 而非 wrapper

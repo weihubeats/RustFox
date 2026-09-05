@@ -2,8 +2,16 @@
  * jsonFormat 单测：无损格式化——保留重复键、键顺序与数字原文；
  * 对无重复键的常规 JSON，输出与 JSON.stringify 风格完全一致。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { JsonFormatError, compactJson, dedupeJsonKeys, prettyJson } from './jsonFormat'
+import { useLocaleStore } from '../stores/locale'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  // 错误文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
+})
 
 describe('prettyJson：无损性', () => {
   it('保留重复键（用户场景：多个 "body" 键格式化后不丢失）', () => {

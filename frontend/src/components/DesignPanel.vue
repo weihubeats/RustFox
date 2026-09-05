@@ -14,6 +14,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import ParamDefineTable from './design/ParamDefineTable.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
@@ -43,6 +44,8 @@ const emit = defineEmits<{ save: [] }>()
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const d = computed(() => props.draft)
 
@@ -52,13 +55,13 @@ const dirty = computed(() => (d.value ? store.isDirty(d.value.id) : false))
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }))
 
-const STATUS_OPTIONS: { value: EndpointStatus; label: string }[] = [
-  { value: 'designing', label: '设计中' },
-  { value: 'developing', label: '开发中' },
-  { value: 'testing', label: '测试中' },
-  { value: 'released', label: '已发布' },
-  { value: 'deprecated', label: '已废弃' },
-]
+const STATUS_OPTIONS = computed<{ value: EndpointStatus; label: string }[]>(() => [
+  { value: 'designing', label: t('design.statusDesigning') },
+  { value: 'developing', label: t('design.statusDeveloping') },
+  { value: 'testing', label: t('design.statusTesting') },
+  { value: 'released', label: t('design.statusReleased') },
+  { value: 'deprecated', label: t('design.statusDeprecated') },
+])
 
 function onMethodChange(v: string | number): void {
   const target = d.value
@@ -129,13 +132,13 @@ function onBodyModeChange(v: string): void {
   }
 }
 
-const BODY_VIEW_HINTS: Record<string, string> = {
-  text: '当前为 Text Body，可在调试页编辑；切换上方模式可改为 JSON 定义',
-  graphql: 'GraphQL Body 请在调试页编辑',
-  multipart: 'multipart（含文件）Body 请在调试页编辑',
-  binary: '二进制 Body 请在调试页配置文件路径',
-  none: '尚未定义 Body，选择上方模式开始设计',
-}
+const BODY_VIEW_HINTS = computed<Record<string, string>>(() => ({
+  text: t('design.bodyHintText'),
+  graphql: t('design.bodyHintGraphql'),
+  multipart: t('design.bodyHintMultipart'),
+  binary: t('design.bodyHintBinary'),
+  none: t('design.bodyHintNone'),
+}))
 
 /** JSON 编辑区内容（直接写草稿 raw）。 */
 const bodyRaw = computed({
@@ -235,7 +238,7 @@ async function addResponse(preset?: number): Promise<void> {
   // .number 修饰符在输入框清空时可能落回空串，统一 Number 归一。
   const status = Number(preset ?? newRespStatus.value)
   if (!status || status < 100 || status > 599) {
-    toast.warning('状态码需在 100–599 之间')
+    toast.warning(t('design.statusRange'))
     return
   }
   try {
@@ -245,7 +248,7 @@ async function addResponse(preset?: number): Promise<void> {
       endpoint_id: endpointId,
       name:
         newRespName.value.trim() ||
-        `${status} ${preset !== undefined ? '响应' : 'Response'}`,
+        t('design.respDefaultName', { v: status }),
       status,
       headers: {},
       body: '',
@@ -259,9 +262,9 @@ async function addResponse(preset?: number): Promise<void> {
       newRespName.value = ''
     }
     expandedRespId.value = saved.id
-    toast.success(`已添加 ${status} 响应`)
+    toast.success(t('design.respAdded', { v: status }))
   } catch (err) {
-    toast.error('添加失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('design.addFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -271,15 +274,15 @@ async function saveRespBody(ex: ResponseExample): Promise<void> {
   try {
     if (text.trim()) JSON.parse(text) // 仅校验，不强制格式化
   } catch {
-    toast.warning('响应 Body 不是合法 JSON，仍可保存为文本')
+    toast.warning(t('design.invalidJsonHint'))
   }
   try {
     const saved = await api.saveExample({ ...ex, body: text, updated_at: new Date().toISOString() })
     await cacheExample(saved)
     respEdits.value.delete(ex.id)
-    toast.success(`已更新 ${ex.status} 响应`)
+    toast.success(t('design.respUpdated', { v: ex.status }))
   } catch (err) {
-    toast.error('保存失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('design.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -289,7 +292,7 @@ async function removeResp(ex: ResponseExample): Promise<void> {
     await store.removeExample(d.value.id, ex.id)
     if (expandedRespId.value === ex.id) expandedRespId.value = null
   } catch (err) {
-    toast.error('删除失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('design.deleteFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -299,10 +302,10 @@ type PreviewView = 'schema' | 'mock'
 
 const previewView = ref<PreviewView>('schema')
 
-const PREVIEW_VIEW_OPTIONS = [
+const PREVIEW_VIEW_OPTIONS = computed(() => [
   { value: 'schema', label: 'Schema' },
-  { value: 'mock', label: 'Mock 示例' },
-]
+  { value: 'mock', label: t('design.mockExample') },
+])
 
 /** 叶子 Schema 行 → 类型标注（schema 视图）或示例值（mock 视图）。 */
 function shapeOf(rows: SchemaRow[], mock: boolean): Record<string, unknown> {
@@ -419,7 +422,7 @@ async function copyPreview(): Promise<void> {
       copied.value = false
     }, 1600)
   } catch {
-    toast.error('复制失败')
+    toast.error(t('design.copyFail'))
   }
 }
 
@@ -436,16 +439,16 @@ onBeforeUnmount(() => {
         <span class="method-pill" :class="`mp-${d.method.toLowerCase()}`">{{ d.method }}</span>
         <code class="crumb-path">{{ d.path }}</code>
         <span class="crumb-sep">/</span>
-        <span class="crumb-label">接口设计</span>
+        <span class="crumb-label">{{ t('design.title') }}</span>
       </div>
       <div class="topbar-actions">
-        <span v-if="dirty" class="dirty-hint" title="内容尚未保存">
+        <span v-if="dirty" class="dirty-hint" :title="t('design.unsavedHint')">
           <span class="dirty-dot"></span>
-          未保存
+          {{ t('design.unsaved') }}
         </span>
         <button type="button" class="save-btn" @click="emit('save')">
           <Icon name="save" :size="13" />
-          保存设计
+          {{ t('design.saveDesign') }}
         </button>
       </div>
     </header>
@@ -455,14 +458,14 @@ onBeforeUnmount(() => {
       <div class="design-main">
         <!-- 基本信息 -->
         <section class="doc-card blk">
-          <h4 class="doc-sec-title">基本信息</h4>
+          <h4 class="doc-sec-title">{{ t('design.basicInfo') }}</h4>
           <div class="grid2">
             <label class="fld">
-              <span class="fld-label">接口名称</span>
-              <input v-model="d.name" class="rf-input" placeholder="例如：获取用户列表" spellcheck="false" />
+              <span class="fld-label">{{ t('design.endpointName') }}</span>
+              <input v-model="d.name" class="rf-input" :placeholder="t('editor.namePh')" spellcheck="false" />
             </label>
             <label class="fld">
-              <span class="fld-label">生命周期状态</span>
+              <span class="fld-label">{{ t('design.lifecycle') }}</span>
               <CustomSelect
                 :model-value="d.status"
                 :options="STATUS_OPTIONS"
@@ -472,7 +475,7 @@ onBeforeUnmount(() => {
           </div>
 
           <label class="fld">
-            <span class="fld-label">请求路径</span>
+            <span class="fld-label">{{ t('design.requestPath') }}</span>
             <div class="path-group">
               <CustomSelect
                 class="method-select"
@@ -490,12 +493,12 @@ onBeforeUnmount(() => {
           </label>
 
           <label class="fld">
-            <span class="fld-label">接口描述</span>
+            <span class="fld-label">{{ t('design.description') }}</span>
             <textarea
               v-model="d.description"
               class="desc-area"
               rows="3"
-              placeholder="接口用途、注意事项、返回约定…"
+              :placeholder="t('design.descriptionPh')"
               spellcheck="false"
             ></textarea>
           </label>
@@ -503,14 +506,14 @@ onBeforeUnmount(() => {
 
         <!-- 请求定义 -->
         <section class="doc-card blk">
-          <h4 class="doc-sec-title">请求定义 (Request)</h4>
+          <h4 class="doc-sec-title">{{ t('design.requestDef') }}</h4>
           <Tabs v-model="reqTab" :tabs="reqTabs" size="sm" />
 
           <template v-if="reqTab === 'params'">
-            <ParamDefineTable :rows="d.request.params" key-placeholder="参数名" @update:model-value="onParamsUpdate" />
+            <ParamDefineTable :rows="d.request.params" :key-placeholder="t('design.paramNamePh')" @update:model-value="onParamsUpdate" />
           </template>
           <template v-else-if="reqTab === 'headers'">
-            <ParamDefineTable :rows="d.request.headers" key-placeholder="Header 名" @update:model-value="onHeadersUpdate" />
+            <ParamDefineTable :rows="d.request.headers" :key-placeholder="t('design.headerNamePh')" @update:model-value="onHeadersUpdate" />
           </template>
 
           <!-- Body 设计器 -->
@@ -523,7 +526,7 @@ onBeforeUnmount(() => {
                 @update:model-value="onBodyModeChange($event)"
               />
               <span v-if="bodyMode === 'json'" class="json-state" :class="{ bad: !jsonValid }">
-                {{ jsonValid ? '✓ 合法 JSON' : '✕ JSON 解析失败' }}
+                {{ jsonValid ? t('design.jsonValid') : t('design.jsonInvalid') }}
               </span>
             </div>
 
@@ -540,7 +543,7 @@ onBeforeUnmount(() => {
             <ParamDefineTable
               v-else-if="bodyMode === 'form'"
               :rows="d.request.body.mode === 'urlencoded' ? d.request.body.fields : []"
-              key-placeholder="字段名"
+              :key-placeholder="t('design.fieldNamePh')"
               :show-example="false"
               @update:model-value="onFormUpdate"
             />
@@ -550,7 +553,7 @@ onBeforeUnmount(() => {
         <!-- 返回响应 -->
         <section class="doc-card blk">
           <div class="resp-head">
-            <h4 class="doc-sec-title">返回响应 (Responses)</h4>
+            <h4 class="doc-sec-title">{{ t('design.responses') }}</h4>
             <span class="resp-count">{{ responses.length }}</span>
             <span class="resp-head-spacer"></span>
             <div class="resp-presets">
@@ -585,7 +588,7 @@ onBeforeUnmount(() => {
                   class="body-json mono"
                   :value="respTextOf(ex)"
                   spellcheck="false"
-                  placeholder='响应 Body 示例，例如 { "code": 0 }'
+                  :placeholder="t('design.respBodyPh')"
                   @input="onRespEdit(ex, ($event.target as HTMLTextAreaElement).value)"
                 ></textarea>
                 <div class="resp-actions">
@@ -595,16 +598,16 @@ onBeforeUnmount(() => {
                     :disabled="!respEdits.has(ex.id)"
                     @click="saveRespBody(ex)"
                   >
-                    <Icon name="save" :size="12" /> 保存修改
+                    <Icon name="save" :size="12" /> {{ t('design.saveChanges') }}
                   </button>
-                  <Popconfirm :title="`删除 ${ex.status} 响应？`" @confirm="removeResp(ex)">
-                    <IconButton name="trash" :size="13" tone="danger" title="删除该响应" />
+                  <Popconfirm :title="t('design.deleteRespConfirm', { v: ex.status })" @confirm="removeResp(ex)">
+                    <IconButton name="trash" :size="13" tone="danger" :title="t('design.deleteResp')" />
                   </Popconfirm>
                 </div>
               </div>
             </div>
           </div>
-          <p v-else class="resp-empty">尚未定义响应，点右上角快捷键或自定义状态码开始设计。</p>
+          <p v-else class="resp-empty">{{ t('design.respEmpty') }}</p>
           <div class="resp-add">
             <input
               v-model.number="newRespStatus"
@@ -612,18 +615,18 @@ onBeforeUnmount(() => {
               type="number"
               min="100"
               max="599"
-              title="自定义状态码"
-              placeholder="状态码"
+              :title="t('design.customStatus')"
+              :placeholder="t('design.statusCode')"
             />
             <input
               v-model="newRespName"
               class="rf-input resp-name-input"
-              placeholder="自定义响应名称（可选）"
+              :placeholder="t('design.customRespNamePh')"
               spellcheck="false"
               @keyup.enter="addResponse()"
             />
             <button type="button" class="rf-btn rf-btn-sm" @click="addResponse()">
-              <Icon name="plus" :size="12" /> 添加
+              <Icon name="plus" :size="12" /> {{ t('design.add') }}
             </button>
           </div>
         </section>
@@ -632,7 +635,7 @@ onBeforeUnmount(() => {
       <!-- ---- 右：实时预览 / Mock 生成 ---- -->
       <aside class="preview doc-card">
         <div class="preview-head">
-          <h4 class="doc-sec-title">实时预览</h4>
+          <h4 class="doc-sec-title">{{ t('design.livePreview') }}</h4>
           <SegmentedControl
             class="preview-pills"
             :model-value="previewView"
@@ -640,14 +643,14 @@ onBeforeUnmount(() => {
             :options="PREVIEW_VIEW_OPTIONS"
             @update:model-value="previewView = $event as PreviewView"
           />
-          <Tooltip :content="copied ? '已复制' : '复制 Schema'" placement="bottom">
+          <Tooltip :content="copied ? t('design.copied') : t('design.copySchema')" placement="bottom">
             <IconButton name="copy" :size="13" @click="copyPreview" />
           </Tooltip>
         </div>
         <pre v-if="previewHtml" class="preview-code mono" v-html="previewHtml"></pre>
-        <p v-else class="preview-empty">左侧填写接口定义后，此处将实时生成标准 JSON 预览。</p>
+        <p v-else class="preview-empty">{{ t('design.previewEmpty') }}</p>
         <p class="preview-note">
-          {{ previewView === 'mock' ? 'Mock 示例由 Schema 推断生成（每个字段唯一），可直接用作响应示例。' : 'Schema 视图为字段类型结构，供文档 / Mock 生成消费。' }}
+          {{ previewView === 'mock' ? t('design.previewMockHint') : t('design.previewSchemaHint') }}
         </p>
       </aside>
     </div>

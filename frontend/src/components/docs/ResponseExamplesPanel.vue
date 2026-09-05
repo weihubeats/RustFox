@@ -16,6 +16,7 @@ import Icon from '../ui/Icon.vue'
 import Tabs from '../ui/Tabs.vue'
 import type { TabItem } from '../ui/Tabs.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useLocaleStore } from '../../stores/locale'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import { copyText } from '../../utils/clipboard'
@@ -29,6 +30,8 @@ const props = defineProps<{ examples: ResponseExample[]; draft?: Endpoint | null
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 /** 状态码分组：2xx 在前、3xx 次之、4xx/5xx 在后，各自升序；首个标记 Default。 */
 const statusTabs = computed<TabItem[]>(() => {
@@ -38,7 +41,7 @@ const statusTabs = computed<TabItem[]>(() => {
   })
   return statuses.map((s, i) => ({
     key: String(s),
-    label: `${s} ${statusTextOf(s)}${i === 0 ? ' (Default)' : ''}`,
+    label: `${s} ${statusTextOf(s)}${i === 0 ? ` ${t('respex.defaultTag')}` : ''}`,
   }))
 })
 
@@ -87,9 +90,9 @@ async function copyBody(): Promise<void> {
   if (!body) return
   const ok = await copyText(body)
   if (ok) {
-    toast.success('已复制响应示例')
+    toast.success(t('respex.copied'))
   } else {
-    toast.error('复制失败，请手动选择文本')
+    toast.error(t('response.copyFail'))
   }
 }
 
@@ -102,7 +105,7 @@ async function persistExample(example: ResponseExample): Promise<void> {
   const list = store.examples.get(endpointId) ?? []
   list.unshift(saved)
   store.examples.set(endpointId, list)
-  toast.success(`示例已保存：${saved.name}`)
+  toast.success(t('respex.exampleSaved', { name: saved.name }))
 }
 
 function newExample(name: string, status: number, body: string): ResponseExample {
@@ -124,9 +127,9 @@ function newExample(name: string, status: number, body: string): ResponseExample
 async function addManual(): Promise<void> {
   if (!props.draft) return
   try {
-    await persistExample(newExample('手动示例', 200, ''))
+    await persistExample(newExample(t('respex.manualName'), 200, ''))
   } catch (err) {
-    toast.error('添加示例失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('respex.addFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -147,13 +150,13 @@ async function fillFromMock(): Promise<void> {
     }
   }
   if (mockBody === null) {
-    toast.warning('当前接口没有可推断的 JSON Body Schema')
+    toast.warning(t('respex.noMockSchema'))
     return
   }
   try {
-    await persistExample(newExample('Mock 示例', 200, mockBody))
+    await persistExample(newExample(t('respex.mockName'), 200, mockBody))
   } catch (err) {
-    toast.error('填充失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('respex.fillFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 </script>
@@ -161,15 +164,15 @@ async function fillFromMock(): Promise<void> {
 <template>
   <section class="rep doc-card">
     <header class="rep-head">
-      <h4 class="doc-sec-title">响应示例 (Response)</h4>
-      <span v-if="examples.length" class="rep-count">{{ examples.length }} 条</span>
+      <h4 class="doc-sec-title">{{ t('respex.title') }}</h4>
+      <span v-if="examples.length" class="rep-count">{{ t('respex.count', { n: examples.length }) }}</span>
       <button
         v-if="activeExample"
         class="rf-btn rf-btn-sm"
         type="button"
         @click="copyBody"
       >
-        <Icon name="copy" :size="12" /> 复制
+        <Icon name="copy" :size="12" /> {{ t('common.copy') }}
       </button>
     </header>
 
@@ -184,7 +187,7 @@ async function fillFromMock(): Promise<void> {
           :class="{ active: activeExample?.id === ex.id }"
           @click="activeExample = ex"
         >
-          {{ ex.name || '未命名示例' }}
+          {{ ex.name || t('default.exampleName') }}
         </button>
       </div>
       <div class="rep-meta" v-if="activeExample">
@@ -196,21 +199,21 @@ async function fillFromMock(): Promise<void> {
       </div>
       <div class="rep-body">
         <JsonCodeMirror v-if="displayBody" :model-value="displayBody" readonly />
-        <p v-else class="rep-empty-body">（该示例无响应 Body）</p>
+        <p v-else class="rep-empty-body">{{ t('respex.noBody') }}</p>
       </div>
     </template>
     <template v-else>
       <EmptyState
         icon="file"
-        title="暂无响应示例"
-        description="在调试页发送请求后，可将真实响应保存为示例（200 成功 / 400 错误）"
+        :title="t('respex.empty')"
+        :description="t('respex.emptyHint')"
         compact
       />
       <div class="rep-empty-actions">
         <button type="button" class="rep-mini-btn" @click="addManual">
-          <Icon name="plus" :size="12" /> 手动添加示例
+          <Icon name="plus" :size="12" /> {{ t('respex.addManual') }}
         </button>
-        <button type="button" class="rep-mini-btn" @click="fillFromMock">从 Mock 快速填充</button>
+        <button type="button" class="rep-mini-btn" @click="fillFromMock">{{ t('respex.fillFromMock') }}</button>
       </div>
     </template>
   </section>

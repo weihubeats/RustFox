@@ -12,6 +12,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useThemeStore, type ThemeMode } from '../stores/theme'
+import { useLocaleStore, type LocaleMode } from '../stores/locale'
 import {
   SHORTCUT_DEFAULTS,
   bindingLabel,
@@ -40,12 +41,20 @@ const emit = defineEmits<{ close: [] }>()
 const api = useFoxApi()
 const toast = useToast()
 const theme = useThemeStore()
+const locale = useLocaleStore()
+const t = locale.t
 
-const THEME_OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
-  { value: 'system', label: '跟随系统', icon: '💻' },
-  { value: 'dark', label: '深色', icon: '🌙' },
-  { value: 'light', label: '浅色', icon: '☀️' },
-]
+const THEME_OPTIONS = computed<{ value: ThemeMode; label: string; icon: string }[]>(() => [
+  { value: 'system', label: t('settings.themeSystem'), icon: '💻' },
+  { value: 'dark', label: t('settings.themeDark'), icon: '🌙' },
+  { value: 'light', label: t('settings.themeLight'), icon: '☀️' },
+])
+
+const LANG_OPTIONS = computed<{ value: LocaleMode; label: string }[]>(() => [
+  { value: 'system', label: t('settings.languageSystem') },
+  { value: 'zh', label: '简体中文' },
+  { value: 'en', label: 'English' },
+])
 
 // ---------- 分类导航 ----------
 type TabId = 'general' | 'network' | 'shortcuts' | 'sequences' | 'data' | 'environments' | 'logs'
@@ -54,15 +63,15 @@ interface TabDef {
   label: string
   icon: IconName
 }
-const tabs: TabDef[] = [
-  { id: 'general', label: '通用设置', icon: 'settings' },
-  { id: 'network', label: '网络与代理', icon: 'globe' },
-  { id: 'shortcuts', label: '快捷键', icon: 'keyboard' },
-  { id: 'sequences', label: '自增序列', icon: 'list' },
-  { id: 'data', label: '数据与备份', icon: 'folder' },
-  { id: 'environments', label: '环境管理', icon: 'beaker' },
-  { id: 'logs', label: '日志', icon: 'file' },
-]
+const tabs = computed<TabDef[]>(() => [
+  { id: 'general', label: t('settings.general'), icon: 'settings' },
+  { id: 'network', label: t('settings.network'), icon: 'globe' },
+  { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'keyboard' },
+  { id: 'sequences', label: t('settings.sequences'), icon: 'list' },
+  { id: 'data', label: t('settings.data'), icon: 'folder' },
+  { id: 'environments', label: t('settings.environments'), icon: 'beaker' },
+  { id: 'logs', label: t('settings.logs'), icon: 'file' },
+])
 const activeTab = ref<TabId>('general')
 
 const showManager = ref(false)
@@ -156,15 +165,15 @@ const timeoutSec = ref(DEFAULT_TIMEOUT_SEC)
 async function saveTimeout(sec: number): Promise<void> {
   const v = Math.round(Number(sec))
   if (!Number.isFinite(v) || v < 1 || v > 3600) {
-    toast.error('超时需在 1 ~ 3600 秒之间')
+    toast.error(t('settings.timeoutRange'))
     return
   }
   try {
     await api.setHttpTimeoutMs(v * 1000)
     timeoutSec.value = v
-    toast.success(`已保存：请求超时 ${v} 秒`)
+    toast.success(t('settings.timeoutSaved', { v }))
   } catch (err) {
-    toast.error('保存失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -181,7 +190,7 @@ async function applyProxy(url: string | null): Promise<boolean> {
     await api.setHttpProxy(url)
     return true
   } catch (err) {
-    toast.error('代理保存失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.proxySaveFail'), { message: err instanceof Error ? err.message : String(err) })
     return false
   } finally {
     proxyBusy.value = false
@@ -192,12 +201,12 @@ async function applyProxy(url: string | null): Promise<boolean> {
 async function toggleProxy(): Promise<void> {
   if (proxyEnabled.value) {
     proxyEnabled.value = false
-    if (await applyProxy(null)) toast.success('已切换为直连')
+    if (await applyProxy(null)) toast.success(t('settings.proxyDirect'))
     proxyTest.value = null
   } else {
     proxyEnabled.value = true
     if (proxyUrl.value.trim()) {
-      if (await applyProxy(proxyUrl.value.trim())) toast.success('代理已启用')
+      if (await applyProxy(proxyUrl.value.trim())) toast.success(t('settings.proxyEnabledToast'))
     }
   }
 }
@@ -207,10 +216,10 @@ async function saveProxyUrl(): Promise<void> {
   const u = proxyUrl.value.trim()
   if (!proxyEnabled.value) return
   if (u && !/^(https?|socks5?):\/\//i.test(u)) {
-    toast.error('代理地址需以 http:// 或 socks5:// 开头')
+    toast.error(t('settings.proxyUrlInvalid'))
     return
   }
-  if (await applyProxy(u || null)) toast.success(u ? '代理已保存' : '已切换为直连')
+  if (await applyProxy(u || null)) toast.success(u ? t('settings.proxySaved') : t('settings.proxyDirect'))
 }
 
 /** 测试连通性：先落地当前输入，再经共享客户端（含代理）请求目标。 */
@@ -224,13 +233,13 @@ async function testProxy(): Promise<void> {
     const r = await api.testHttpProxy()
     proxyTest.value = { ok: r.ok, message: r.message }
     if (r.ok) {
-      toast.success('代理连通正常')
+      toast.success(t('settings.proxyOk'))
     } else {
       toast.error(r.message)
     }
   } catch (err) {
     proxyTest.value = { ok: false, message: err instanceof Error ? err.message : String(err) }
-    toast.error('测试失败', { message: proxyTest.value.message })
+    toast.error(t('settings.proxyTestFail'), { message: proxyTest.value.message })
   } finally {
     proxyTesting.value = false
   }
@@ -254,26 +263,26 @@ async function setCounter(key: string, value: number, message: string): Promise<
     await api.setSeqCounter(key, Math.max(1, Math.round(value)))
     toast.success(message)
   } catch (err) {
-    toast.error('保存失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     await loadCounters()
   }
 }
 
 function saveSeq(c: SeqCounter): void {
-  void setCounter(c.key, c.value, c.key ? `序列「${c.key}」已保存` : '全局序列已保存')
+  void setCounter(c.key, c.value, c.key ? t('settings.seqSaved', { key: c.key }) : t('settings.seqGlobalSaved'))
 }
 
 function resetSeq(c: SeqCounter): void {
-  void setCounter(c.key, 1, c.key ? `序列「${c.key}」已重置为 1` : '全局序列已重置为 1')
+  void setCounter(c.key, 1, c.key ? t('settings.seqReset', { key: c.key }) : t('settings.seqGlobalReset'))
 }
 
 async function deleteSeq(c: SeqCounter): Promise<void> {
   try {
     await api.deleteSeqCounter(c.key)
-    toast.success(c.key ? `序列「${c.key}」已删除` : '全局序列已重置')
+    toast.success(c.key ? t('settings.seqDeleted', { key: c.key }) : t('settings.seqGlobalDeleted'))
   } catch (err) {
-    toast.error('删除失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.deleteFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     await loadCounters()
   }
@@ -283,16 +292,16 @@ async function addSeq(): Promise<void> {
   const key = newSeqKey.value.trim()
   const value = Math.round(Number(newSeqValue.value))
   if (!Number.isFinite(value) || value < 1) {
-    toast.error('起始值需 ≥ 1')
+    toast.error(t('settings.seqStartInvalid'))
     return
   }
   try {
     await api.setSeqCounter(key, value)
-    toast.success(key ? `序列「${key}」已添加，从 ${value} 开始` : '全局序列已从该值开始')
+    toast.success(key ? t('settings.seqAdded', { key, value }) : t('settings.seqGlobalAdded'))
     newSeqKey.value = ''
     newSeqValue.value = 1
   } catch (err) {
-    toast.error('添加失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.addFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     await loadCounters()
   }
@@ -305,23 +314,23 @@ async function exportBackup(): Promise<void> {
   try {
     const text = await api.backupExport(project.value.id)
     const stamp = new Date().toISOString().slice(0, 10)
-    const filename = `${project.value.name}-备份-${stamp}.json`
+    const filename = `${project.value.name}-${t('settings.backupFileName')}-${stamp}.json`
 
     // Tauri 环境：目录选择框选目标文件夹，再拼接默认文件名经 save_text_file 落盘。
     if ('__TAURI_INTERNALS__' in window) {
       const dir = await open({
         directory: true,
-        title: '选择备份保存目录',
+        title: t('settings.backupDirTitle'),
       })
       if (!dir) return // 用户取消
       const path = await join(dir, filename)
       await api.writeTextFile(path, text)
-      toast.success('✓ 备份已导出', {
+      toast.success(t('settings.backupExported'), {
         message: path.split('/').pop() || path,
         action: {
-          label: '打开文件位置',
+          label: t('settings.revealLabel'),
           run: () => {
-            void revealItemInDir(path).catch(() => toast.error('无法定位文件'))
+            void revealItemInDir(path).catch(() => toast.error(t('settings.revealFail')))
           },
         },
       })
@@ -336,9 +345,9 @@ async function exportBackup(): Promise<void> {
     a.download = filename
     a.click()
     URL.revokeObjectURL(url)
-    toast.success('备份已导出')
+    toast.success(t('settings.backupExportedPlain'))
   } catch (err) {
-    toast.error('导出失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.exportFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -354,17 +363,18 @@ async function onImportFile(event: Event): Promise<void> {
     const text = await file.text()
     const summary = await api.backupRestore(text)
     const extras: string[] = []
-    if (summary.settings_applied?.length) extras.push(`全局设置应用：${summary.settings_applied.join('、')}`)
-    if (summary.settings_skipped?.length) extras.push(`全局设置保留现有：${summary.settings_skipped.join('、')}`)
+    const sep = locale.resolved === 'zh' ? '、' : ', '
+    if (summary.settings_applied?.length) extras.push(t('settings.importSettingsApplied', { v: summary.settings_applied.join(sep) }))
+    if (summary.settings_skipped?.length) extras.push(t('settings.importSettingsKept', { v: summary.settings_skipped.join(sep) }))
     const mergedVars = summary.global_variables_merged ?? 0
     const mergedParams = summary.global_params_merged ?? 0
-    if (mergedVars + mergedParams > 0) extras.push(`全局变量/参数补缺 ${mergedVars + mergedParams} 项`)
-    toast.success(`已恢复为「${summary.name}」：接口 ${summary.endpoints} 个、环境 ${summary.environments} 个`, {
-      message: extras.join('；') || undefined,
+    if (mergedVars + mergedParams > 0) extras.push(t('settings.importVarsMerged', { n: mergedVars + mergedParams }))
+    toast.success(t('settings.importRestored', { name: summary.name, endpoints: summary.endpoints, envs: summary.environments }), {
+      message: extras.join(locale.resolved === 'zh' ? '；' : '; ') || undefined,
     })
     emit('close')
   } catch (err) {
-    toast.error('导入失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.importFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -396,7 +406,7 @@ async function loadLogTail(): Promise<void> {
   try {
     logContent.value = await api.logTail(logSelected.value, 300)
   } catch (err) {
-    toast.error('读取日志失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('settings.logReadFail'), { message: err instanceof Error ? err.message : String(err) })
     logContent.value = ''
   } finally {
     logLoading.value = false
@@ -408,7 +418,7 @@ async function openLogDir(): Promise<void> {
     const dir = await api.logDirPath()
     await revealItemInDir(dir)
   } catch {
-    toast.error('无法打开日志目录')
+    toast.error(t('settings.logDirFail'))
   }
 }
 
@@ -479,7 +489,7 @@ function onRecordKeydown(e: KeyboardEvent): void {
   }
   if (MODIFIER_KEYS.has(e.key)) return
   if (!e.ctrlKey && !e.metaKey) {
-    toast.warning('请至少按住 ⌘/Ctrl 再按键', { message: '裸按键易与输入冲突' })
+    toast.warning(t('settings.scNeedMod'), { message: t('settings.scNeedModHint') })
     return
   }
   const binding: ShortcutBinding = {
@@ -490,13 +500,13 @@ function onRecordKeydown(e: KeyboardEvent): void {
   }
   const conflict = findBindingConflict(id, binding)
   if (conflict) {
-    toast.error(`与「${conflict.description}」冲突`, { message: '请换一组按键，或先修改对方' })
+    toast.error(t('settings.scConflict', { name: t(conflict.description) }), { message: t('settings.scConflictHint') })
     return
   }
   setShortcutBinding(id, binding)
   recordingId.value = null
   const def = SHORTCUT_DEFAULTS.find((d) => d.id === id)
-  toast.success(`快捷键已更新：${def?.description ?? id}`, { message: bindingLabel(binding) })
+  toast.success(t('settings.scUpdated', { name: def ? t(def.description) : id }), { message: bindingLabel(binding) })
 }
 
 watch(recordingId, (id) => {
@@ -511,14 +521,14 @@ onUnmounted(() => {
 function resetOneShortcut(id: string): void {
   resetShortcutBinding(id)
   const def = SHORTCUT_DEFAULTS.find((d) => d.id === id)
-  toast.success(`已恢复默认：${def?.description ?? id}`, {
+  toast.success(t('settings.scReset', { name: def ? t(def.description) : id }), {
     message: def ? bindingLabel(def.binding) : undefined,
   })
 }
 
 function resetAllShortcuts(): void {
   resetAllShortcutBindings()
-  toast.success('快捷键已全部恢复默认')
+  toast.success(t('settings.scResetAll'))
 }
 
 // ---------- 软件更新：跳过的版本 ----------
@@ -531,20 +541,20 @@ function reloadSkipped(): void {
 function unskipVersion(): void {
   clearSkippedUpdateVersion()
   skippedVersion.value = null
-  toast.success('已取消跳过', { message: '下次检查到该版本将重新提醒' })
+  toast.success(t('settings.unskipped'), { message: t('settings.unskippedHint') })
 }
 
 // ---------- 通用派生 ----------
 const sequencesCount = computed(() => counters.value.length)
 const projectSummary = computed(() => {
-  if (!project.value) return '未选择项目，请先进入任一项目工作区'
+  if (!project.value) return t('settings.noProjectSummary')
   const eps = projectStat.value?.endpoint_count ?? '—'
-  return `${project.value.name} · ${eps} 个接口`
+  return t('settings.projectSummary', { name: project.value.name, n: eps })
 })
 </script>
 
 <template>
-  <Modal :open="true" title="设置" width="880px" dialog-class="sd-dialog" @close="emit('close')">
+  <Modal :open="true" :title="t('settings.title')" width="880px" dialog-class="sd-dialog" @close="emit('close')">
     <div class="flex h-[min(520px,70vh)]">
       <!-- 左：极简 List 导航 -->
       <aside class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-200/80 p-2 pr-4 dark:border-white/[0.06]">
@@ -587,16 +597,16 @@ const projectSummary = computed(() => {
             <!-- 通用设置 -->
             <section v-if="activeTab === 'general'">
               <header>
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">通用设置</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">应用级请求与外观偏好。</p>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.general') }}</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">{{ t('settings.generalDesc') }}</p>
               </header>
 
               <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
                 <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">请求超时</div>
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.timeout') }}</div>
                     <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                      全局默认请求超时，应用于所有接口；改动即自动保存。
+                      {{ t('settings.timeoutDesc') }}
                     </p>
                   </div>
                   <div class="relative shrink-0">
@@ -613,7 +623,7 @@ const projectSummary = computed(() => {
                     <span
                       class="pointer-events-none absolute right-[28px] top-1/2 -translate-y-1/2 text-xs text-zinc-500"
                     >
-                      秒
+                      {{ t('settings.timeoutUnit') }}
                     </span>
                   </div>
                 </div>
@@ -622,13 +632,13 @@ const projectSummary = computed(() => {
               <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
                 <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">主题外观</div>
-                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">跟随系统或手动切换深色 / 浅色，即时生效。</p>
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.theme') }}</div>
+                    <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{{ t('settings.themeDesc') }}</p>
                   </div>
                   <div
                     class="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-300/50 bg-zinc-200/60 p-1 dark:border-white/10 dark:bg-black/30"
                     role="radiogroup"
-                    aria-label="主题外观"
+                    :aria-label="t('settings.theme')"
                   >
                     <button
                       v-for="opt in THEME_OPTIONS"
@@ -650,19 +660,49 @@ const projectSummary = computed(() => {
                   </div>
                 </div>
                 <div class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
+                  <div class="flex items-center justify-between gap-4 pt-5">
+                    <div class="max-w-md">
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.language') }}</div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{{ t('settings.languageDesc') }}</p>
+                    </div>
+                    <div
+                      class="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-300/50 bg-zinc-200/60 p-1 dark:border-white/10 dark:bg-black/30"
+                      role="radiogroup"
+                      :aria-label="t('settings.language')"
+                    >
+                      <button
+                        v-for="opt in LANG_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        role="radio"
+                        :aria-checked="locale.mode === opt.value"
+                        class="flex h-8 items-center gap-1.5 rounded-md px-3 text-xs transition-all duration-150"
+                        :class="
+                          locale.mode === opt.value
+                            ? 'bg-purple-600 font-medium text-white shadow-sm'
+                            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                        "
+                        @click="locale.setMode(opt.value)"
+                      >
+                        {{ opt.label }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
                   <button
                     type="button"
                     class="flex w-full items-center justify-between gap-4 pt-5 text-left"
                     @click="activeTab = 'shortcuts'"
                   >
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">快捷键</div>
-                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">发送请求、保存接口等全局快捷键，点击前往自定义。</p>
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.shortcuts') }}</div>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{{ t('settings.shortcutsJump') }}</p>
                     </div>
                     <span
                       class="shrink-0 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/[0.05] dark:bg-white/[0.03] dark:text-zinc-400"
                     >
-                      {{ customizedCount ? `已自定义 ${customizedCount} 项` : `${SHORTCUT_DEFAULTS.length} 项可自定义 →` }}
+                      {{ customizedCount ? t('settings.customizedCount', { n: customizedCount }) : t('settings.customizableCount', { n: SHORTCUT_DEFAULTS.length }) }}
                     </span>
                   </button>
                 </div>
@@ -670,12 +710,12 @@ const projectSummary = computed(() => {
                   <div class="flex items-center justify-between gap-4 pt-5">
                     <div class="max-w-md">
                       <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        已跳过版本 <span class="font-mono">v{{ skippedVersion }}</span>
+                        {{ t('settings.skippedVersion', { v: skippedVersion }) }}
                       </div>
-                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">该版本不再提醒更新，出现更新的版本时自动恢复。</p>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{{ t('settings.skippedVersionDesc') }}</p>
                     </div>
                     <button class="rf-btn rf-btn-sm shrink-0" type="button" @click="unskipVersion">
-                      取消跳过
+                      {{ t('settings.unskip') }}
                     </button>
                   </div>
                 </div>
@@ -685,16 +725,16 @@ const projectSummary = computed(() => {
             <!-- 网络与代理 -->
             <section v-if="activeTab === 'network'">
               <header>
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">网络与代理</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">配置全局 HTTP / SOCKS5 代理，应用于所有请求。</p>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.network') }}</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">{{ t('settings.networkDesc') }}</p>
               </header>
 
               <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
                 <div class="flex items-center justify-between gap-4">
                   <div class="max-w-md">
-                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">启用代理</div>
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.proxyEnable') }}</div>
                     <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                      开启后所有请求经代理发出；关闭立即恢复直连，改动即保存。
+                      {{ t('settings.proxyEnableDesc') }}
                     </p>
                   </div>
                   <button
@@ -715,10 +755,10 @@ const projectSummary = computed(() => {
                 <div v-if="proxyEnabled" class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
                   <div class="flex items-center justify-between gap-4 pt-5">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">代理地址</div>
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.proxyUrlLabel') }}</div>
                       <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                        如 <code class="font-mono text-[11px]">http://127.0.0.1:7890</code> 或
-                        <code class="font-mono text-[11px]">socks5://host:1080</code>；失焦自动保存。
+                        {{ t('settings.proxyUrlDescEg') }} <code class="font-mono text-[11px]">http://127.0.0.1:7890</code> {{ t('settings.proxyUrlDescOr') }}
+                        <code class="font-mono text-[11px]">socks5://host:1080</code>{{ t('settings.proxyUrlDescBlur') }}
                       </p>
                     </div>
                     <input
@@ -733,9 +773,9 @@ const projectSummary = computed(() => {
 
                   <div class="flex items-center justify-between gap-4 border-t border-zinc-200/70 pt-5 dark:border-white/[0.06]">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">连通性测试</div>
+                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.proxyTestTitle') }}</div>
                       <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                        {{ proxyTest ? proxyTest.message : '经当前代理请求一次公开目标，验证可用性。' }}
+                        {{ proxyTest ? proxyTest.message : t('settings.proxyTestDesc') }}
                       </p>
                     </div>
                     <button
@@ -745,7 +785,7 @@ const projectSummary = computed(() => {
                       @click="testProxy"
                     >
                       <Icon name="zap" :size="13" />
-                      {{ proxyTesting ? '测试中…' : '测试连通性' }}
+                      {{ proxyTesting ? t('settings.proxyTesting') : t('settings.proxyTest') }}
                     </button>
                   </div>
                 </div>
@@ -756,9 +796,9 @@ const projectSummary = computed(() => {
             <section v-if="activeTab === 'shortcuts'">
               <header class="mb-6 flex items-start justify-between gap-4">
                 <div>
-                  <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">快捷键</h2>
+                  <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.shortcuts') }}</h2>
                   <p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    点击键位即开始录制，直接按下新组合；Esc 取消。改动即时生效并自动保存。
+                    {{ t('settings.shortcutsDesc') }}
                   </p>
                 </div>
                 <button
@@ -768,13 +808,13 @@ const projectSummary = computed(() => {
                   @click="resetAllShortcuts"
                 >
                   <Icon name="refresh" :size="12" />
-                  全部恢复默认
+                  {{ t('settings.shortcutsResetAll') }}
                 </button>
               </header>
 
               <div v-for="g in shortcutGroups" :key="g.group" class="mb-4">
                 <div class="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                  {{ g.group }}
+                  {{ t(g.group) }}
                 </div>
                 <div class="overflow-hidden rounded-xl border border-zinc-200/70 bg-zinc-50/80 dark:border-white/[0.06] dark:bg-zinc-900/40">
                   <div
@@ -783,12 +823,12 @@ const projectSummary = computed(() => {
                     class="flex items-center justify-between gap-3 border-b border-zinc-200/60 px-4 py-2.5 last:border-b-0 dark:border-white/[0.05]"
                   >
                     <div class="flex min-w-0 items-center gap-2">
-                      <span class="truncate text-[12.5px] text-zinc-900 dark:text-zinc-200">{{ row.description }}</span>
+                      <span class="truncate text-[12.5px] text-zinc-900 dark:text-zinc-200">{{ t(row.description) }}</span>
                       <span
                         v-if="row.customized"
                         class="shrink-0 rounded-full bg-purple-100 px-1.5 py-px text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
                       >
-                        已自定义
+                        {{ t('settings.customized') }}
                       </span>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
@@ -796,16 +836,16 @@ const projectSummary = computed(() => {
                         type="button"
                         class="sc-key-btn"
                         :class="{ recording: recordingId === row.id }"
-                        :title="recordingId === row.id ? '正在录制：按下新组合，Esc 取消' : '点击重新录制'"
+                        :title="recordingId === row.id ? t('settings.recordingHint') : t('settings.rerecordHint')"
                         @click="recordingId === row.id ? cancelRecording() : startRecording(row.id)"
                       >
-                        {{ recordingId === row.id ? '按下按键…' : bindingLabel(row.effective) }}
+                        {{ recordingId === row.id ? t('settings.pressKeys') : bindingLabel(row.effective) }}
                       </button>
                       <button
                         v-if="row.customized"
                         type="button"
                         class="sc-reset-btn"
-                        title="恢复默认键位"
+                        :title="t('settings.resetKeyHint')"
                         @click="resetOneShortcut(row.id)"
                       >
                         <Icon name="refresh" :size="12" />
@@ -819,9 +859,9 @@ const projectSummary = computed(() => {
             <!-- 自增序列 -->
             <section v-if="activeTab === 'sequences'">
               <header class="mb-6">
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">自增序列与变量</h2>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.sequencesTitle') }}</h2>
                 <p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  请求中写 <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-purple-600 dark:bg-white/5 dark:text-purple-300">&#123;&#123;$seq:key&#125;&#125;</code> 自动递增；持久化存储、应用重启不丢失。
+                  {{ t('settings.seqDescA') }} <code class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-purple-600 dark:bg-white/5 dark:text-purple-300">&#123;&#123;$seq:key&#125;&#125;</code> {{ t('settings.seqDescB') }}
                 </p>
               </header>
 
@@ -829,9 +869,9 @@ const projectSummary = computed(() => {
                 <!-- 新增自增序列卡片 -->
                 <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-4 dark:border-white/[0.06] dark:bg-zinc-900/40">
                   <div class="mb-3">
-                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">新增序列</div>
+                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.seqAddTitle') }}</div>
                     <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                      留空 Key 即为全局默认序列 <code class="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">&#123;&#123;$seq&#125;&#125;</code>
+                      {{ t('settings.seqGlobalHint') }} <code class="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">&#123;&#123;$seq&#125;&#125;</code>
                     </p>
                   </div>
                   <div class="flex items-center gap-2">
@@ -839,7 +879,7 @@ const projectSummary = computed(() => {
                       v-model="newSeqKey"
                       type="text"
                       class="rf-input flex-1 font-mono text-xs"
-                      placeholder="序列 Key（如 order_id）"
+                      :placeholder="t('settings.seqKeyPh')"
                       spellcheck="false"
                       @keydown.enter="addSeq"
                     />
@@ -848,7 +888,7 @@ const projectSummary = computed(() => {
                         :model-value="newSeqValue"
                         :min="1"
                         size="md"
-                        placeholder="起始值"
+                        :placeholder="t('settings.seqStartPh')"
                         @change="(v) => (newSeqValue = v)"
                       />
                     </div>
@@ -858,7 +898,7 @@ const projectSummary = computed(() => {
                       @click="addSeq"
                     >
                       <Icon name="plus" :size="13" />
-                      <span>添加序列</span>
+                      <span>{{ t('settings.seqAdd') }}</span>
                     </button>
                   </div>
                 </div>
@@ -866,17 +906,17 @@ const projectSummary = computed(() => {
                 <!-- 序列清单列表卡片 -->
                 <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-1 dark:border-white/[0.06] dark:bg-zinc-900/40">
                   <div class="flex items-center justify-between px-4 py-3">
-                    <div class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">已有序列清单</div>
-                    <span class="text-[11px] text-zinc-500">修改数值失焦自动保存</span>
+                    <div class="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{{ t('settings.seqListTitle') }}</div>
+                    <span class="text-[11px] text-zinc-500">{{ t('settings.seqAutoSave') }}</span>
                   </div>
 
                   <div v-if="counters.length" class="mx-2 mb-2 overflow-hidden rounded-lg border border-zinc-200/70 bg-white dark:border-white/[0.06] dark:bg-black/20">
                     <table class="w-full border-collapse text-left text-[12.5px]">
                       <thead>
                         <tr class="border-b border-zinc-200/70 bg-zinc-50/60 text-[11px] text-zinc-500 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-zinc-400">
-                          <th class="px-3.5 py-2.5 font-medium">序列 Key / 占位符</th>
-                          <th class="w-36 px-3.5 py-2.5 font-medium">下一次输出值</th>
-                          <th class="w-24 px-3.5 py-2.5 text-right font-medium">操作</th>
+                          <th class="px-3.5 py-2.5 font-medium">{{ t('settings.seqColKey') }}</th>
+                          <th class="w-36 px-3.5 py-2.5 font-medium">{{ t('settings.seqColNext') }}</th>
+                          <th class="w-24 px-3.5 py-2.5 text-right font-medium">{{ t('settings.seqColOps') }}</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-zinc-200/70 dark:divide-white/[0.06]">
@@ -891,7 +931,7 @@ const projectSummary = computed(() => {
                                 v-if="!c.key"
                                 class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
                               >
-                                全局
+                                {{ t('envmgr.groupGlobal') }}
                               </span>
                               <span class="text-zinc-900 dark:text-zinc-200">
                                 <template v-if="c.key">&#123;&#123;$seq:{{ c.key }}&#125;&#125;</template>
@@ -913,7 +953,7 @@ const projectSummary = computed(() => {
                               <button
                                 class="rf-btn rf-btn-sm rf-btn-ghost"
                                 type="button"
-                                title="重置为 1"
+                                :title="t('settings.seqResetTitle')"
                                 @click="resetSeq(c)"
                               >
                                 <Icon name="refresh" :size="12" />
@@ -921,7 +961,7 @@ const projectSummary = computed(() => {
                               <button
                                 class="rf-btn rf-btn-sm rf-btn-ghost text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400"
                                 type="button"
-                                title="删除序列"
+                                :title="t('settings.seqDeleteTitle')"
                                 @click="deleteSeq(c)"
                               >
                                 <Icon name="trash" :size="12" />
@@ -941,8 +981,8 @@ const projectSummary = computed(() => {
                     <div class="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-200/50 text-zinc-500 dark:bg-white/5 dark:text-zinc-500">
                       <Icon name="list" :size="16" />
                     </div>
-                    <p class="text-xs text-zinc-700 dark:text-zinc-400">暂无自定义序列</p>
-                    <p class="mt-0.5 text-[11px] text-zinc-500">在上方新增后即可在请求中自动自增引用</p>
+                    <p class="text-xs text-zinc-700 dark:text-zinc-400">{{ t('settings.seqEmpty') }}</p>
+                    <p class="mt-0.5 text-[11px] text-zinc-500">{{ t('settings.seqEmptyHint') }}</p>
                   </div>
                 </div>
               </div>
@@ -951,8 +991,8 @@ const projectSummary = computed(() => {
             <!-- 数据与备份 -->
             <section v-if="activeTab === 'data'">
               <header>
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">数据与备份</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">导出当前项目备份（含接口/环境/Mock/示例/用例 + 全局设置快照与全局变量/参数），或从备份文件恢复。恢复为全新项目；全局维度保守合并（缺失才补，不覆盖现有配置）。</p>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.data') }}</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">{{ t('settings.dataDesc') }}</p>
               </header>
 
               <div class="rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-5 dark:border-white/[0.06] dark:bg-zinc-900/40">
@@ -964,7 +1004,7 @@ const projectSummary = computed(() => {
                   </div>
                   <div class="min-w-0">
                     <div class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {{ project ? project.name : '未选择项目' }}
+                      {{ project ? project.name : t('settings.noProject') }}
                     </div>
                     <p class="mt-0.5 truncate text-xs text-zinc-600 dark:text-zinc-400">{{ projectSummary }}</p>
                   </div>
@@ -978,11 +1018,11 @@ const projectSummary = computed(() => {
                     @click="exportBackup"
                   >
                     <Icon name="download" :size="13" />
-                    {{ busy ? '处理中…' : '导出备份' }}
+                    {{ busy ? t('workspace.processing') : t('settings.exportBackup') }}
                   </button>
                   <button class="rf-btn" type="button" :disabled="busy" @click="fileInput?.click()">
                     <Icon name="upload" :size="13" />
-                    导入恢复
+                    {{ t('settings.importRestore') }}
                   </button>
                   <input
                     ref="fileInput"
@@ -998,8 +1038,8 @@ const projectSummary = computed(() => {
             <!-- 环境管理 -->
             <section v-if="activeTab === 'environments'">
               <header>
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">环境管理</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">查看当前项目下的环境配置及生效变量。</p>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.environments') }}</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">{{ t('settings.environmentsDesc') }}</p>
               </header>
 
               <div class="space-y-2">
@@ -1021,11 +1061,11 @@ const projectSummary = computed(() => {
                           v-if="env.id === activeEnvId"
                           class="rounded-full bg-emerald-100 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
                         >
-                          当前
+                          {{ t('envmgr.current') }}
                         </span>
                       </div>
                       <div class="truncate font-mono text-[11px] text-zinc-600 dark:text-zinc-500">
-                        {{ envBase(env) || '未配置 Base URL' }}
+                        {{ envBase(env) || t('settings.envNoBase') }}
                       </div>
                     </div>
                   </div>
@@ -1033,14 +1073,14 @@ const projectSummary = computed(() => {
                     <span
                       class="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-white/[0.04] dark:text-zinc-400"
                     >
-                      {{ envVarCount(env) }} 个变量
+                      {{ t('settings.envVarCount', { n: envVarCount(env) }) }}
                     </span>
                     <button
                       type="button"
                       class="rounded-md px-2 py-1 text-[11px] text-zinc-500 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
                       @click="openEnvironmentManager(env.id)"
                     >
-                      编辑
+                      {{ t('common.edit') }}
                     </button>
                   </div>
                 </div>
@@ -1049,7 +1089,7 @@ const projectSummary = computed(() => {
                   v-if="!environments.length && !envLoading"
                   class="rounded-lg border border-zinc-200/70 bg-zinc-50/80 p-6 text-center text-xs text-zinc-600 dark:border-white/[0.06] dark:bg-zinc-900/40 dark:text-zinc-500"
                 >
-                  暂无环境，点击下方「打开高级环境管理」创建。
+                  {{ t('settings.envEmpty') }}
                 </div>
               </div>
 
@@ -1060,7 +1100,7 @@ const projectSummary = computed(() => {
                   @click="openEnvironmentManager()"
                 >
                   <Icon name="settings" :size="13" />
-                  打开高级环境管理
+                  {{ t('settings.envOpenManager') }}
                 </button>
               </div>
             </section>
@@ -1068,8 +1108,8 @@ const projectSummary = computed(() => {
             <!-- 日志 -->
             <section v-if="activeTab === 'logs'">
               <header>
-                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">日志</h2>
-                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">应用运行日志（按天滚动）。反馈问题时可直接复制关键段落，或打开目录打包。</p>
+                <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">{{ t('settings.logs') }}</h2>
+                <p class="mt-1 mb-5 text-xs text-zinc-600 dark:text-zinc-500">{{ t('settings.logsDesc') }}</p>
               </header>
 
               <div class="mb-3 flex items-center gap-2">
@@ -1079,18 +1119,18 @@ const projectSummary = computed(() => {
                   @change="loadLogTail"
                 >
                   <option v-for="f in logFiles" :key="f.name" :value="f.name">
-                    {{ f.name }}（{{ (f.size_bytes / 1024).toFixed(1) }} KB）
+                    {{ f.name }}{{ t('settings.logSize', { v: (f.size_bytes / 1024).toFixed(1) }) }}
                   </option>
                 </select>
                 <button class="rf-btn rf-btn-sm" type="button" :disabled="logLoading" @click="loadLogTail">
-                  <Icon name="refresh" :size="13" /> {{ logLoading ? '读取中…' : '刷新' }}
+                  <Icon name="refresh" :size="13" /> {{ logLoading ? t('common.loading') : t('common.refresh') }}
                 </button>
                 <button class="rf-btn rf-btn-sm" type="button" @click="openLogDir">
-                  <Icon name="folder" :size="13" /> 打开目录
+                  <Icon name="folder" :size="13" /> {{ t('settings.logsOpenDir') }}
                 </button>
               </div>
               <pre v-if="logContent" class="log-view">{{ logContent }}</pre>
-              <p v-else class="text-xs text-zinc-500">暂无日志内容</p>
+              <p v-else class="text-xs text-zinc-500">{{ t('settings.logsEmpty') }}</p>
             </section>
           </div>
         </Transition>

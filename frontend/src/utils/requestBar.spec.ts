@@ -85,30 +85,45 @@ describe('envBadgeLabel', () => {
 })
 
 describe('envBadgeTooltip', () => {
+  const t = (key: string, params?: Record<string, string>): string => {
+    const dict: Record<string, string> = {
+      'editor.badgeEnv': '环境：{env}',
+      'editor.badgeUnresolved': '{v} 未定义，请求将按字面量发送',
+      'editor.badgeEnvBase': '环境：{env} | 基础路径：{url}',
+      'editor.badgeSession': '基础路径：{url}（会话 Base URL）',
+    }
+    let text = dict[key] ?? key
+    for (const [k, v] of Object.entries(params ?? {})) text = text.split(`{${k}}`).join(v)
+    return text
+  }
+
   it('环境已解析 → 环境：X | 基础路径：完整 URL', () => {
     expect(
-      envBadgeTooltip({
-        urlDomain: '{{base_url}}',
-        resolvedDomain: 'https://paymentv2test.redotpay.net',
-        envName: 'Test',
-      }),
+      envBadgeTooltip(
+        {
+          urlDomain: '{{base_url}}',
+          resolvedDomain: 'https://paymentv2test.redotpay.net',
+          envName: 'Test',
+        },
+        t,
+      ),
     ).toBe('环境：Test | 基础路径：https://paymentv2test.redotpay.net')
   })
 
   it('变量未定义 → 字面量警告（DNS 失败的直观提示）', () => {
     expect(
-      envBadgeTooltip({ urlDomain: '{{base_url}}', resolvedDomain: '', envName: 'Test' }),
+      envBadgeTooltip({ urlDomain: '{{base_url}}', resolvedDomain: '', envName: 'Test' }, t),
     ).toBe('{{base_url}} 未定义，请求将按字面量发送')
   })
 
   it('无环境（会话 Base URL）→ 标注会话来源', () => {
     expect(
-      envBadgeTooltip({ urlDomain: 'https://api.x.com', resolvedDomain: 'https://api.x.com', envName: '' }),
+      envBadgeTooltip({ urlDomain: 'https://api.x.com', resolvedDomain: 'https://api.x.com', envName: '' }, t),
     ).toBe('基础路径：https://api.x.com（会话 Base URL）')
   })
 
   it('无任何域名 → 仅展示环境名', () => {
-    expect(envBadgeTooltip({ urlDomain: '', resolvedDomain: '', envName: 'Test' })).toBe('环境：Test')
-    expect(envBadgeTooltip({ urlDomain: '', resolvedDomain: '', envName: '' })).toBe('')
+    expect(envBadgeTooltip({ urlDomain: '', resolvedDomain: '', envName: 'Test' }, t)).toBe('环境：Test')
+    expect(envBadgeTooltip({ urlDomain: '', resolvedDomain: '', envName: '' }, t)).toBe('')
   })
 })

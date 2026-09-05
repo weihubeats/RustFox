@@ -8,10 +8,13 @@
 import Modal from '../ui/Modal.vue'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
+import { useLocaleStore } from '../../stores/locale'
 import type { Project } from '../../types/foxApi'
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const props = defineProps<{ project: Project | null }>()
 
@@ -26,23 +29,23 @@ async function confirmDelete(): Promise<void> {
   try {
     await api.deleteProject(target.id)
     emit('close')
-    toast.success('项目已删除', { message: target.name })
+    toast.success(t('workspace.projectDeleted'), { message: target.name })
     emit('deleted', target.id)
   } catch (e) {
-    toast.error('删除失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('workspace.projectDeleteFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   }
 }
 </script>
 
 <template>
-  <Modal :open="project !== null" title="删除项目" width="380px" @close="emit('close')">
+  <Modal :open="project !== null" :title="t('projectTabs.delete')" width="380px" @close="emit('close')">
     <p class="confirm-hint">
-      确认删除「{{ project?.name }}」？项目下的全部接口、环境与示例将一并删除，此操作不可恢复。
+      {{ t('pdelete.confirm', { name: project?.name ?? '' }) }}
     </p>
     <template #footer>
-      <button class="rf-btn" type="button" @click="emit('close')">取消</button>
+      <button class="rf-btn" type="button" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button class="rf-btn rf-btn-danger-solid" type="button" :disabled="api.pending.value" @click="confirmDelete">
-        删除
+        {{ t('common.delete') }}
       </button>
     </template>
   </Modal>

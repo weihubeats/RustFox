@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import CodePanel from './CodePanel.vue'
 import CustomSelect from './ui/CustomSelect.vue'
+import { useLocaleStore } from '../stores/locale'
 import { collectErrors } from '../testUtils/componentTest'
 import { makeDraft } from '../testUtils/draftFixture'
 
@@ -15,6 +17,11 @@ vi.mock('../composables/useFoxApi', () => ({
 }))
 
 describe('CodePanel：自动生成（autoGenerate）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+  })
+
   afterEach(() => {
     codegenRender.mockReset()
   })

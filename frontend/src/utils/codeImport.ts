@@ -8,11 +8,13 @@
  * 无法识别的部分（变量引用等）跳过而不是报错；仅「找不到 URL」视为失败。
  */
 import type { AuthSpec, BodySpec, CurlParsed, HttpMethod, KeyValue } from '../types/foxApi'
+import { tFallback } from '../stores/locale'
 
 export type SnippetLang = 'curl' | 'java' | 'python' | 'javascript' | 'go' | 'rust' | 'php'
 
+/** 语言名（cURL / Java…）为品牌名不翻译；「自动检测」为展示文案，值放字典键、由组件 t() 渲染。 */
 export const SNIPPET_LANGS: Array<{ value: SnippetLang | 'auto'; label: string }> = [
-  { value: 'auto', label: '自动检测' },
+  { value: 'auto', label: 'codeimport.langAuto' },
   { value: 'curl', label: 'cURL' },
   { value: 'java', label: 'Java (OkHttp / HttpURLConnection)' },
   { value: 'python', label: 'Python (requests)' },
@@ -216,7 +218,7 @@ function parseHeadersObject(src: string, key: string): KeyValue[] {
 
 function parseJavaScript(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers = parseHeadersObject(src, 'headers')
   // body: '字面量' / data: {...}（axios 配置式）/ body: JSON.stringify({...}) → 取内层对象
   let bodyRaw: string | null = null
@@ -258,7 +260,7 @@ function parseJavaScript(src: string): PartialParsed {
 
 function parsePython(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers = parseHeadersObject(src, 'headers')
   let bodyRaw: string | null = null
   let bodyFromObject: string | null = null
@@ -285,7 +287,7 @@ function parsePython(src: string): PartialParsed {
 
 function parseJava(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers: KeyValue[] = []
   const headerRe =
     /(?:\.addHeader|\.header|\.setRequestProperty|\.addRequestProperty)\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/g
@@ -350,7 +352,7 @@ function parseJava(src: string): PartialParsed {
 
 function parseGo(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers: KeyValue[] = []
   const setRe = /req\.Header\.(?:Set|Add)\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/g
   let m: RegExpExecArray | null
@@ -374,7 +376,7 @@ function parseGo(src: string): PartialParsed {
  */
 function parseRust(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers: KeyValue[] = []
   const headerRe = /\.header\s*\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")\s*\)/g
   let m: RegExpExecArray | null
@@ -426,7 +428,7 @@ function parseRust(src: string): PartialParsed {
  */
 function parsePhp(src: string): PartialParsed {
   const url = findUrl(src)
-  if (!url) throw new Error('未能从代码中识别出 http(s) URL')
+  if (!url) throw new Error(tFallback('codeimport.noUrl'))
   const headers: KeyValue[] = []
   // PHP 数组转 JSON（`=>` → `:` 后取字符串对；嵌套仅最佳努力）。
   function phpArrayToJson(text: string): string | null {
@@ -558,7 +560,7 @@ function dedupeHeaders(headers: KeyValue[]): KeyValue[] {
 
 /** 解析非 cURL 代码片段为 CurlParsed（cURL 请走后端 parse_curl_command）。 */
 export function parseCodeSnippet(lang: SnippetLang, src: string): CurlParsed {
-  if (lang === 'curl') throw new Error('cURL 请使用后端解析器（parseCurlCommand）')
+  if (lang === 'curl') throw new Error(tFallback('codeimport.curlBackend'))
   const partial = PARSERS[lang](src)
   const headers = dedupeHeaders(partial.headers)
   const ct = headers.find((h) => h.key.toLowerCase() === 'content-type')?.value ?? ''

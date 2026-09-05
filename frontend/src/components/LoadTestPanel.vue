@@ -9,6 +9,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { ChartOptions } from 'chart.js'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import Icon from './ui/Icon.vue'
@@ -33,6 +34,8 @@ const props = defineProps<{
 const api = useFoxApi()
 const toast = useToast()
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 // ---------- 运行控制 ----------
 const loadConcurrency = ref('20')
@@ -64,7 +67,7 @@ const errColor = cssVar('--danger', '#ef4444')
 const chartData = computed(() => ({
   datasets: [
     {
-      label: '成功',
+      label: t('loadtest.legendOk'),
       data: points.value.map((p) => ({ x: p.x, y: p.ok })),
       borderColor: okColor,
       backgroundColor: `${okColor}2e`,
@@ -74,7 +77,7 @@ const chartData = computed(() => ({
       pointRadius: 0,
     },
     {
-      label: '失败',
+      label: t('loadtest.legendFail'),
       data: points.value.map((p) => ({ x: p.x, y: p.failed })),
       borderColor: errColor,
       backgroundColor: `${errColor}2e`,
@@ -86,7 +89,8 @@ const chartData = computed(() => ({
   ],
 }))
 
-const chartOptions: ChartOptions<'line'> = {
+// computed：切语言后重渲染时坐标轴标题跟随更新
+const chartOptions = computed<ChartOptions<'line'>>(() => ({
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
@@ -94,13 +98,13 @@ const chartOptions: ChartOptions<'line'> = {
   scales: {
     x: {
       type: 'linear',
-      title: { display: true, text: '耗时（秒）', font: { size: 11 } },
+      title: { display: true, text: t('loadtest.axisTime'), font: { size: 11 } },
       ticks: { precision: 0 },
       grid: { color: 'rgba(128,128,128,0.12)' },
     },
     y: {
       beginAtZero: true,
-      title: { display: true, text: '已完成请求数', font: { size: 11 } },
+      title: { display: true, text: t('loadtest.axisDone'), font: { size: 11 } },
       ticks: { precision: 0 },
       grid: { color: 'rgba(128,128,128,0.12)' },
     },
@@ -110,7 +114,7 @@ const chartOptions: ChartOptions<'line'> = {
     // 高频事件下只渲染抽样点（LTTB），避免逐事件全量重绘掉帧。
     decimation: { enabled: true, algorithm: 'lttb', samples: 200 },
   },
-}
+}))
 
 /**
  * 图表节流：后端已按 100ms 合并事件，前端再按 150ms 窗口收点
@@ -157,7 +161,7 @@ async function runLoadTest(): Promise<void> {
   const concurrency = Number(loadConcurrency.value)
   const total = Number(loadTotal.value)
   if (!Number.isFinite(concurrency) || !Number.isFinite(total) || total < 1) {
-    toast.error('请输入合法的并发数与总数')
+    toast.error(t('loadtest.invalidInput'))
     return
   }
   loading.value = true
@@ -179,9 +183,9 @@ async function runLoadTest(): Promise<void> {
       run_id: runId,
     })
     loadResult.value = result
-    if (result.cancelled) toast.info(`压测已取消：已完成 ${result.total}/${total}`)
+    if (result.cancelled) toast.info(t('loadtest.cancelled', { v: `${result.total}/${total}` }))
   } catch (err) {
-    toast.error('压测失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('loadtest.runFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     if (activeRunId.value === runId) activeRunId.value = null
     loading.value = false
@@ -193,7 +197,7 @@ async function runLoadTest(): Promise<void> {
 function cancelLoadTest(): void {
   if (!activeRunId.value) return
   void api.cancelLoadTest(activeRunId.value).catch(() => {})
-  toast.info('正在取消压测…')
+  toast.info(t('loadtest.cancelling'))
 }
 
 // ---------- 指标 ----------
@@ -208,10 +212,10 @@ const metrics = computed<Metric[]>(() => {
   if (!r) {
     const p = progress.value
     return [
-      { label: '已完成', value: p ? `${p.done}/${p.total}` : '—' },
-      { label: '成功', value: p ? String(p.ok) : '—', tone: 'ok' },
-      { label: '失败', value: p ? String(p.failed) : '—', tone: p && p.failed > 0 ? 'err' : undefined },
-      { label: '平均耗时', value: '—' },
+      { label: t('loadtest.metricDone'), value: p ? `${p.done}/${p.total}` : '—' },
+      { label: t('loadtest.legendOk'), value: p ? String(p.ok) : '—', tone: 'ok' },
+      { label: t('loadtest.legendFail'), value: p ? String(p.failed) : '—', tone: p && p.failed > 0 ? 'err' : undefined },
+      { label: t('loadtest.metricAvg'), value: '—' },
       { label: 'RPS', value: '—' },
       { label: 'P50', value: '—' },
     ]
@@ -219,11 +223,11 @@ const metrics = computed<Metric[]>(() => {
   const rate = ((r.ok / Math.max(r.total, 1)) * 100).toFixed(1)
   return [
     {
-      label: '成功率',
+      label: t('loadtest.metricRate'),
       value: `${rate}%`,
       tone: Number(rate) === 100 ? 'ok' : Number(rate) >= 95 ? 'warn' : 'err',
     },
-    { label: '平均耗时', value: formatDuration(r.avg_ms) },
+    { label: t('loadtest.metricAvg'), value: formatDuration(r.avg_ms) },
     { label: 'RPS', value: r.rps.toFixed(1) },
     { label: 'P50', value: formatDuration(r.p50_ms) },
     { label: 'P90', value: formatDuration(r.p90_ms) },
@@ -239,7 +243,7 @@ const metrics = computed<Metric[]>(() => {
         :model-value="loadConcurrency"
         size="sm"
         :min="1"
-        placeholder="并发"
+        :placeholder="t('loadtest.concurrencyPh')"
         class="load-num"
         :disabled="running"
         @update:model-value="loadConcurrency = String($event)"
@@ -248,14 +252,14 @@ const metrics = computed<Metric[]>(() => {
         :model-value="loadTotal"
         size="sm"
         :min="1"
-        placeholder="总请求数"
+        :placeholder="t('loadtest.totalPh')"
         class="load-num"
         :disabled="running"
         @update:model-value="loadTotal = String($event)"
       />
       <button class="rf-btn rf-btn-sm" type="button" :disabled="!draft || running" @click="runLoadTest">
         <Icon name="gauge" :size="13" />
-        {{ loading ? `压测中… ${progress ? `${progress.done}/${progress.total}` : ''}` : '开始压测' }}
+        {{ loading ? t('loadtest.running', { v: progress ? `${progress.done}/${progress.total}` : '' }) : t('loadtest.start') }}
       </button>
       <button
         v-if="running && activeRunId"
@@ -264,7 +268,7 @@ const metrics = computed<Metric[]>(() => {
         @click="cancelLoadTest"
       >
         <Icon name="x" :size="13" />
-        取消
+        {{ t('common.cancel') }}
       </button>
     </div>
 
@@ -289,7 +293,7 @@ const metrics = computed<Metric[]>(() => {
     </ul>
 
     <p v-if="!running && !loadResult" class="load-hint">
-      设置并发与总请求数后开始压测；运行中实时绘制成功/失败曲线，结束后展示分位耗时。
+      {{ t('loadtest.hint') }}
     </p>
   </div>
 </template>

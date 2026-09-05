@@ -8,7 +8,8 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
-import { CATEGORY_TONE, TEST_CASE_CATEGORIES, formatDuration, statusTextOf, statusToneOf } from '../utils/testCases'
+import { useLocaleStore } from '../stores/locale'
+import { CATEGORY_TONE, TEST_CASE_CATEGORIES, caseCategoryLabel, formatDuration, statusTextOf, statusToneOf } from '../utils/testCases'
 import type { Endpoint, TestCase, TestCaseCategory } from '../types/foxApi'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
@@ -23,6 +24,8 @@ const props = defineProps<{ draft: Endpoint | null }>()
 
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 type FilterKey = '全部' | TestCaseCategory
 
@@ -67,7 +70,7 @@ async function onModalSubmit(payload: { name: string; category: TestCaseCategory
   if (!d) return
   if (editingCase.value) {
     const ok = await store.renameTestCase(d.id, editingCase.value.id, payload.name, payload.category)
-    if (ok) toast.success('用例已更新')
+    if (ok) toast.success(t('cases.updated'))
   } else {
     await store.saveTestCase(d.id, payload.name, payload.category, d.request, d.path, d.method)
   }
@@ -80,11 +83,11 @@ const menuTarget = ref<TestCase | null>(null)
 function openRowMenu(event: MouseEvent, c: TestCase): void {
   menuTarget.value = c
   const items: MenuItem[] = [
-    { key: 'run', label: '直接运行', icon: 'play' },
-    { key: 'edit', label: '编辑用例', icon: 'pencil' },
-    { key: 'open-debug', label: '在调试页打开', icon: 'layout-grid' },
-    { key: 'clone', label: '克隆', icon: 'copy', dividerBefore: true },
-    { key: 'delete', label: '删除', icon: 'trash', danger: true, confirm: `删除用例「${c.name}」？删除后不可恢复。` },
+    { key: 'run', label: t('cases.menuRun'), icon: 'play' },
+    { key: 'edit', label: t('cases.menuEdit'), icon: 'pencil' },
+    { key: 'open-debug', label: t('cases.menuOpenDebug'), icon: 'layout-grid' },
+    { key: 'clone', label: t('cases.menuClone'), icon: 'copy', dividerBefore: true },
+    { key: 'delete', label: t('common.delete'), icon: 'trash', danger: true, confirm: t('cases.deleteConfirm', { name: c.name }) },
   ]
   menuEl.value?.openAt(event.currentTarget as HTMLElement, items, 'left')
 }
@@ -174,7 +177,7 @@ async function saveDrawerPayload(payload: {
     bodyContent: payload.bodyContent,
   })
   const ok = await store.renameTestCase(d.id, c.id, payload.name, payload.category)
-  if (ok) toast.success('用例已保存')
+  if (ok) toast.success(t('cases.saved'))
 }
 
 // ---------- 运行 ----------
@@ -190,13 +193,13 @@ async function runOne(c: TestCase): Promise<void> {
     if (res) {
       const ok = res.status >= 200 && res.status < 400
       if (ok) {
-        toast.success(`用例通过：${c.name}`, { message: `HTTP ${res.status} · ${res.duration_ms}ms` })
+        toast.success(t('cases.passed', { name: c.name }), { message: `HTTP ${res.status} · ${res.duration_ms}ms` })
       } else {
-        toast.error(`用例失败：${c.name}`, { message: `HTTP ${res.status} · ${res.duration_ms}ms` })
+        toast.error(t('cases.failed', { name: c.name }), { message: `HTTP ${res.status} · ${res.duration_ms}ms` })
       }
     }
   } catch (err) {
-    toast.error(`用例运行失败：${c.name}`, {
+    toast.error(t('cases.runFail', { name: c.name }), {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
@@ -226,14 +229,14 @@ async function runAll(): Promise<void> {
       },
     })
     if (r.cancelled) {
-      toast.info(`集合运行已取消：${r.success}/${r.total} 通过（部分完成）`)
+      toast.info(t('cases.runCancelled', { ok: r.success, total: r.total }))
     } else {
       toast[r.success === r.total ? 'success' : 'info'](
-        `全部运行完成：${r.success}/${r.total} 通过`,
+        t('cases.runAllDone', { ok: r.success, total: r.total }),
       )
     }
   } catch (err) {
-    toast.error('全部运行失败', {
+    toast.error(t('cases.runAllFail'), {
       message: err instanceof Error ? err.message : String(err),
     })
   } finally {
@@ -247,7 +250,7 @@ async function runAll(): Promise<void> {
 function cancelRunAll(): void {
   if (!activeCollectionRunId.value) return
   void store.cancelAllTestCases(activeCollectionRunId.value)
-  toast.info('正在取消集合运行…')
+  toast.info(t('cases.cancelling'))
 }
 
 const STATUS_TONE: Record<TestCase['last_run_status'], string> = {
@@ -282,7 +285,7 @@ watch(
           type="button"
           @click="filter = key"
         >
-          {{ key }}
+          {{ key === '全部' ? t('cases.catAll') : caseCategoryLabel(key) }}
           <span class="tcp-count">{{ counts[key] }}</span>
         </button>
       </div>
@@ -291,13 +294,13 @@ watch(
           class="rf-btn rf-btn-sm"
           type="button"
           :disabled="!cases.length"
-          title="导出当前接口 / 整个项目的用例为冒烟测试文档"
+          :title="t('cases.exportSmokeHint')"
           @click="exportSmokeOpen = true"
         >
-          <Icon name="download" :size="13" /> 导出冒烟文档
+          <Icon name="download" :size="13" /> {{ t('cases.exportSmoke') }}
         </button>
         <button class="rf-btn rf-btn-sm" type="button" @click="openCreate">
-          <Icon name="plus" :size="13" /> 添加用例
+          <Icon name="plus" :size="13" /> {{ t('cases.addCase') }}
         </button>
         <button
           class="rf-btn rf-btn-sm rf-btn-primary"
@@ -308,10 +311,10 @@ watch(
           <Icon name="play" :size="13" />
           {{
             runningAll && collectionProgress
-              ? `运行中… ${collectionProgress.done}/${collectionProgress.total}`
+              ? t('cases.runningProgress', { done: collectionProgress.done, total: collectionProgress.total })
               : runningAll
-                ? '运行中…'
-                : '全部运行'
+                ? t('cases.running')
+                : t('cases.runAll')
           }}
         </button>
         <button
@@ -320,7 +323,7 @@ watch(
           type="button"
           @click="cancelRunAll"
         >
-          <Icon name="x" :size="13" /> 取消
+          <Icon name="x" :size="13" /> {{ t('common.cancel') }}
         </button>
       </div>
     </div>
@@ -329,10 +332,10 @@ watch(
     <div v-if="filtered.length" class="tcp-table">
       <div class="tcp-row tcp-head">
         <span class="tcp-col-idx">#</span>
-        <span class="tcp-col-name">名称</span>
-        <span class="tcp-col-cat">分组</span>
-        <span class="tcp-col-status">运行结果</span>
-        <span class="tcp-col-ops">操作</span>
+        <span class="tcp-col-name">{{ t('cases.colName') }}</span>
+        <span class="tcp-col-cat">{{ t('cases.colCategory') }}</span>
+        <span class="tcp-col-status">{{ t('cases.colResult') }}</span>
+        <span class="tcp-col-ops">{{ t('cases.colOps') }}</span>
       </div>
       <div
         v-for="(c, i) in filtered"
@@ -340,18 +343,18 @@ watch(
         class="tcp-row tcp-body-row"
       >
         <span class="tcp-col-idx">{{ i + 1 }}</span>
-        <button class="tcp-col-name tcp-name-btn" type="button" :title="`查看 / 编辑用例：${c.name}`" @click="openDrawer(c)">
+        <button class="tcp-col-name tcp-name-btn" type="button" :title="t('cases.rowTitle', { name: c.name })" @click="openDrawer(c)">
           <span class="tcp-method" :class="`m-select-${c.method.toLowerCase()}`">{{ c.method }}</span>
           <span class="tcp-name-text">{{ c.name }}</span>
         </button>
         <span class="tcp-col-cat">
           <span class="tcp-cat-dot" :style="{ background: CATEGORY_TONE[c.category] }"></span>
-          {{ c.category }}
+          {{ caseCategoryLabel(c.category) }}
         </span>
         <span class="tcp-col-status">
           <span v-if="runningIds.has(c.id)" class="tcp-status tcp-status-running">
             <span class="tcp-spinner"></span>
-            运行中…
+            {{ t('cases.running') }}
           </span>
           <template v-else-if="runMetaOf(c)">
             <span
@@ -376,7 +379,7 @@ watch(
           <IconButton
             name="more-horizontal"
             :size="14"
-            title="更多操作"
+            :title="t('common.moreActions')"
             @click="openRowMenu($event, c)"
           />
         </span>
@@ -386,13 +389,13 @@ watch(
       v-else
       icon="list"
       compact
-      :title="filter === '全部' ? '暂无测试用例' : `「${filter}」分组暂无用例`"
-      description="点右上角「+ 添加用例」，或用「保存 ▾ → 保存为用例」把当前请求存为用例"
+      :title="filter === '全部' ? t('cases.empty') : t('cases.emptyInGroup', { v: caseCategoryLabel(filter) })"
+      :description="t('cases.emptyHint')"
     />
 
     <TestCaseModal
       :open="modalOpen"
-      :title="editingCase ? '编辑测试用例' : '保存为测试用例'"
+      :title="editingCase ? t('cases.editTitle') : t('testcase.title')"
       :name="editingCase?.name ?? ''"
       :category="editingCase?.category ?? '正向'"
       @update:open="modalOpen = $event"

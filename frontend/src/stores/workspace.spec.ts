@@ -92,6 +92,7 @@ vi.mock('../composables/useToast', () => ({
 }))
 
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 
 /** 测试环境的 localStorage 为残缺对象（真机 WebView 才有完整实现），stub 一个内存版。 */
 beforeAll(() => {
@@ -106,6 +107,8 @@ beforeAll(() => {
 describe('workspace store 多项目快照切换', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
     backend.projects.length = 0
     backend.endpointsByProject.clear()
     backend.envsByProject.clear()
@@ -175,6 +178,8 @@ describe('workspace store 多项目快照切换', () => {
 
 describe('moveEndpoint：移动后打开草稿的 folder_id / sort_order 同步', () => {
   beforeEach(() => {
+    // 文案经 i18n 取词，锁定中文（jsdom 默认语言为英文）
+    useLocaleStore().setMode('zh')
     backend.setActive('p-a')
     // 固定时钟：isDirty 依赖草稿/已存的全字段 eq 比较，时间戳漂移会误判「脏」
     const T = '2026-01-01T00:00:00.000Z'

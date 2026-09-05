@@ -80,7 +80,8 @@ describe('useShortcuts', () => {
   it('shortcutDef 取默认表构造注册项，未知 id 抛错', () => {
     const def = shortcutDef('editor.send', () => {})
     expect(def.key).toBe('Enter')
-    expect(def.group).toBe('请求编辑')
+    expect(def.group).toBe('shortcutGroup.editor')
+    expect(def.description).toBe('shortcut.send')
     expect(def.inInput).toBe(true)
     expect(() => shortcutDef('nope', () => {})).toThrow()
   })

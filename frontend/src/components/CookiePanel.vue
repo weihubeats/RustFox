@@ -11,6 +11,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
@@ -19,6 +20,8 @@ import type { CookieEntry } from '../types/foxApi'
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const cookies = ref<CookieEntry[]>([])
 const filter = ref('')
@@ -29,7 +32,7 @@ async function reload(): Promise<void> {
   try {
     cookies.value = (await api.cookieList(filter.value.trim() || null)) ?? []
   } catch (err) {
-    toast.error('加载 Cookie 失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('cookie.loadFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     loading.value = false
   }
@@ -58,20 +61,20 @@ const grouped = computed(() => {
 async function clearDomain(domain: string): Promise<void> {
   try {
     const n = await api.cookieClear(domain)
-    toast.success(`已清理 ${domain} 的 ${n} 条 Cookie`)
+    toast.success(t('cookie.clearedDomain', { domain, n }))
     await reload()
   } catch (err) {
-    toast.error('清理失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('cookie.clearFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
 async function clearAll(): Promise<void> {
   try {
     const n = await api.cookieClear(null)
-    toast.success(`已清理全部 ${n} 条 Cookie`)
+    toast.success(t('cookie.clearedAll', { n }))
     await reload()
   } catch (err) {
-    toast.error('清理失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('cookie.clearFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -90,30 +93,30 @@ function shortValue(v: string): string {
           v-model="filter"
           class="cp-input"
           type="text"
-          placeholder="过滤域名…"
+          :placeholder="t('cookie.filterPh')"
           spellcheck="false"
           @input="onFilterInput"
         />
       </div>
-      <span class="cp-count">{{ cookies.length }} 条</span>
-      <button class="cp-reload" type="button" title="刷新" @click="reload">
+      <span class="cp-count">{{ t('cookie.count', { n: cookies.length }) }}</span>
+      <button class="cp-reload" type="button" :title="t('common.refresh')" @click="reload">
         <Icon name="refresh" :size="13" />
       </button>
       <Popconfirm
-        title="清理全部 Cookie？登录态将失效，需重新登录。"
-        confirm-text="清理"
+        :title="t('cookie.clearAllConfirm')"
+        :confirm-text="t('cookie.clear')"
         danger
         @confirm="clearAll"
       >
-        <IconButton name="trash" :size="14" tone="danger" title="清理全部 Cookie" />
+        <IconButton name="trash" :size="14" tone="danger" :title="t('cookie.clearAllTitle')" />
       </Popconfirm>
     </div>
 
-    <div v-if="loading && !cookies.length" class="cp-hint">加载中…</div>
+    <div v-if="loading && !cookies.length" class="cp-hint">{{ t('common.loading') }}</div>
     <EmptyState
       v-else-if="!cookies.length"
-      title="暂无 Cookie"
-      description="发送请求后，服务端的 Set-Cookie 会自动收纳于此，同域请求自动回放"
+      :title="t('cookie.empty')"
+      :description="t('cookie.emptyHint')"
     />
 
     <div v-else class="cp-list">
@@ -122,28 +125,28 @@ function shortValue(v: string): string {
           <span class="cp-domain" :title="domain">{{ domain }}</span>
           <span class="cp-group-count">{{ items.length }}</span>
           <Popconfirm
-            :title="`清理 ${domain} 的 Cookie？`"
-            confirm-text="清理"
+            :title="t('cookie.clearDomainConfirm', { domain })"
+            :confirm-text="t('cookie.clear')"
             danger
             @confirm="clearDomain(domain)"
           >
-            <IconButton name="trash" :size="12" tone="danger" :title="`清理 ${domain}`" />
+            <IconButton name="trash" :size="12" tone="danger" :title="t('cookie.clearDomainTitle', { domain })" />
           </Popconfirm>
         </div>
         <div v-for="c in items" :key="`${c.domain}/${c.name}/${c.path}`" class="cp-row" :title="`${c.name}=${c.value}`">
           <span class="cp-name">{{ c.name }}</span>
           <span class="cp-value">{{ shortValue(c.value) }}</span>
           <span class="cp-flags">
-            <span v-if="c.http_only" class="cp-flag" title="HttpOnly：JS 不可读">H</span>
-            <span v-if="c.secure" class="cp-flag" title="Secure：仅 HTTPS">S</span>
-            <span v-if="c.expires_at" class="cp-exp" :title="`过期：${c.expires_at}`">⏱</span>
-            <span v-else class="cp-exp" title="会话 Cookie：关闭应用后失效">○</span>
+            <span v-if="c.http_only" class="cp-flag" :title="t('cookie.httpOnlyHint')">H</span>
+            <span v-if="c.secure" class="cp-flag" :title="t('cookie.secureHint')">S</span>
+            <span v-if="c.expires_at" class="cp-exp" :title="t('cookie.expiresHint', { v: c.expires_at })">⏱</span>
+            <span v-else class="cp-exp" :title="t('cookie.sessionHint')">○</span>
           </span>
         </div>
       </div>
     </div>
 
-    <p class="cp-foot">同域请求自动回放；单请求可在 Headers 页关闭「Cookie 自动回放」。</p>
+    <p class="cp-foot">{{ t('cookie.foot') }}</p>
   </div>
 </template>
 

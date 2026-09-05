@@ -12,6 +12,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import EndpointEditor from './EndpointEditor.vue'
 import ResponsePanel from './ResponsePanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import { makeDraft } from '../testUtils/draftFixture'
 import { collectErrors, stubScrollIntoView } from '../testUtils/componentTest'
@@ -51,6 +52,8 @@ const endpointB: Endpoint = makeDraft({ id: 'ep-b', name: '接口 B', path: '/b'
 
 async function mountEditor() {
   const store = useWorkspaceStore()
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
   store.project = {
     id: 'proj-test-1',
     name: 'P',

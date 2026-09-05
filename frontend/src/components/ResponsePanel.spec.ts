@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import ResponsePanel from './ResponsePanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import type { ExecuteResponse } from '../types/foxApi'
 import { collectErrors, stubScrollIntoView } from '../testUtils/componentTest'
 import { copyText } from '../utils/clipboard'
@@ -35,6 +37,11 @@ async function openFind(wrapper: ReturnType<typeof mount>): Promise<void> {
 }
 
 describe('ResponsePanel：状态栏元数据', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+  })
+
   it('渲染 状态码 / 耗时 / 大小，且带 tone-ok 强调', () => {
     const wrapper = mount(ResponsePanel, { props: { response: makeResponse('{}') } })
     expect(wrapper.find('.rp').classes()).toContain('tone-ok')
@@ -58,6 +65,9 @@ describe('ResponsePanel：状态栏元数据', () => {
 describe('ResponsePanel：查找（Find in Response）', () => {
   beforeEach(() => {
     stubScrollIntoView()
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
   })
   afterEach(() => {
     vi.restoreAllMocks()

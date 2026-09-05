@@ -2,8 +2,16 @@
  * codeImport 单测：各语言 HTTP 客户端代码片段 → CurlParsed。
  * 覆盖常见写法：JS fetch/axios、Python requests、Java OkHttp、Go net/http。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { detectLang, parseCodeSnippet } from './codeImport'
+import { useLocaleStore } from '../stores/locale'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  // 错误文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
+})
 
 describe('detectLang', () => {
   it('识别各语言特征', () => {

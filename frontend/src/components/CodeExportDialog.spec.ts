@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import CodeExportDialog from './CodeExportDialog.vue'
+import { useLocaleStore } from '../stores/locale'
 import { collectErrors } from '../testUtils/componentTest'
 import { makeDraft } from '../testUtils/draftFixture'
 
@@ -12,6 +14,12 @@ vi.mock('../composables/useFoxApi', () => ({
     codegenRender,
   }),
 }))
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
+})
 
 function dialogBody(): Element | null {
   return document.body.querySelector('.m-dialog')

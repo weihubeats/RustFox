@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import EndpointTree from './EndpointTree.vue'
+import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import { stubScrollIntoView } from '../testUtils/componentTest'
 import type { Folder } from '../types/foxApi'
@@ -28,6 +29,8 @@ function folder(id: string, name: string, parentId: string | null): Folder {
 
 async function mountTree() {
   setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
   const store = useWorkspaceStore()
   store.project = {
     id: 'proj-test-1',

@@ -6,6 +6,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import type { CodeLang, Endpoint } from '../types/foxApi'
@@ -25,6 +26,8 @@ onBeforeUnmount(() => {
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const CODE_LANGS: Array<{ value: CodeLang; label: string }> = [
   { value: 'curl', label: 'cURL' },
@@ -56,7 +59,7 @@ async function generateCode(): Promise<void> {
     generatedCode.value = code
   } catch (err) {
     if (disposed) return
-    toast.error('生成代码失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('codegen.genFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     if (!disposed) generating.value = false
   }
@@ -66,9 +69,9 @@ async function copyCode(): Promise<void> {
   if (!generatedCode.value) return
   try {
     await navigator.clipboard.writeText(generatedCode.value)
-    toast.success('已复制到剪贴板')
+    toast.success(t('codegen.copiedClipboard'))
   } catch {
-    toast.error('复制失败，请手动选择文本')
+    toast.error(t('response.copyFail'))
   }
 }
 
@@ -93,14 +96,14 @@ watch(codeLang, () => {
       />
       <button class="rf-btn rf-btn-sm" type="button" :disabled="generating" @click="generateCode">
         <Icon name="code" :size="13" />
-        {{ generating ? '生成中…' : '生成' }}
+        {{ generating ? t('codegen.generating') : t('codegen.generate') }}
       </button>
       <button class="rf-btn rf-btn-sm" type="button" :disabled="!generatedCode" @click="copyCode">
-        <Icon name="copy" :size="13" /> 复制
+        <Icon name="copy" :size="13" /> {{ t('common.copy') }}
       </button>
     </div>
     <pre v-if="generatedCode" class="cp-preview">{{ generatedCode }}</pre>
-    <p v-else class="cp-empty">选择语言后点击「生成」，将按当前请求配置生成可运行的代码片段。</p>
+    <p v-else class="cp-empty">{{ t('codegen.emptyHint') }}</p>
   </div>
 </template>
 

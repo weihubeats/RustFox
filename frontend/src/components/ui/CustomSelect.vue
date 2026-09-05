@@ -7,6 +7,7 @@
  * - 作用域插槽 #display 定制触发区文案（如方法着色）、#option 定制选项行。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import Icon from './Icon.vue'
 
 export interface SelectOption {
@@ -23,8 +24,14 @@ const props = withDefaults(
     size?: 'sm' | 'md'
     popClass?: string
   }>(),
-  { modelValue: null, placeholder: '请选择…', disabled: false, size: 'md', popClass: '' },
+  { modelValue: null, placeholder: '', disabled: false, size: 'md', popClass: '' },
 )
+
+const locale = useLocaleStore()
+const t = locale.t
+
+/** 未传 placeholder 时按当前语言兜底。 */
+const effectivePlaceholder = computed(() => props.placeholder || t('select.ph'))
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number]
@@ -167,7 +174,7 @@ onBeforeUnmount(() => {
     >
       <span class="cs-value" :class="{ 'is-empty': !displayLabel }">
         <slot name="display" :label="displayLabel" :selected="options[selectedIndex] ?? null">
-          {{ displayLabel || placeholder }}
+          {{ displayLabel || effectivePlaceholder }}
         </slot>
       </span>
       <Icon class="cs-caret" :name="open ? 'chevron-up' : 'chevron-down'" :size="12" />

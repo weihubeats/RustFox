@@ -92,6 +92,7 @@ const TREE_INDEX: InjectionKey<import('vue').ComputedRef<TreeChildIndex>> =
 import { computed, inject, provide, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import { escapeHtml } from '../utils/highlight'
 import { methodTone } from '../utils/methodTone'
 import Icon from './ui/Icon.vue'
@@ -115,6 +116,8 @@ const emit = defineEmits<{ importCurl: [folderId: string | null] }>()
 
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const expanded = ref<Set<string>>(new Set())
 
@@ -329,12 +332,12 @@ function onPointerMove(event: PointerEvent): void {
     document.body.classList.add('dragging-dnd')
   }
   ghostPos.value = { x: event.clientX, y: event.clientY }
-  let t = hitTest(event.clientX, event.clientY)
-  if (t && t.id === dndState.id && (t.drop === 'before' || t.drop === 'after' || t.drop === 'folder'))
-    t = null
-  if (t?.drop === 'folder') scheduleFolderExpand(t.id)
+  let target = hitTest(event.clientX, event.clientY)
+  if (target && target.id === dndState.id && (target.drop === 'before' || target.drop === 'after' || target.drop === 'folder'))
+    target = null
+  if (target?.drop === 'folder') scheduleFolderExpand(target.id)
   else clearFolderExpand()
-  dndState.target = t
+  dndState.target = target
 }
 
 async function onPointerUp(): Promise<void> {
@@ -343,35 +346,35 @@ async function onPointerUp(): Promise<void> {
   endDrag()
   setSuppressClick(wasActive)
   if (!wasActive || !d.target || !d.id) return
-  const t = d.target
+  const target = d.target
   try {
     let targetFolder: string | null
     let index: number
-    if (t.drop === 'folder') {
-      if (t.id === d.id) return
-      targetFolder = t.id
+    if (target.drop === 'folder') {
+      if (target.id === d.id) return
+      targetFolder = target.id
       index = Number.MAX_SAFE_INTEGER
-    } else if (t.drop === 'before' || t.drop === 'after') {
-      const targetEp = store.endpoints.find((x) => x.id === t.id)
+    } else if (target.drop === 'before' || target.drop === 'after') {
+      const targetEp = store.endpoints.find((x) => x.id === target.id)
       if (!targetEp || targetEp.id === d.id) return
       targetFolder = targetEp.folder_id
-      index = targetEp.sort_order + (t.drop === 'after' ? 1 : 0)
+      index = targetEp.sort_order + (target.drop === 'after' ? 1 : 0)
     } else {
-      targetFolder = t.id
+      targetFolder = target.id
       index = Number.MAX_SAFE_INTEGER
     }
     if (d.kind === 'folder') {
       if (targetFolder !== d.id) {
         await store.moveFolder(d.id, targetFolder, index)
-        toast.success('文件夹已移动')
+        toast.success(t('tree.folderMoved'))
       }
     } else {
       await store.moveEndpoint(d.id, targetFolder, index)
-      toast.success('接口已移动')
+      toast.success(t('tree.endpointMoved'))
     }
   } catch (err) {
     console.error('[EndpointTree.dnd]', err)
-    toast.error('移动失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('tree.moveFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -486,16 +489,16 @@ const menuTarget = ref<{ kind: 'folder' | 'endpoint'; id: string } | null>(null)
 function openFolderMenu(event: MouseEvent, f: Folder): void {
   menuTarget.value = { kind: 'folder', id: f.id }
   menu.value?.openAt(event.currentTarget as HTMLElement, [
-    { key: 'endpoint', label: '新建接口', icon: 'file-plus' },
-    { key: 'import', label: '导入 cURL', icon: 'terminal' },
-    { key: 'subfolder', label: '新建子文件夹', icon: 'folder-plus' },
-    { key: 'rename', label: '重命名', icon: 'pencil', dividerBefore: true },
+    { key: 'endpoint', label: t('tree.newEndpoint'), icon: 'file-plus' },
+    { key: 'import', label: t('tree.importCurl'), icon: 'terminal' },
+    { key: 'subfolder', label: t('tree.newSubfolder'), icon: 'folder-plus' },
+    { key: 'rename', label: t('common.rename'), icon: 'pencil', dividerBefore: true },
     {
       key: 'delete',
-      label: '删除文件夹',
+      label: t('tree.deleteFolder'),
       icon: 'trash',
       danger: true,
-      confirm: `删除文件夹「${f.name}」及其全部子文件夹/接口？`,
+      confirm: t('tree.deleteFolderConfirm', { name: f.name }),
     },
   ], 'left')
 }
@@ -503,15 +506,15 @@ function openFolderMenu(event: MouseEvent, f: Folder): void {
 function openEndpointMenu(event: MouseEvent, e: Endpoint): void {
   menuTarget.value = { kind: 'endpoint', id: e.id }
   menu.value?.openAt(event.currentTarget as HTMLElement, [
-    { key: 'copy', label: '复制', icon: 'copy' },
-    { key: 'rename', label: '重命名', icon: 'pencil' },
+    { key: 'copy', label: t('common.copyAction'), icon: 'copy' },
+    { key: 'rename', label: t('common.rename'), icon: 'pencil' },
     {
       key: 'delete',
-      label: '删除接口',
+      label: t('tree.deleteEndpoint'),
       icon: 'trash',
       danger: true,
       dividerBefore: true,
-      confirm: `删除接口「${e.name || e.path}」？`,
+      confirm: t('tree.deleteEndpointConfirm', { name: e.name || e.path }),
     },
   ], 'left')
 }
@@ -606,7 +609,7 @@ async function batchMove(targetFolderId: string | null): Promise<void> {
 /** 移动目标菜单：根目录 + 全部文件夹（按名称）。 */
 function openMoveMenu(event: MouseEvent): void {
   const items: MenuItem[] = [
-    { key: '__root__', label: '根目录', icon: 'folder' },
+    { key: '__root__', label: t('tree.rootFolder'), icon: 'folder' },
     ...[...store.folders]
       .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
       .map((f) => ({ key: f.id, label: f.name, icon: 'folder' as const })),
@@ -655,7 +658,7 @@ function onBatchMenuSelect(item: MenuItem): void {
           </span>
           <span class="tree-name folder" @click="onFolderClick(f, $event)">{{ f.name }}</span>
           <span class="tree-actions">
-            <IconButton name="more-horizontal" :size="13" title="更多操作" @click="openFolderMenu($event, f)" />
+            <IconButton name="more-horizontal" :size="13" :title="t('common.moreActions')" @click="openFolderMenu($event, f)" />
           </span>
         </template>
       </div>
@@ -674,7 +677,7 @@ function onBatchMenuSelect(item: MenuItem): void {
       <input
         v-model="editValue"
         class="rf-input rf-input-sm tree-input"
-        placeholder="文件夹名称"
+          :placeholder="t('tree.folderNamePh')"
         autofocus
         @keyup.enter="commitEdit"
         @keyup.esc="cancelEdit"
@@ -716,7 +719,7 @@ function onBatchMenuSelect(item: MenuItem): void {
             <Icon v-if="store.isDirty(e.id)" class="tree-dirty" name="dot" :size="6" />
           </span>
           <span class="tree-actions">
-            <IconButton name="more-horizontal" :size="13" title="更多操作" @click="openEndpointMenu($event, e)" />
+            <IconButton name="more-horizontal" :size="13" :title="t('common.moreActions')" @click="openEndpointMenu($event, e)" />
           </span>
         </template>
       </div>
@@ -726,24 +729,24 @@ function onBatchMenuSelect(item: MenuItem): void {
       v-if="folderId === null && searchActive && !childFolders.length && !childEndpoints.length"
       class="tree-empty"
     >
-      未找到匹配接口
+      {{ t('tree.noMatch') }}
     </p>
   </div>
 
     <!-- 批量操作条（仅根实例渲染）：多选后出现 -->
     <div v-if="folderId === null && selectionCount > 0" class="tree-batch">
-      <span class="tree-batch-count">已选 {{ selectionCount }} 项</span>
-      <button class="rf-btn rf-btn-sm" type="button" @click="openMoveMenu($event)">移到…</button>
+      <span class="tree-batch-count">{{ t('tree.selected', { n: selectionCount }) }}</span>
+      <button class="rf-btn rf-btn-sm" type="button" @click="openMoveMenu($event)">{{ t('tree.moveTo') }}</button>
       <Popconfirm
-        :title="`删除选中的 ${selectionCount} 项？删除后可撤销。`"
-        confirm-text="删除"
+        :title="t('tree.batchDeleteConfirm', { n: selectionCount })"
+        :confirm-text="t('common.delete')"
         danger
         @confirm="batchDelete"
       >
-        <button class="rf-btn rf-btn-sm rf-btn-danger" type="button">删除</button>
+        <button class="rf-btn rf-btn-sm rf-btn-danger" type="button">{{ t('common.delete') }}</button>
       </Popconfirm>
       <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="clearTreeSelection">
-        清除选择
+        {{ t('tree.clearSelection') }}
       </button>
     </div>
 

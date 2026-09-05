@@ -1,11 +1,13 @@
 /**
  * RequestExamplesPanel 单测：用例列表渲染 + 保存/回填/复制/删除的 store 接线。
- * store 以模块级 mock 替换（无需 Pinia 实例）。
+ * workspace store 以模块级 mock 替换；locale 需真实 Pinia（组件 setup 调 useLocaleStore）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { reactive } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import RequestExamplesPanel from './RequestExamplesPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 import type { Endpoint, RequestExample } from '../types/foxApi'
 
@@ -65,6 +67,8 @@ function mountPanel(d: Endpoint) {
 
 describe('RequestExamplesPanel', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
     requestExamples.set([["ep-1", [makeExample("资金调拨-100")]]])
     requestExamples.save.mockReset()
     requestExamples.apply.mockReset()

@@ -5,8 +5,9 @@
  * - 用例分组：正向 | 负向 | 边界值 | 安全性 | 其他（默认 正向）
  * 确认后 emit('submit', { name, category })，由调用方决定新建 / 编辑语义。
  */
-import { ref, watch } from 'vue'
-import { TEST_CASE_CATEGORIES } from '../utils/testCases'
+import { computed, ref, watch } from 'vue'
+import { useLocaleStore } from '../stores/locale'
+import { TEST_CASE_CATEGORIES, caseCategoryLabel } from '../utils/testCases'
 import type { TestCaseCategory } from '../types/foxApi'
 import CustomSelect from './ui/CustomSelect.vue'
 import Modal from './ui/Modal.vue'
@@ -27,7 +28,13 @@ const emit = defineEmits<{
 const nameInput = ref('')
 const categorySel = ref<TestCaseCategory>('正向')
 
-const CATEGORY_OPTIONS = TEST_CASE_CATEGORIES.map((c) => ({ value: c, label: c }))
+const locale = useLocaleStore()
+const t = locale.t
+
+/** 下拉展示译文，value 保持存库中文原值。 */
+const categoryOptions = computed(() =>
+  TEST_CASE_CATEGORIES.map((c) => ({ value: c, label: caseCategoryLabel(c) })),
+)
 
 function onCategoryChange(value: string | number): void {
   categorySel.value = String(value) as TestCaseCategory
@@ -54,34 +61,34 @@ function confirm(): void {
 <template>
   <Modal
     :open="open"
-    :title="title ?? '保存为测试用例'"
+    :title="title ?? t('testcase.title')"
     width="360px"
     @update:open="emit('update:open', $event)"
   >
     <div class="tcm">
       <label class="tcm-field">
-        <span class="tcm-label">用例名称</span>
+        <span class="tcm-label">{{ t('testcase.name') }}</span>
         <input
           v-model="nameInput"
           class="tcm-input"
           v-focus-end
           type="text"
-          placeholder="如：内部划转-SGB"
+          :placeholder="t('testcase.namePh')"
           spellcheck="false"
           @keyup.enter="confirm"
         />
       </label>
       <label class="tcm-field">
-        <span class="tcm-label">用例分组</span>
+        <span class="tcm-label">{{ t('testcase.category') }}</span>
         <CustomSelect
           :model-value="categorySel"
-          :options="CATEGORY_OPTIONS"
+          :options="categoryOptions"
           @update:model-value="onCategoryChange"
         />
       </label>
       <div class="tcm-actions">
         <button class="rf-btn rf-btn-sm" type="button" @click="emit('update:open', false)">
-          取消
+          {{ t('common.cancel') }}
         </button>
         <button
           class="rf-btn rf-btn-sm rf-btn-primary"
@@ -89,7 +96,7 @@ function confirm(): void {
           :disabled="!nameInput.trim()"
           @click="confirm"
         >
-          确认
+          {{ t('common.confirm') }}
         </button>
       </div>
     </div>

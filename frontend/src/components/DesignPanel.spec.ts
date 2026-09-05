@@ -1,12 +1,14 @@
 /**
  * DesignPanel 单测：基本信息卡片 / 请求参数表 / Body 模式切换 /
  * Responses 增改删 / 保存事件与未保存提示。
- * store 与 foxApi 以模块级 mock 替换（无需 Pinia / Tauri）。
+ * store 与 foxApi 以模块级 mock 替换；locale 需真实 Pinia（组件 setup 调 useLocaleStore）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { reactive } from 'vue'
 import DesignPanel from './DesignPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 import type { Endpoint, ResponseExample } from '../types/foxApi'
 
@@ -46,6 +48,8 @@ function mountPanel(d: Endpoint = draft()) {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia())
+  useLocaleStore().setMode('zh')
   vi.clearAllMocks()
   storeMock.isDirty.mockReturnValue(false)
   storeMock.setExamples([])

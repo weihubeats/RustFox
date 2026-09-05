@@ -26,6 +26,7 @@
  */
 import { onErrorCaptured, ref } from 'vue'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 
 const props = withDefaults(
   defineProps<{
@@ -40,6 +41,8 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 const errored = ref(false)
 const errorMessage = ref('')
 const errorStack = ref('')
@@ -71,7 +74,7 @@ async function onRetry(): Promise<void> {
     detailOpen.value = false
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : String(e)
-    toast.error('重试失败', { message: errorMessage.value })
+    toast.error(t('errbound.retryFail'), { message: errorMessage.value })
   } finally {
     retrying.value = false
   }
@@ -99,8 +102,8 @@ async function onRetry(): Promise<void> {
       </svg>
     </div>
     <div class="rf-boundary-body">
-      <div class="rf-boundary-title">页面出现异常</div>
-      <div class="rf-boundary-message">{{ errorMessage || '未知错误' }}</div>
+      <div class="rf-boundary-title">{{ t('errbound.title') }}</div>
+      <div class="rf-boundary-message">{{ errorMessage || t('errbound.unknownError') }}</div>
       <div class="rf-boundary-actions">
         <button
           class="rf-btn rf-btn-primary rf-btn-sm"
@@ -108,7 +111,7 @@ async function onRetry(): Promise<void> {
           :disabled="retrying"
           @click="onRetry"
         >
-          {{ retrying ? '重试中…' : '重试' }}
+          {{ retrying ? t('common.retrying') : t('common.retry') }}
         </button>
         <button
           v-if="errorStack || errorInfo"
@@ -116,7 +119,7 @@ async function onRetry(): Promise<void> {
           type="button"
           @click="detailOpen = !detailOpen"
         >
-          {{ detailOpen ? '收起详情' : '查看详情' }}
+          {{ detailOpen ? t('errbound.hideDetails') : t('app.viewDetails') }}
         </button>
       </div>
       <pre v-if="detailOpen" class="rf-boundary-detail">{{

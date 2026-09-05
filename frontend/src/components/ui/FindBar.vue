@@ -5,7 +5,11 @@
  * 打开时自动聚焦输入框。
  */
 import { computed, onMounted, ref } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import Icon from './Icon.vue'
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const props = withDefaults(
   defineProps<{
@@ -14,8 +18,11 @@ const props = withDefaults(
     total: number
     placeholder?: string
   }>(),
-  { placeholder: '在响应中查找…' },
+  { placeholder: '' },
 )
+
+/** 未传 placeholder 时按当前语言兜底。 */
+const effectivePlaceholder = computed(() => props.placeholder || t('findbar.ph'))
 
 const emit = defineEmits<{
   'update:query': [string]
@@ -56,16 +63,16 @@ function onInputKeydown(e: KeyboardEvent): void {
       v-model="inputValue"
       class="findbar-input"
       spellcheck="false"
-      :placeholder="placeholder"
+      :placeholder="effectivePlaceholder"
       @keydown="onInputKeydown"
     />
     <span class="findbar-count" :class="{ empty: total === 0 }">
-      {{ total ? `${index + 1} / ${total}` : '无匹配' }}
+      {{ total ? `${index + 1} / ${total}` : t('findbar.noMatch') }}
     </span>
     <button
       class="findbar-btn"
       type="button"
-      title="上一个 (Shift+Enter)"
+      :title="t('findbar.prev')"
       :disabled="total === 0"
       @click="emit('prev')"
     >
@@ -74,13 +81,13 @@ function onInputKeydown(e: KeyboardEvent): void {
     <button
       class="findbar-btn"
       type="button"
-      title="下一个 (Enter)"
+      :title="t('findbar.next')"
       :disabled="total === 0"
       @click="emit('next')"
     >
       <Icon name="chevron-down" :size="13" />
     </button>
-    <button class="findbar-btn findbar-close" type="button" title="关闭查找 (Esc)" @click="emit('close')">
+    <button class="findbar-btn findbar-close" type="button" :title="t('findbar.close')" @click="emit('close')">
       <Icon name="x" :size="13" />
     </button>
   </div>

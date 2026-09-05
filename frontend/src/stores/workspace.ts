@@ -13,6 +13,7 @@ import { defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from './locale'
 import { planCrossGroupMove, planSameGroupMove, wouldCreateCycle } from './treeOps'
 import { splitUrl } from '../utils/url'
 import { envBaseUrl } from '../utils/environment'
@@ -61,6 +62,8 @@ function eq(a: Endpoint, b: Endpoint): boolean {
 export const useWorkspaceStore = defineStore('workspace', () => {
   const api = useFoxApi()
   const toast = useToast()
+  const locale = useLocaleStore()
+  const t = locale.t
 
   const project = ref<Project | null>(null)
   const folders = ref<NonNullable<Awaited<ReturnType<typeof api.listFolders>>>[number][]>([])
@@ -114,7 +117,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const idx = environments.value.findIndex((e) => e.id === env.id)
       if (idx !== -1) environments.value[idx] = saved
     } catch (err) {
-      toast.error('更新环境变量失败', {
+      toast.error(t('ws.updateEnvFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
     }
@@ -186,7 +189,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (d) return `${d.method} ${d.path}`
     const saved = savedIndex.value.get(id)
     if (saved) return saved.name || `${saved.method} ${saved.path}`
-    return '未保存'
+    return t('tabbar.unsaved')
   }
 
   /** 拉取文件夹 + 接口列表；knownProject 传入时跳过重复的 getActiveProject IPC。 */
@@ -241,7 +244,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       // 目标项目已不存在（他处删除）：移除标签后抛错
       snapshots.delete(projectId)
       removeOpenTab(projectId)
-      throw new Error('项目不存在或已删除')
+      throw new Error(t('ws.projectMissing'))
     }
     await activateProject(p)
   }
@@ -372,7 +375,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const next = openProjects.value[Math.min(idx, openProjects.value.length - 1)]
     if (next) {
       void switchProject(next.id).catch((err) => {
-        toast.error('切换项目失败', { message: err instanceof Error ? err.message : String(err) })
+        toast.error(t('projectTabs.switchFail'), { message: err instanceof Error ? err.message : String(err) })
       })
     } else {
       project.value = null
@@ -463,7 +466,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (idx === -1) list.unshift(example)
     else list[idx] = example
     examples.value.set(endpointId, list)
-    toast.success(`示例已保存：${example.name}`)
+    toast.success(t('ws.exampleSaved', { name: example.name }))
   }
 
   async function removeExample(endpointId: string, exampleId: string): Promise<void> {
@@ -493,7 +496,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   ): Promise<boolean> {
     const trimmed = name.trim()
     if (!trimmed) {
-      toast.warning('用例名称不能为空')
+      toast.warning(t('ws.caseNameRequired'))
       return false
     }
     const now = new Date().toISOString()
@@ -510,10 +513,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const list = requestExamples.value.get(endpointId) ?? []
       list.unshift(saved)
       requestExamples.value.set(endpointId, list)
-      toast.success(`请求用例已保存：${saved.name}`)
+      toast.success(t('ws.requestCaseSaved', { name: saved.name }))
       return true
     } catch (err) {
-      toast.error('保存请求用例失败', {
+      toast.error(t('ws.requestCaseSaveFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return false
@@ -531,7 +534,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       await api.deleteRequestExample(exampleId)
     } catch (err) {
-      toast.error('删除请求用例失败', {
+      toast.error(t('ws.requestCaseDeleteFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return
@@ -579,7 +582,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   ): Promise<boolean> {
     const trimmed = name.trim()
     if (!trimmed) {
-      toast.warning('用例名称不能为空')
+      toast.warning(t('ws.caseNameRequired'))
       return false
     }
     const snap = snapshotRequest(request)
@@ -602,10 +605,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const list = testCases.value.get(endpointId) ?? []
       list.push(saved)
       testCases.value.set(endpointId, list)
-      toast.success(`测试用例已保存：${saved.name}`)
+      toast.success(t('ws.testCaseSaved', { name: saved.name }))
       return true
     } catch (err) {
-      toast.error('保存测试用例失败', {
+      toast.error(t('ws.testCaseSaveFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return false
@@ -616,7 +619,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function renameTestCase(endpointId: string, caseId: string, name: string, category: TestCaseCategory): Promise<boolean> {
     const trimmed = name.trim()
     if (!trimmed) {
-      toast.warning('用例名称不能为空')
+      toast.warning(t('ws.caseNameRequired'))
       return false
     }
     try {
@@ -629,7 +632,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       return true
     } catch (err) {
-      toast.error('更新用例失败', {
+      toast.error(t('ws.caseUpdateFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return false
@@ -641,7 +644,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const testCase: TestCase = {
       ...JSON.parse(JSON.stringify(source)) as TestCase,
       id: crypto.randomUUID(),
-      name: `${source.name} 副本`,
+      name: t('examples.copyName', { name: source.name }),
       last_run_status: 'Untested',
       created_at: new Date().toISOString(),
     }
@@ -652,7 +655,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       testCases.value.set(endpointId, list)
       return true
     } catch (err) {
-      toast.error('克隆用例失败', {
+      toast.error(t('ws.caseCloneFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return false
@@ -664,7 +667,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       await api.deleteTestCase(caseId)
     } catch (err) {
-      toast.error('删除用例失败', {
+      toast.error(t('ws.caseDeleteFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
       return
@@ -848,7 +851,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: crypto.randomUUID(),
       project_id: project.value?.id ?? '',
       folder_id: folderId,
-      name: '未命名接口',
+      name: t('default.endpointName'),
       method: 'GET',
       path: '/',
       description: '',
@@ -894,11 +897,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const draft = activeEndpoint.value
     if (!draft) return false
     if (!draft.name.trim()) {
-      toast.warning('接口名称不能为空')
+      toast.warning(t('editor.nameRequired'))
       return false
     }
     if (!draft.path.trim().startsWith('/')) {
-      toast.warning('接口路径必须以 / 开头')
+      toast.warning(t('ws.pathMustStartWithSlash'))
       return false
     }
     try {
@@ -914,10 +917,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ...saved,
         request: JSON.parse(JSON.stringify(saved.request)),
       })
-      toast.success(`接口已保存：${saved.name}`)
+      toast.success(t('ws.endpointSaved', { name: saved.name }))
       return true
     } catch (err) {
-      toast.error('保存失败', { message: err instanceof Error ? err.message : String(err) })
+      toast.error(t('ws.saveFail'), { message: err instanceof Error ? err.message : String(err) })
       return false
     }
   }
@@ -947,10 +950,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         await api.saveEndpoint({ ...e })
       }
       await refresh()
-      toast.success(`已撤销删除：${snap.label}`)
+      toast.success(t('ws.undoDeleteDone', { name: snap.label }))
       return true
     } catch (err) {
-      toast.error('撤销删除失败', { message: err instanceof Error ? err.message : String(err) })
+      toast.error(t('ws.undoDeleteFail'), { message: err instanceof Error ? err.message : String(err) })
       return false
     }
   }
@@ -984,12 +987,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         folders: [],
         endpoints: [{ ...snapshot }],
       }
-      toast.info(`接口已删除：${snapshot.name || snapshot.path}`, {
+      toast.info(t('ws.endpointDeleted', { name: snapshot.name || snapshot.path }), {
         duration: 8000,
-        action: { label: '撤销', run: () => void undoDelete() },
+        action: { label: t('ws.undo'), run: () => void undoDelete() },
       })
     } else {
-      toast.info('接口已删除')
+      toast.info(t('ws.endpointDeletedPlain'))
     }
   }
 
@@ -997,7 +1000,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const dup = await api.duplicateEndpoint(endpointId)
     await refresh()
     openEndpoint(dup)
-    toast.info(`已复制：${dup.name}`)
+    toast.info(t('ws.duplicated', { name: dup.name }))
   }
 
   /** 加载环境列表（全局）+ 当前激活环境 + 全局变量 + 全局参数。 */
@@ -1044,7 +1047,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       updated_at: now,
     })
     environments.value.push(env)
-    toast.success(`环境已创建：${env.name}`)
+    toast.success(t('ws.envCreated', { name: env.name }))
   }
 
   /** 保存（upsert）环境并同步本地列表。 */
@@ -1056,7 +1059,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const idx = environments.value.findIndex((e) => e.id === saved.id)
     if (idx === -1) environments.value.push(saved)
     else environments.value[idx] = saved
-    if (!opts?.silent) toast.success(`环境已保存：${saved.name}`)
+    if (!opts?.silent) toast.success(t('ws.envSaved', { name: saved.name }))
     return saved
   }
 
@@ -1065,7 +1068,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await api.deleteEnvironment(environmentId)
     environments.value = environments.value.filter((e) => e.id !== environmentId)
     if (activeEnvId.value === environmentId) activeEnvId.value = null
-    toast.success('环境已删除')
+    toast.success(t('ws.envDeleted'))
   }
 
   /**
@@ -1209,7 +1212,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } catch (err) {
       if (timedOut) {
         const e = err as Error & { code?: string }
-        if (e?.code === 'CANCELLED') throw new Error(`请求超时（>${ms}ms），已自动取消`)
+        if (e?.code === 'CANCELLED') throw new Error(t('ws.requestTimeoutCancelled', { ms: String(ms) }))
       }
       throw err
     } finally {
@@ -1373,13 +1376,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const total = snapFolders.length + snapEndpoints.length
     lastDeleted.value = {
       kind: topFolders.length ? 'folder' : 'endpoint',
-      label: `${total} 项`,
+      label: t('jsonTree.itemCount', { n: total }),
       folders: snapFolders,
       endpoints: snapEndpoints,
     }
-    toast.info(`已删除 ${total} 项`, {
+    toast.info(t('ws.deletedCount', { n: total }), {
       duration: 8000,
-      action: { label: '撤销', run: () => void undoDelete() },
+      action: { label: t('ws.undo'), run: () => void undoDelete() },
     })
   }
 
@@ -1393,7 +1396,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       list.map((e) => api.saveEndpoint({ ...e, folder_id: folderId, sort_order: order++ })),
     )
     await refresh()
-    toast.success(`已移动 ${list.length} 个接口`)
+    toast.success(t('ws.movedCount', { n: list.length }))
   }
 
   async function deleteFolder(folderId: string): Promise<void> {
@@ -1409,12 +1412,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         folders: snap.folders,
         endpoints: snap.endpoints,
       }
-      toast.info(`文件夹已删除：${folder.name}（含 ${snap.endpoints.length} 个接口）`, {
+      toast.info(t('ws.folderDeleted', { name: folder.name, n: snap.endpoints.length }), {
         duration: 8000,
-        action: { label: '撤销', run: () => void undoDelete() },
+        action: { label: t('ws.undo'), run: () => void undoDelete() },
       })
     } else {
-      toast.info('文件夹已删除（含子项）')
+      toast.info(t('ws.folderDeletedPlain'))
     }
   }
 
@@ -1426,7 +1429,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: crypto.randomUUID(),
       project_id: project.value?.id ?? '',
       folder_id: folderId,
-      name: '未命名接口',
+      name: t('default.endpointName'),
       method: parsed.method,
       path,
       description: '',
@@ -1472,9 +1475,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const removed = await api.clearRequestHistories(project.value.id, endpointId)
       histories.value = []
-      toast.success(`已清空 ${removed} 条请求历史`)
+      toast.success(t('ws.historyCleared', { n: removed }))
     } catch (err) {
-      toast.error('清空历史失败', {
+      toast.error(t('ws.historyClearFail'), {
         message: err instanceof Error ? err.message : String(err),
       })
     }
@@ -1515,7 +1518,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         id,
         project_id: project.value?.id ?? '',
         folder_id: null,
-        name: '未命名接口',
+        name: t('default.endpointName'),
         method: (summary.method ?? h.method) as HttpMethod,
         path,
         description: '',
@@ -1539,7 +1542,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (spec?.headers) draft.request.headers = spec.headers
     if (spec?.body) draft.request.body = spec.body
     if (spec?.path_variables?.length) draft.request.path_variables = spec.path_variables
-    toast.info('已恢复该次请求到编辑器')
+    toast.info(t('ws.restoredToEditor'))
   }
 
   return {

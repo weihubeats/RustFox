@@ -9,6 +9,7 @@
  * bodyAny 用 any 放宽联合类型访问（模板 v-model 直写 raw / spec.*）。
  */
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useLocaleStore } from '../stores/locale'
 
 import CustomSelect from './ui/CustomSelect.vue'
 import FindBar from './ui/FindBar.vue'
@@ -22,6 +23,9 @@ import type { BodyTab, RawSubtype } from '../utils/bodyMode'
 import type { BodySpec, Endpoint, GraphQLSpec, KeyValue, MultipartField, RequestSpec } from '../types/foxApi'
 
 const props = defineProps<{ draft: Endpoint | null }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 
 /** 编辑视图：BodySpec 联合各分支字段统一为必填（运行时按 activeTab 分支存在）。 */
 type EditableBody = {
@@ -38,14 +42,14 @@ const graphql = computed(() => bodyAny.value.spec)
 const urlencodedFields = computed(() => bodyAny.value.fields as KeyValue[])
 const multipartFields = computed(() => bodyAny.value.fields as MultipartField[])
 
-const BODY_TABS: SegmentOption[] = [
-  { value: 'none', label: '无' },
+const BODY_TABS = computed<SegmentOption[]>(() => [
+  { value: 'none', label: t('body.none') },
   { value: 'form-data', label: 'form-data' },
   { value: 'x-www-form-urlencoded', label: 'x-www-form-urlencoded' },
   { value: 'raw', label: 'raw' },
   { value: 'binary', label: 'binary' },
   { value: 'graphql', label: 'GraphQL' },
-]
+])
 
 const RAW_SUBTYPE_OPTIONS = RAW_SUBTYPES.map((s) => ({ value: s.value, label: s.label }))
 
@@ -128,18 +132,18 @@ const rawSubtype = computed({
   },
 })
 
-const RAW_PLACEHOLDER: Record<RawSubtype, string> = {
+const RAW_PLACEHOLDER = computed<Record<RawSubtype, string>>(() => ({
   json: '{ "key": "value" }',
-  text: '纯文本内容',
-  javascript: '// JavaScript 代码',
+  text: t('body.textPh'),
+  javascript: '// JavaScript',
   html: '<!DOCTYPE html>\n<html>…</html>',
   xml: '<?xml version="1.0" encoding="UTF-8"?>\n<root>…</root>',
-}
+}))
 
-const MULTIPART_TYPE_OPTIONS = [
-  { value: 'text', label: '文本' },
-  { value: 'file_path', label: '文件路径' },
-]
+const MULTIPART_TYPE_OPTIONS = computed(() => [
+  { value: 'text', label: t('body.textType') },
+  { value: 'file_path', label: t('body.filePathType') },
+])
 
 // ---------- 查找（Find in Request Body） ----------
 const panelRef = ref<HTMLElement | null>(null)
@@ -401,7 +405,7 @@ const binPath = useDebouncedField(
           class="bp-icon-btn"
           :class="{ active: findOpen }"
           type="button"
-          title="在请求体中查找 (⌘F)"
+          :title="t('body.findHint')"
           @click="toggleFind"
         >
           <Icon name="search" :size="13" />
@@ -414,7 +418,7 @@ const binPath = useDebouncedField(
       v-model:query="query"
       :index="activeMatch"
       :total="total"
-      placeholder="在请求体中查找…"
+      :placeholder="t('body.findPh')"
       @prev="prevMatch"
       @next="nextMatch"
       @close="closeFind"
@@ -435,7 +439,7 @@ const binPath = useDebouncedField(
       ref="rawTextareaRef"
       class="rf-input body-input"
       spellcheck="false"
-      :placeholder="RAW_PLACEHOLDER[rawSubtype as RawSubtype] ?? '纯文本内容'"
+      :placeholder="RAW_PLACEHOLDER[rawSubtype as RawSubtype] ?? t('body.textPh')"
       @input="rawText.onInput(($event.target as HTMLTextAreaElement).value)"
       @blur="rawText.flush()"
     ></textarea>
@@ -460,7 +464,7 @@ const binPath = useDebouncedField(
       <input
         :value="gqlOp.local.value"
         class="rf-input rf-input-sm"
-        placeholder="operationName（可选）"
+        :placeholder="t('body.operationNamePh')"
         @input="gqlOp.onInput(($event.target as HTMLInputElement).value)"
         @blur="gqlOp.flush()"
       />
@@ -476,7 +480,7 @@ const binPath = useDebouncedField(
       <div class="mp-head">
         <span class="mp-col mp-check"></span>
         <span class="mp-col mp-key rf-mono">Key</span>
-        <span class="mp-col mp-type rf-mono">类型</span>
+        <span class="mp-col mp-type rf-mono">{{ t('body.colType') }}</span>
         <span class="mp-col mp-value rf-mono">Value</span>
         <span class="mp-col mp-actions"></span>
       </div>
@@ -504,33 +508,32 @@ const binPath = useDebouncedField(
           @keydown.enter.prevent="addMultipartField"
         />
         <span class="mp-col mp-actions">
-          <IconButton name="trash" :size="13" tone="danger" title="删除" @click="removeMultipartField(i)" />
+          <IconButton name="trash" :size="13" tone="danger" :title="t('common.delete')" @click="removeMultipartField(i)" />
         </span>
       </div>
       <button class="mp-add" type="button" @click="addMultipartField">
-        <Icon name="plus" :size="13" /> 添加字段
+        <Icon name="plus" :size="13" /> {{ t('body.addField') }}
       </button>
     </div>
 
     <div v-else-if="activeTab === 'binary'" class="binary-box">
       <label class="binary-label">
-        <Icon name="upload" :size="14" /> 文件路径
+        <Icon name="upload" :size="14" /> {{ t('body.filePath') }}
       </label>
       <input
         :value="binPath.local.value"
         class="rf-input rf-input-sm binary-input"
         spellcheck="false"
-        placeholder="/path/to/file.bin（如 /Users/me/avatar.png）"
+        :placeholder="t('body.filePathPh')"
         @input="binPath.onInput(($event.target as HTMLInputElement).value)"
         @blur="binPath.flush()"
       />
       <p class="binary-hint">
-        发送时后端读取该文件的原始字节作为请求体；Content-Type 默认
-        application/octet-stream，可在 Headers 标签改为实际类型（如 image/png）。
+        {{ t('body.binaryHint') }}
       </p>
     </div>
 
-    <p v-else class="body-hint">该请求不携带 Body。</p>
+    <p v-else class="body-hint">{{ t('body.noBody') }}</p>
   </div>
 </template>
 

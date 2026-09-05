@@ -3,7 +3,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import TestCaseDrawer from './TestCaseDrawer.vue'
+import { useLocaleStore } from '../stores/locale'
 import type { TestCase } from '../types/foxApi'
 
 function makeCase(): TestCase {
@@ -40,6 +42,9 @@ function mountDrawer(overrides: { open?: boolean; testCase?: TestCase | null } =
 
 describe('TestCaseDrawer', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
     document.body.innerHTML = ''
   })
 

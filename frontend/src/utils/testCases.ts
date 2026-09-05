@@ -5,6 +5,7 @@
  * - 回填：把用例快照写回请求（params / headers / body 按 body_type 还原）。
  */
 import type { BodySpec, KeyValue, RequestSpec, TestCaseCategory } from '../types/foxApi'
+import { tFallback } from '../stores/locale'
 
 /** 用例分组（与后端 CATEGORIES 一致）。 */
 export const TEST_CASE_CATEGORIES: TestCaseCategory[] = [
@@ -24,6 +25,21 @@ export const CATEGORY_TONE: Record<TestCaseCategory, string> = {
   其他: 'var(--text-3)',
 }
 
+/** 分组存库原值 → 展示文案键（面板 Tab / 下拉 label 用；原值本身保持中文不变）。 */
+const CATEGORY_LABEL_KEYS: Record<TestCaseCategory, string> = {
+  正向: 'cases.catPositive',
+  负向: 'cases.catNegative',
+  边界值: 'cases.catBoundary',
+  安全性: 'cases.catSecurity',
+  其他: 'cases.catOther',
+}
+
+/** 分组展示文案（未知原值原样返回；存储仍写中文原值）。 */
+export function caseCategoryLabel(cat: string): string {
+  const key = CATEGORY_LABEL_KEYS[cat as TestCaseCategory]
+  return key ? tFallback(key) : cat
+}
+
 /** body_type 标识 → 展示文案。 */
 const BODY_TYPE_LABELS: Record<string, string> = {
   json: 'JSON',
@@ -32,7 +48,6 @@ const BODY_TYPE_LABELS: Record<string, string> = {
   urlencoded: 'x-www-form-urlencoded',
   graphql: 'GraphQL',
   binary: 'Binary',
-  none: '无 Body',
 }
 
 /** HTTP 状态码 → 简短语义文案（未知回退数字本身）。 */
@@ -79,6 +94,7 @@ export function formatDuration(ms?: number | null): string {
 }
 
 export function bodyTypeLabel(t: string): string {
+  if (t === 'none') return tFallback('cases.bodyNone')
   return BODY_TYPE_LABELS[t] ?? t
 }
 

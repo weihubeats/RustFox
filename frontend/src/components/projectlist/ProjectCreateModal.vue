@@ -9,6 +9,7 @@ import { ref, watch } from 'vue'
 import Modal from '../ui/Modal.vue'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
+import { useLocaleStore } from '../../stores/locale'
 import type { Project } from '../../types/foxApi'
 
 const NAME_MAX = 50
@@ -16,6 +17,8 @@ const DESC_MAX = 200
 
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -37,11 +40,11 @@ const emit = defineEmits<{ created: [project: Project] }>()
 async function confirmCreate(): Promise<void> {
   const name = newName.value.trim()
   if (!name) {
-    createError.value = '项目名称不能为空'
+    createError.value = t('workspace.projectNameRequired')
     return
   }
   if (name.length > NAME_MAX) {
-    createError.value = `项目名称不能超过 ${NAME_MAX} 个字符`
+    createError.value = t('pcreate.nameTooLong', { n: NAME_MAX })
     return
   }
   const now = new Date().toISOString()
@@ -55,24 +58,24 @@ async function confirmCreate(): Promise<void> {
       updated_at: now,
     })
     open.value = false
-    toast.success('项目创建成功', { message: name })
+    toast.success(t('workspace.projectCreated'), { message: name })
     emit('created', project)
   } catch (e) {
-    toast.error('创建项目失败', { message: e instanceof Error ? e.message : String(e), duration: 6000 })
+    toast.error(t('workspace.projectCreateFail'), { message: e instanceof Error ? e.message : String(e), duration: 6000 })
   }
 }
 </script>
 
 <template>
-  <Modal v-model:open="open" title="新建 API 项目" width="420px" @close="open = false">
+  <Modal v-model:open="open" :title="t('projectlist.newProject')" width="420px" @close="open = false">
     <div class="form-field">
-      <label class="form-label" for="new-project-name">项目名称</label>
+      <label class="form-label" for="new-project-name">{{ t('workspace.projectName') }}</label>
       <input
         id="new-project-name"
         v-model="newName"
         class="rf-input"
         :class="{ 'rf-input-error': createError }"
-        placeholder="例如：电子商务后端 API"
+        :placeholder="t('workspace.projectNamePh')"
         maxlength="60"
         spellcheck="false"
         @input="createError = null"
@@ -81,20 +84,20 @@ async function confirmCreate(): Promise<void> {
       <p v-if="createError" class="rf-field-error" role="alert">{{ createError }}</p>
     </div>
     <div class="form-field">
-      <label class="form-label" for="new-project-desc">描述（可选）</label>
+      <label class="form-label" for="new-project-desc">{{ t('workspace.projectDesc') }}</label>
       <textarea
         id="new-project-desc"
         v-model="newDesc"
         class="rf-textarea"
         :maxlength="DESC_MAX"
-        placeholder="项目用途与说明…"
+        :placeholder="t('workspace.projectDescPh')"
         rows="3"
       ></textarea>
     </div>
     <template #footer>
-      <button class="rf-btn" type="button" @click="open = false">取消</button>
+      <button class="rf-btn" type="button" @click="open = false">{{ t('common.cancel') }}</button>
       <button class="rf-btn rf-btn-primary" type="button" :disabled="api.pending.value" @click="confirmCreate">
-        创建
+        {{ t('workspace.create') }}
       </button>
     </template>
   </Modal>

@@ -8,6 +8,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { formatDuration } from '../utils/format'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
@@ -15,6 +16,8 @@ import IconButton from './ui/IconButton.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 /**
  * 本地搜索 + 状态筛选：原来仅「仅当前接口」复选，无关键字/状态码检索。
@@ -78,23 +81,23 @@ function shortTime(iso: string): string {
 <template>
   <div class="history-panel">
     <div class="hp-head">
-      <label class="hp-filter" title="只显示当前激活接口的请求记录">
+      <label class="hp-filter" :title="t('history.onlyCurrentHint')">
         <input
           v-model="store.historyOnlyCurrent"
           type="checkbox"
           class="hp-check"
           @change="reload"
         />
-        仅当前接口
+        {{ t('history.onlyCurrent') }}
       </label>
       <span class="hp-count">{{ filtered.length }}/{{ store.histories.length }}</span>
       <Popconfirm
-        title="清空请求历史？该操作不可恢复。"
-        confirm-text="清空"
+        :title="t('history.clearConfirm')"
+        :confirm-text="t('history.clear')"
         danger
         @confirm="clear"
       >
-        <IconButton name="trash" :size="14" tone="danger" title="清空历史记录" />
+        <IconButton name="trash" :size="14" tone="danger" :title="t('history.clearTitle')" />
       </Popconfirm>
     </div>
 
@@ -104,16 +107,16 @@ function shortTime(iso: string): string {
         v-model="keyword"
         class="hp-search"
         type="text"
-        placeholder="搜索 URL / 方法 / 状态码…"
+        :placeholder="t('history.searchPh')"
         spellcheck="false"
       />
       <button
         class="hp-status-filter"
         type="button"
-        :title="`状态筛选：${statusFilter === 'all' ? '全部' : statusFilter}`"
+        :title="t('history.statusFilter', { v: statusFilter === 'all' ? t('history.all') : statusFilter })"
         @click="cycleStatusFilter"
       >
-        {{ statusFilter === 'all' ? '全部' : statusFilter }}
+        {{ statusFilter === 'all' ? t('history.all') : statusFilter }}
       </button>
     </div>
 
@@ -141,11 +144,11 @@ function shortTime(iso: string): string {
         v-if="!store.histories.length"
         icon="history"
         compact
-        title="暂无请求历史"
-        description="发送请求后，最近 50 条记录会显示在这里"
+        :title="t('history.empty')"
+        :description="t('history.emptyHint')"
       />
       <p v-else-if="!filtered.length" class="hp-no-match">
-        无匹配记录{{ keyword.trim() ? `：${keyword.trim()}` : '' }}
+        {{ keyword.trim() ? t('history.noMatchQ', { q: keyword.trim() }) : t('history.noMatch') }}
       </p>
     </div>
   </div>

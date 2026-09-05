@@ -4,16 +4,24 @@
  */
 import Icon from './Icon.vue'
 import type { IconName } from './Icon.vue'
+import { computed } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     icon?: IconName
     title?: string
     description?: string
     compact?: boolean
   }>(),
-  { icon: 'folder-open', title: '暂无数据', description: '', compact: false },
+  { icon: 'folder-open', title: '', description: '', compact: false },
 )
+
+const locale = useLocaleStore()
+const t = locale.t
+
+/** 未传标题时按当前语言兜底。 */
+const effectiveTitle = computed(() => props.title || t('empty.title'))
 </script>
 
 <template>
@@ -21,7 +29,7 @@ withDefaults(
     <span class="es-icon">
       <Icon :name="icon" :size="compact ? 20 : 26" :stroke-width="1.5" />
     </span>
-    <p class="es-title">{{ title }}</p>
+    <p class="es-title">{{ effectiveTitle }}</p>
     <p v-if="description" class="es-desc">{{ description }}</p>
     <div v-if="$slots.default" class="es-actions">
       <slot />

@@ -20,6 +20,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { ref } from 'vue'
 import { useProgress } from './useProgress'
+import { tFallback } from '../stores/locale'
 import type {
   AuthSpec,
   BackupSummary,
@@ -75,9 +76,6 @@ export function toFoxError(raw: unknown): Error {
   return raw instanceof Error ? raw : new Error(String(raw))
 }
 
-/** 主密钥问题提示（对应后端 DECRYPT 错误码）。 */
-const DECRYPT_WARNING = '主密钥不匹配或已损坏，无法解密环境变量，请检查备份'
-
 /** 提示去重：同一会话只提示一次，避免批量环境列表解密失败时重复弹出。 */
 let decryptionWarned = false
 
@@ -85,7 +83,10 @@ function warnDecryptionFailed(): void {
   if (decryptionWarned) return
   decryptionWarned = true
   import('./useToast').then(({ useToast }) => {
-    useToast().error('解密失败', { message: DECRYPT_WARNING, duration: 0 })
+    useToast().error(tFallback('foxapi.decryptFailTitle'), {
+      message: tFallback('foxapi.decryptWarning'),
+      duration: 0,
+    })
   })
 }
 

@@ -9,6 +9,7 @@
  */
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
+import { useLocaleStore } from '../../stores/locale'
 import { copyText } from '../../utils/clipboard'
 import { highlightJSON, highlightJSONText } from '../../utils/highlight'
 import { compactJson, prettyJson } from '../../utils/jsonFormat'
@@ -35,6 +36,8 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 const taRef = ref<HTMLTextAreaElement | null>(null)
 const preRef = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
@@ -167,7 +170,7 @@ const status = computed<'empty' | 'ok' | 'invalid' | 'large'>(() => {
 /** 工具栏状态 Tag 文案与图标（empty 时不渲染）。 */
 const statusText = computed(
   () =>
-    ({ ok: 'JSON 有效', invalid: '语法错误', large: '内容过大，高亮已停用' })[
+    ({ ok: t('jsonEditor.ok'), invalid: t('jsonEditor.invalid'), large: t('jsonEditor.large') })[
       status.value as 'ok' | 'invalid' | 'large'
     ] ?? '',
 )
@@ -208,18 +211,18 @@ function format(mode: 'pretty' | 'compact'): void {
   // 以 textarea 的实时 DOM 值为权威来源：真实浏览器里 input 事件可能丢失或
   // 延迟（拖拽写入、自动填充、受控回写竞态），导致 props.modelValue 落后于
   // 用户实际编辑的内容——此时若按 props 格式化会把编辑器回退成旧数据。
-  const t = (taRef.value?.value ?? props.modelValue).trim()
-  if (!t) return
+  const text = (taRef.value?.value ?? props.modelValue).trim()
+  if (!text) return
   try {
     // 无损格式化：保留重复键、键顺序与数字原文（parse/stringify 往返会丢重复键）。
-    const out = mode === 'compact' ? compactJson(t) : prettyJson(t)
+    const out = mode === 'compact' ? compactJson(text) : prettyJson(text)
     if (out !== props.modelValue) {
       emit('update:modelValue', out)
     } else if (taRef.value && taRef.value.value !== out) {
       // 模型已一致但 DOM 残留未同步的值：直接纠正 DOM。
       taRef.value.value = out
     }
-    toast.success(mode === 'compact' ? '已压缩' : '已美化')
+    toast.success(mode === 'compact' ? t('jsonEditor.compacted') : t('jsonEditor.prettified'))
     void nextTick(() => {
       // 双保险：emit 回写后强制对齐 DOM（WebKit 偶发不回写受控 value）。
       if (taRef.value && taRef.value.value !== props.modelValue) {
@@ -228,16 +231,16 @@ function format(mode: 'pretty' | 'compact'): void {
       taRef.value?.focus()
     })
   } catch (err) {
-    toast.error(err instanceof JsonFormatError ? `JSON 无效：${err.message}` : 'JSON 无效，无法格式化')
+    toast.error(err instanceof JsonFormatError ? t('jsonEditor.invalidJson', { v: err.message }) : t('jsonEditor.invalidJsonPlain'))
   }
 }
 
 async function copyJson(): Promise<void> {
-  const t = taRef.value?.value ?? props.modelValue
-  if (!t.trim()) return
-  const ok = await copyText(t)
-  if (ok) toast.success('JSON 已复制')
-  else toast.error('复制失败，请手动选择文本')
+  const text = taRef.value?.value ?? props.modelValue
+  if (!text.trim()) return
+  const ok = await copyText(text)
+  if (ok) toast.success(t('jsonEditor.copied'))
+  else toast.error(t('response.copyFail'))
 }
 </script>
 
@@ -251,10 +254,10 @@ async function copyJson(): Promise<void> {
         :class="status"
         :title="
           status === 'invalid'
-            ? 'JSON 语法错误，请检查后重试'
+            ? t('jsonEditor.invalidHint')
             : status === 'large'
-              ? '内容超过 200k 字符，语法高亮与校验已停用'
-              : 'JSON 语法有效'
+              ? t('jsonEditor.largeHint')
+              : t('jsonEditor.okHint')
         "
       >
         <Icon v-if="status === 'ok' || status === 'invalid'" :name="statusIcon" :size="11" />
@@ -266,7 +269,7 @@ async function copyJson(): Promise<void> {
         <button
           class="je-btn"
           type="button"
-          title="美化（格式化 JSON）"
+          :title="t('jsonEditor.prettyHint')"
           :disabled="!hasContent"
           @click="format('pretty')"
         >
@@ -275,13 +278,13 @@ async function copyJson(): Promise<void> {
         <button
           class="je-btn"
           type="button"
-          title="压缩 JSON"
+          :title="t('jsonEditor.compactHint')"
           :disabled="!hasContent"
           @click="format('compact')"
         >
           <Icon name="minimize-2" :size="12" />
         </button>
-        <button class="je-btn" type="button" title="复制 JSON" :disabled="!hasContent" @click="copyJson">
+        <button class="je-btn" type="button" :title="t('jsonEditor.copyHint')" :disabled="!hasContent" @click="copyJson">
           <Icon name="copy" :size="12" />
         </button>
       </div>

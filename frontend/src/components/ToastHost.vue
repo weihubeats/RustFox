@@ -10,9 +10,12 @@
  * --rf-bg-panel / --rf-border / --rf-text / 语义色）。
  */
 import { TOAST_TYPE_META, useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import type { ToastItem, ToastType } from '../composables/useToast'
 
 const { toasts, dismiss } = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const ICONS: Record<ToastType, string> = {
   success:
@@ -24,7 +27,7 @@ const ICONS: Record<ToastType, string> = {
     '<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
-function meta(type: ToastType): { label: string; color: string } {
+function meta(type: ToastType): { color: string } {
   return TOAST_TYPE_META[type]
 }
 
@@ -58,7 +61,7 @@ function onAction(item: ToastItem): void {
         <button
           class="rf-toast-close"
           type="button"
-          :aria-label="`关闭：${item.title}`"
+          :aria-label="t('toast.dismiss', { v: item.title })"
           @click="onClose(item)"
         >
           <svg viewBox="0 0 12 12" width="12" height="12">

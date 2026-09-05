@@ -7,6 +7,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { useThemeStore } from './stores/theme'
+import { useLocaleStore } from './stores/locale'
 import '@fontsource/geist-sans/400.css'
 import '@fontsource/geist-sans/500.css'
 import '@fontsource/geist-sans/600.css'
@@ -25,7 +26,8 @@ if (navigator.userAgent.includes('Mac')) {
 
 const pinia = createPinia()
 
-// 防闪烁（FOUC）：在挂载前同步读取持久化主题并写入 <html>，首屏即正确主题。
+// 防闪烁（FOUC）：在挂载前同步读取持久化主题与语言并写入 <html>。
 useThemeStore(pinia).init()
+useLocaleStore(pinia).init()
 
 createApp(App).use(pinia).use(router).directive('tooltip-overflow', tooltipOverflow).directive('focus-end', focusEnd).mount('#app')

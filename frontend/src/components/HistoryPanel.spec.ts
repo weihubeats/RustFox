@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import HistoryPanel from './HistoryPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { RequestHistory } from '../types/foxApi'
 
@@ -25,6 +26,8 @@ function history(partial: Partial<RequestHistory> & { id: string }): RequestHist
 
 function mountPanel() {
   setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
   const store = useWorkspaceStore()
   store.histories = [
     history({ id: 'h-1', url: 'https://api.example.com/users', status: 200 }),

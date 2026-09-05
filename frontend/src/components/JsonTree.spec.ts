@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import JsonTree from './JsonTree.vue'
+import { useLocaleStore } from '../stores/locale'
 import { collectErrors, stubScrollIntoView } from '../testUtils/componentTest'
 
 const DATA = {
@@ -10,9 +12,14 @@ const DATA = {
   ],
 }
 
+beforeEach(() => {
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
+})
+
 /** 折叠摘要行的形态：`… 1 项`（token：` … ` + `N 项`）。用 text() 避免中间标签干扰。 */
-function expectCollapsed(wrapper: { text: () => string }, collapsed: boolean): void {
-  if (collapsed) {
+function expectCollapsed(wrapper: { text: () => string }, collapsed: boolean): void {  if (collapsed) {
     expect(wrapper.text()).toMatch(/…\s+\d+\s+项/)
   } else {
     expect(wrapper.text()).not.toMatch(/…\s+\d+\s+项/)

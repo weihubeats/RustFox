@@ -12,6 +12,8 @@ import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, watch } fro
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
+import { useLocaleStore } from '../stores/locale'
+import { isDefaultName } from '../stores/locale'
 import { useShortcuts, shortcutDef } from '../composables/useShortcuts'
 import {
   envBaseUrl,
@@ -63,6 +65,8 @@ import type {
 const store = useWorkspaceStore()
 const toast = useToast()
 const api = useFoxApi()
+const locale = useLocaleStore()
+const t = locale.t
 
 // DocsPanel / TestCasesPanel 内部链路引入 CodeMirror 全家桶（约 300KB），
 // 异步化后拆出主 chunk，仅首次切到对应视图时加载
@@ -351,11 +355,14 @@ const envBadgeLabel = computed(() =>
 /** Base URL 标签悬浮提示：`环境：X | 基础路径：https://...`（无环境时仅展示路径来源）。 */
 const envBadgeTooltip = computed(() => {
   if (!draft.value || isAbsPath.value) return ''
-  return envBadgeTooltipOf({
-    urlDomain: urlDomain.value,
-    resolvedDomain: resolvedDomain.value,
-    envName: activeEnvName.value,
-  })
+  return envBadgeTooltipOf(
+    {
+      urlDomain: urlDomain.value,
+      resolvedDomain: resolvedDomain.value,
+      envName: activeEnvName.value,
+    },
+    (key, params) => t(key, params),
+  )
 })
 
 /** 路径输入框元素引用（快捷按钮聚焦回跳）。 */
@@ -363,9 +370,8 @@ const urlInputEl = ref<HTMLInputElement | null>(null)
 
 /** 路径输入框 placeholder：有基础 URL 时提示自动拼接，无则提示粘贴完整 URL。 */
 const urlPlaceholder = computed(() => {
-  const base = '输入接口路径，如 /api/v1/users'
-  if (!urlDomain.value) return `${base}，或直接粘贴完整 URL`
-  return `${base}，自动拼接 ${resolvedDomain.value || urlDomain.value}`
+  if (!urlDomain.value) return t('editor.urlPhBare')
+  return t('editor.urlPhJoin', { v: resolvedDomain.value || urlDomain.value })
 })
 
 /** 路径输入框（与 chip 组成完整请求地址）；粘贴完整 URL 时自动拆分。 */
@@ -432,7 +438,7 @@ async function send(): Promise<void> {
   if (!draft.value) return
   const targetId = draft.value.id
   if (sendingMap.value.has(targetId)) {
-    toast.info('请求发送中，点击取消按钮可中断')
+    toast.info(t('editor.sendingHint'))
     return
   }
   const snapshot = draft.value
@@ -453,7 +459,7 @@ async function send(): Promise<void> {
     const e = err as Error & { code?: string }
     if (e?.code === 'CANCELLED') {
       // 用户主动取消：不视为错误，保留上一次结果。
-      toast.info('请求已取消')
+      toast.info(t('editor.cancelled'))
       sendErrors.value.set(targetId, null)
     } else {
       sendErrors.value.set(targetId, err instanceof Error ? err.message : String(err))
@@ -473,7 +479,7 @@ function cancelSend(): void {
   const rid = activeRequestId.value
   if (!rid) return
   void api.cancelRequest(rid)
-  toast.info('正在取消请求…')
+  toast.info(t('editor.cancelling'))
 }
 
 /** 保存：名称为空或仍是默认「未命名接口」时，先弹「名称 + 保存位置」确认框，确认后再落库。 */
@@ -505,7 +511,7 @@ const folderOptions = computed<FolderOption[]>(() => {
 async function save(): Promise<void> {
   if (!draft.value) return
   const name = draft.value.name.trim()
-  if (!name || name === '未命名接口') {
+  if (isDefaultName('endpoint', name)) {
     pendingName.value = ''
     pendingFolderId.value = draft.value.folder_id ?? ''
     showNameDialog.value = true
@@ -521,7 +527,7 @@ async function confirmName(): Promise<void> {
   if (!draft.value) return
   const name = pendingName.value.trim()
   if (!name) {
-    toast.warning('接口名称不能为空')
+    toast.warning(t('editor.nameRequired'))
     return
   }
   draft.value.name = name
@@ -534,13 +540,13 @@ async function confirmName(): Promise<void> {
 }
 
 // ---------- 二级导航 + 保存为用例 ----------
-const SUB_NAV: { key: 'debug' | 'design' | 'docs' | 'cases' | 'mock'; label: string }[] = [
-  { key: 'debug', label: '调试' },
-  { key: 'design', label: '设计' },
-  { key: 'docs', label: '文档预览' },
-  { key: 'cases', label: '测试用例' },
+const SUB_NAV = computed<{ key: 'debug' | 'design' | 'docs' | 'cases' | 'mock'; label: string }[]>(() => [
+  { key: 'debug', label: t('editor.navDebug') },
+  { key: 'design', label: t('editor.navDesign') },
+  { key: 'docs', label: t('editor.navDocs') },
+  { key: 'cases', label: t('editor.navCases') },
   { key: 'mock', label: 'Mock' },
-]
+])
 
 /** 切换接口时回到「调试」页。 */
 watch(
@@ -553,7 +559,7 @@ const saveMenuEl = ref<InstanceType<typeof Menu> | null>(null)
 
 function openSaveMenu(event: MouseEvent): void {
   saveMenuEl.value?.openAt(event.currentTarget as HTMLElement, [
-    { key: 'save-case', label: '保存为用例', icon: 'list' },
+    { key: 'save-case', label: t('editor.saveAsCase'), icon: 'list' },
   ])
 }
 
@@ -568,7 +574,7 @@ const pendingCaseName = ref('')
 function openSaveCaseModal(): void {
   const d = draft.value
   if (!d) return
-  pendingCaseName.value = d.name !== '未命名接口' ? `${d.method} ${d.path}` : ''
+  pendingCaseName.value = !isDefaultName('endpoint', d.name) ? `${d.method} ${d.path}` : ''
   showTestCaseModal.value = true
 }
 
@@ -645,7 +651,7 @@ const exampleName = ref('')
 
 function saveExample(): void {
   if (!draft.value || !response.value) return
-  exampleName.value = `${draft.value.method} ${new Date().toLocaleTimeString('zh-CN')}`
+  exampleName.value = `${draft.value.method} ${new Date().toLocaleTimeString(locale.resolved === 'zh' ? 'zh-CN' : 'en-US')}`
   showExampleDialog.value = true
 }
 
@@ -653,14 +659,14 @@ async function confirmSaveExample(): Promise<void> {
   if (!draft.value || !response.value) return
   const name = exampleName.value.trim()
   if (!name) {
-    toast.warning('示例名称不能为空')
+    toast.warning(t('editor.exampleNameRequired'))
     return
   }
   try {
     await store.saveAsExample(draft.value.id, name, response.value)
     showExampleDialog.value = false
   } catch (err) {
-    toast.error('保存示例失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('editor.exampleSaveFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -674,7 +680,7 @@ async function removeExample(ex: ResponseExample): Promise<void> {
     await store.removeExample(draft.value.id, ex.id)
     if (viewingExample.value?.id === ex.id) viewingExample.value = null
   } catch (err) {
-    toast.error('删除示例失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('editor.exampleDeleteFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -704,7 +710,7 @@ function clearPath(): void {
 async function copyRequestUrl(): Promise<void> {
   if (!requestUrl.value) return
   await navigator.clipboard.writeText(requestUrl.value)
-  toast.info('地址已复制')
+  toast.info(t('common.copied'))
 }
 
 /**
@@ -742,7 +748,7 @@ onUnmounted(() => {
   <div ref="editorEl" v-if="draft" class="editor">
     <div class="editor-row breadcrumb-row">
       <span class="crumb">
-        <span class="crumb-part">{{ store.project?.name ?? '未命名项目' }}</span>
+        <span class="crumb-part">{{ store.project?.name ?? t('default.projectName') }}</span>
         <template v-if="folderName">
           <span class="crumb-sep">/</span>
           <span class="crumb-part">{{ folderName }}</span>
@@ -751,9 +757,9 @@ onUnmounted(() => {
         <input
           v-model="draft.name"
           class="crumb-name"
-          placeholder="接口名称"
+          :placeholder="t('editor.endpointNamePh')"
           spellcheck="false"
-          title="点击可直接修改接口名称"
+          :title="t('editor.endpointNameHint')"
         />
       </span>
       <span class="breadcrumb-spacer"></span>
@@ -804,7 +810,7 @@ onUnmounted(() => {
         </Tooltip>
         <Tooltip
           v-if="activeEnv && activeEnv.modules.length > 0 && !isAbsPath"
-          :content="'选择该请求归属的服务模块；未绑定（默认）时使用默认模块基址'"
+          :content="t('editor.moduleHint')"
           placement="bottom"
         >
           <CustomSelect
@@ -812,7 +818,7 @@ onUnmounted(() => {
             pop-class="mod-pop"
             :model-value="moduleId ?? ''"
             :options="[
-              { value: '', label: '默认模块' },
+              { value: '', label: t('editor.defaultModule') },
               ...activeEnv.modules.map((m) => ({ value: m.id, label: m.module_name })),
             ]"
             size="sm"
@@ -829,12 +835,12 @@ onUnmounted(() => {
             @keydown="onUrlKeydown"
           />
           <template v-if="urlPath">
-            <Tooltip content="复制完整请求地址" placement="top" class="url-qbtn url-qbtn-copy">
+            <Tooltip :content="t('editor.copyUrl')" placement="top" class="url-qbtn url-qbtn-copy">
               <button type="button" class="url-qbtn-btn" @click="copyRequestUrl">
                 <Icon name="copy" :size="13" />
               </button>
             </Tooltip>
-            <Tooltip content="清空路径 (Esc)" placement="top" class="url-qbtn">
+            <Tooltip :content="t('editor.clearPath')" placement="top" class="url-qbtn">
               <button type="button" class="url-qbtn-btn" @click="clearPath">
                 <Icon name="x" :size="13" />
               </button>
@@ -843,33 +849,33 @@ onUnmounted(() => {
         </div>
         <button v-if="!sending" class="rf-btn rf-btn-send bar-send" type="button" @click="send">
           <Icon name="send" :size="14" />
-          发送
+          {{ t('editor.send') }}
         </button>
         <button
           v-else
           class="rf-btn rf-btn-danger bar-send is-sending"
           type="button"
-          title="请求发送中，点击取消"
+          :title="t('editor.sendingCancel')"
           @click="cancelSend"
         >
           <span class="btn-spinner" aria-hidden="true"></span>
-          <span>发送中 <span class="bar-send-elapsed">{{ elapsedText }}</span></span>
+          <span>{{ t('editor.sending') }} <span class="bar-send-elapsed">{{ elapsedText }}</span></span>
           <Icon name="stop" :size="13" />
         </button>
       </div>
       <div class="editor-actions">
-        <button class="rf-btn rf-btn-sm" type="button" title="断言测试 / 压测" @click="showTools = true">
-          <Icon name="gauge" :size="13" /> 工具
+        <button class="rf-btn rf-btn-sm" type="button" :title="t('editor.toolsHint')" @click="showTools = true">
+          <Icon name="gauge" :size="13" /> {{ t('editor.tools') }}
         </button>
         <CodeExportMenu :draft="draft" :url="requestUrl" />
         <div class="save-group">
           <button class="rf-btn save-main" type="button" @click="save">
-            <Icon name="save" :size="14" /> 保存 (⌘S)
+            <Icon name="save" :size="14" /> {{ t('editor.saveHint') }}
           </button>
           <button
             class="rf-btn save-arrow"
             type="button"
-            title="更多保存选项"
+            :title="t('editor.saveMore')"
             @click="openSaveMenu($event)"
           >
             <Icon name="chevron-down" :size="12" />
@@ -896,14 +902,14 @@ onUnmounted(() => {
       <div
         class="rp-splitter"
         :class="{ dragging: splitterDragging }"
-        title="拖拽调整请求区高度（双击折叠 / 展开）"
+        :title="t('editor.splitterHint')"
         @mousedown="onSplitterDown"
         @dblclick="toggleRequestBody"
       >
         <button
           class="rp-splitter-btn"
           type="button"
-          :title="requestBodyCollapsed ? '展开请求区' : '折叠请求区'"
+          :title="requestBodyCollapsed ? t('editor.expandRequest') : t('editor.collapseRequest')"
           @mousedown.stop
           @dblclick.stop
           @click="toggleRequestBody"
@@ -916,33 +922,33 @@ onUnmounted(() => {
         <!-- Apifox 式请求中占位：转圈 + 实时计时 + 骨架 shimmer，一眼可知「这次发出去了」。 -->
         <div v-if="sending && !response && !sendError" class="req-loading" role="status" aria-live="polite">
           <span class="req-loading-ring" aria-hidden="true"></span>
-          <p class="req-loading-title">正在发送请求…</p>
+          <p class="req-loading-title">{{ t('editor.sendingTitle') }}</p>
           <p class="req-loading-sub">{{ draft.method }} {{ requestUrl }}</p>
           <div class="req-loading-skel">
             <Skeleton :lines="5" height="12px" />
           </div>
           <button class="rf-btn rf-btn-sm req-loading-cancel" type="button" @click="cancelSend">
-            取消请求
+            {{ t('editor.cancelRequest') }}
           </button>
         </div>
         <div v-else ref="flashEl" class="response-anim" :class="{ 'is-stale': sending }">
           <ResponsePanel v-if="response" :response="response" @save-example="saveExample" />
           <div v-else-if="sendError" class="send-error" role="alert">
-            <span>发送失败：{{ sendError }}</span>
+            <span>{{ t('editor.sendFail', { v: sendError }) }}</span>
           </div>
           <EmptyState
             v-else
             class="response-empty"
             icon="send"
-            title="尚未发送请求"
-            description="点击发送按钮或按 Cmd + Enter (Ctrl + Enter) 获取响应结果"
+            :title="t('editor.notSent')"
+            :description="t('editor.notSentHint')"
           />
         </div>
       </div>
     </template>
-    <p v-else class="response-hint">发送请求后，响应将显示在这里</p>
+    <p v-else class="response-hint">{{ t('editor.responseHint') }}</p>
     <div v-if="activeExamples.length" class="examples">
-      <h3 class="section-title">响应示例 ({{ activeExamples.length }})</h3>
+      <h3 class="section-title">{{ t('editor.examples', { n: activeExamples.length }) }}</h3>
       <div v-for="ex in activeExamples" :key="ex.id" class="example-row">
         <button
           class="example-main"
@@ -954,8 +960,8 @@ onUnmounted(() => {
           <span class="example-name">{{ ex.name }}</span>
           <span class="example-meta">{{ ex.created_at.slice(0, 16).replace('T', ' ') }}</span>
         </button>
-        <Popconfirm :title="`删除示例「${ex.name}」？`" @confirm="removeExample(ex)">
-            <IconButton name="trash" :size="13" tone="danger" title="删除示例" />
+        <Popconfirm :title="t('editor.deleteExampleConfirm', { name: ex.name })" @confirm="removeExample(ex)">
+            <IconButton name="trash" :size="13" tone="danger" :title="t('editor.deleteExample')" />
           </Popconfirm>
       </div>
       <pre v-if="viewingExample" class="example-body">{{ prettyBody(viewingExample.body) }}</pre>
@@ -971,28 +977,28 @@ onUnmounted(() => {
     />
   </div>
   <div v-else class="editor-empty">
-    <p>从左侧选择接口开始编辑</p>
+    <p>{{ t('editor.empty') }}</p>
   </div>
 
-  <Modal v-model:open="showNameDialog" title="保存接口" width="420px">
-    <p class="name-hint">请为接口填写名称（必填）：</p>
+  <Modal v-model:open="showNameDialog" :title="t('editor.saveEndpoint')" width="420px">
+    <p class="name-hint">{{ t('editor.nameHint') }}</p>
     <input
       v-model="pendingName"
       class="rf-input name-dialog-input"
-      placeholder="例如：获取用户列表"
+      :placeholder="t('editor.namePh')"
       spellcheck="false"
       @keyup.enter="confirmName"
     />
-    <p class="name-hint folder-hint">保存位置（文件夹）：</p>
+    <p class="name-hint folder-hint">{{ t('editor.saveFolderHint') }}</p>
     <CustomSelect
       class="save-folder-select"
       :model-value="pendingFolderId"
       :options="folderOptions"
-      placeholder="根目录（不选择文件夹）"
+      :placeholder="t('editor.saveFolderPh')"
       @update:model-value="pendingFolderId = String($event)"
     >
       <template #display="{ label }">
-        <span class="save-folder-display">{{ label || '根目录（不选择文件夹）' }}</span>
+        <span class="save-folder-display">{{ label || t('editor.saveFolderPh') }}</span>
       </template>
       <template #option="{ option }">
         <span :style="{ paddingLeft: `${(option as FolderOption).depth * 16 + 4}px` }">
@@ -1001,25 +1007,25 @@ onUnmounted(() => {
       </template>
     </CustomSelect>
     <template #footer>
-      <button class="rf-btn" type="button" @click="showNameDialog = false">取消</button>
+      <button class="rf-btn" type="button" @click="showNameDialog = false">{{ t('common.cancel') }}</button>
       <button class="rf-btn rf-btn-primary" type="button" @click="confirmName">
-        <Icon name="save" :size="14" /> 保存
+        <Icon name="save" :size="14" /> {{ t('common.save') }}
       </button>
     </template>
   </Modal>
 
-  <Modal v-model:open="showExampleDialog" title="保存响应示例" width="360px">
-    <p class="name-hint">请输入示例名称：</p>
+  <Modal v-model:open="showExampleDialog" :title="t('editor.saveExampleTitle')" width="360px">
+    <p class="name-hint">{{ t('editor.exampleNameHint') }}</p>
     <input
       v-model="exampleName"
       class="rf-input name-dialog-input"
-      placeholder="例如：成功响应"
+      :placeholder="t('editor.exampleNamePh')"
       spellcheck="false"
       @keyup.enter="confirmSaveExample"
     />
     <template #footer>
-      <button class="rf-btn" type="button" @click="showExampleDialog = false">取消</button>
-      <button class="rf-btn rf-btn-primary" type="button" @click="confirmSaveExample">保存</button>
+      <button class="rf-btn" type="button" @click="showExampleDialog = false">{{ t('common.cancel') }}</button>
+      <button class="rf-btn rf-btn-primary" type="button" @click="confirmSaveExample">{{ t('common.save') }}</button>
     </template>
   </Modal>
 
@@ -1029,7 +1035,7 @@ onUnmounted(() => {
 
   <TestCaseModal
     :open="showTestCaseModal"
-    title="保存为测试用例"
+    :title="t('editor.saveAsCase')"
     :name="pendingCaseName"
     @update:open="showTestCaseModal = $event"
     @submit="onSaveCaseSubmit"

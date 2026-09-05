@@ -6,6 +6,7 @@
  */
 import { computed } from 'vue'
 import Icon from './Icon.vue'
+import { useLocaleStore } from '../../stores/locale'
 
 const props = withDefaults(
   defineProps<{
@@ -21,6 +22,8 @@ const props = withDefaults(
   }>(),
   { modelValue: '', min: undefined, max: undefined, step: 1, placeholder: '', disabled: false, size: 'md', tone: 'default' },
 )
+
+const t = useLocaleStore().t
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number]
@@ -100,10 +103,10 @@ function onBlur(): void {
       @blur="onBlur"
     />
     <span class="cni-steppers">
-      <button type="button" class="cni-step" tabindex="-1" aria-label="增加" :disabled="disabled" @mousedown.prevent @click="stepBy(1)">
+      <button type="button" class="cni-step" tabindex="-1" :aria-label="t('cnum.increase')" :disabled="disabled" @mousedown.prevent @click="stepBy(1)">
         <Icon name="chevron-up" :size="10" />
       </button>
-      <button type="button" class="cni-step" tabindex="-1" aria-label="减少" :disabled="disabled" @mousedown.prevent @click="stepBy(-1)">
+      <button type="button" class="cni-step" tabindex="-1" :aria-label="t('cnum.decrease')" :disabled="disabled" @mousedown.prevent @click="stepBy(-1)">
         <Icon name="chevron-down" :size="10" />
       </button>
     </span>

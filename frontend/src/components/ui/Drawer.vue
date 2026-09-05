@@ -6,6 +6,7 @@
  * - 打开期间锁定 body 滚动；Teleport 到 body。
  */
 import { onBeforeUnmount, ref, watch } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import IconButton from './IconButton.vue'
 
 const props = withDefaults(
@@ -26,6 +27,9 @@ const emit = defineEmits<{
 const bodyEl = ref<HTMLElement | null>(null)
 
 const titleId = `rf-drawer-title-${Math.random().toString(36).slice(2, 9)}`
+
+const locale = useLocaleStore()
+const t = locale.t
 
 function close(): void {
   emit('update:open', false)
@@ -115,7 +119,7 @@ onBeforeUnmount(() => {
         >
           <div class="d-head">
             <h3 :id="titleId" class="d-title">{{ title }}</h3>
-            <IconButton v-if="closable" name="x" :size="14" title="关闭" @click="close" />
+            <IconButton v-if="closable" name="x" :size="14" :title="t('common.close')" @click="close" />
           </div>
           <div class="d-body">
             <slot />

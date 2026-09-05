@@ -9,8 +9,12 @@
  */
 import { computed, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
+import { useLocaleStore } from '../../stores/locale'
 import type { SchemaRow, SchemaType } from '../../utils/schemaInfer'
 import { typeLabelOf } from '../../utils/schemaInfer'
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const props = withDefaults(
   defineProps<{
@@ -94,10 +98,10 @@ function toggle(key: string, expandable: boolean): void {
     <table class="stt-table">
       <thead>
         <tr>
-          <th class="col-field">字段名 (Field)</th>
-          <th class="col-type">类型 (Type)</th>
-          <th class="col-required">必填</th>
-          <th class="col-desc">说明 (Description)</th>
+          <th class="col-field">{{ t('schema.colField') }}</th>
+          <th class="col-type">{{ t('schema.colType') }}</th>
+          <th class="col-required">{{ t('schema.colRequired') }}</th>
+          <th class="col-desc">{{ t('schema.colDesc') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -127,7 +131,7 @@ function toggle(key: string, expandable: boolean): void {
             </span>
           </td>
           <td class="col-required">
-            <span v-if="item.row.required" class="req-yes">必填</span>
+            <span v-if="item.row.required" class="req-yes">{{ t('schema.colRequired') }}</span>
             <span v-else class="req-no">—</span>
           </td>
           <td class="col-desc">
@@ -135,7 +139,7 @@ function toggle(key: string, expandable: boolean): void {
               {{ item.row.example }}
             </code>
             <span v-else-if="item.expandable" class="desc-hint">
-              {{ item.row.type === 'array' ? '数组元素' : '嵌套对象' }}
+              {{ item.row.type === 'array' ? t('schema.arrayItem') : t('schema.nestedObject') }}
             </span>
           </td>
         </tr>

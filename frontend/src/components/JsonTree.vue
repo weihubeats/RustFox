@@ -13,6 +13,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { escapeHtml } from '../utils/highlight'
+import { useLocaleStore } from '../stores/locale'
 import Icon from './ui/Icon.vue'
 
 /** 语法片段：文本 + 着色类名。 */
@@ -48,6 +49,9 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{ 'match-count': [number] }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 
 /** 折叠状态：path（`$["key"]` / `$[0]`）→ 是否展开。 */
 const expanded = reactive<Record<string, boolean>>({})
@@ -134,7 +138,7 @@ const lines = computed<Line[]>(() => {
         ...(keyHtml ?? []),
         tok(isArray ? '[' : '{', 'punct'),
         tok(' … ', 'dots'),
-        tok(`${count} 项`, 'meta'),
+        tok(t('jsonTree.itemCount', { n: count }), 'meta'),
         tok(isArray ? ']' : '}', 'punct'),
       ]
       if (!isLast) segments.push(tok(',', 'punct'))
@@ -169,7 +173,7 @@ const lines = computed<Line[]>(() => {
       depth: 0,
       segments: [
         {
-          text: `… 已达展示上限（前 ${props.maxLines.toLocaleString()} 行），收起部分节点后可查看剩余内容`,
+          text: t('jsonTree.capped', { n: props.maxLines.toLocaleString() }),
           cls: 'meta',
         },
       ],
@@ -323,7 +327,7 @@ defineExpose({ expandAll, collapseAll, matchCount })
         type="button"
         class="jt-toggle"
         :class="{ open: line.open }"
-        :aria-label="line.open ? '折叠' : '展开'"
+        :aria-label="line.open ? t('jsonTree.collapse') : t('jsonTree.expand')"
         @click="toggle(line.toggleable, line.open ?? false)"
       >
         <Icon :name="line.open ? 'chevron-down' : 'chevron-right'" :size="12" />

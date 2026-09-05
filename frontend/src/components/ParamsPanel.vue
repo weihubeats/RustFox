@@ -6,10 +6,14 @@
  *   切回表格（⌘Enter / 失焦）时解析入库，Esc 取消。
  */
 import { computed, ref } from 'vue'
+import { useLocaleStore } from '../stores/locale'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import type { Endpoint, KeyValue } from '../types/foxApi'
 
 const props = defineProps<{ draft: Endpoint | null }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const params = computed(() => props.draft?.request.params ?? [])
 
@@ -70,9 +74,9 @@ function cancelBulk(): void {
 <template>
   <div class="panel">
     <div class="params-head">
-      <span class="params-count">查询参数 ({{ (params as KeyValue[]).length }})</span>
+      <span class="params-count">{{ t('params.count', { n: (params as KeyValue[]).length }) }}</span>
       <button class="bulk-btn" type="button" @click="bulkMode ? commitBulk() : enterBulk()">
-        {{ bulkMode ? '表格编辑' : '批量编辑' }}
+        {{ bulkMode ? t('params.tableEdit') : t('params.bulkEdit') }}
       </button>
     </div>
 
@@ -83,12 +87,12 @@ function cancelBulk(): void {
         class="bulk-area rf-mono"
         autofocus
         spellcheck="false"
-        :placeholder="'每行一个参数：键=值 或 键: 值，同一行可用 & 分隔多个'"
+        :placeholder="t('params.bulkPh')"
         @blur="commitBulk"
         @keydown.esc.prevent="cancelBulk"
         @keydown.meta.enter.prevent="commitBulk"
       ></textarea>
-      <p class="bulk-hint">支持查询串 `a=1&b=2` 或多行 `Key: Value`；Esc 取消，⌘Enter 应用</p>
+      <p class="bulk-hint">{{ t('params.bulkHint') }}</p>
     </div>
 
     <KeyValueTable v-else :model-value="params" @update:model-value="applyParams" />

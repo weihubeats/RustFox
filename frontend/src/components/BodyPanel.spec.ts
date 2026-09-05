@@ -3,8 +3,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { reactive } from 'vue'
 import BodyPanel from './BodyPanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import { makeDraft } from '../testUtils/draftFixture'
 import type { Endpoint } from '../types/foxApi'
 
@@ -20,6 +22,9 @@ function rawOf(d: Endpoint): string {
 }
 
 function mountPanel(draft: Endpoint) {
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
   return mount(BodyPanel, { props: { draft } })
 }
 

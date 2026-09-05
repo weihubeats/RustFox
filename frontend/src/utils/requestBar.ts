@@ -58,14 +58,17 @@ export function envBadgeLabel(input: BadgeInput): string {
   return stripProtocol(src) || src
 }
 
-/** Base URL 标识悬浮提示：`环境：X | 基础路径：https://...`。 */
-export function envBadgeTooltip(input: BadgeInput): string {
+/** Base URL 标识悬浮提示：`环境：X | 基础路径：https://...`。文案经 t 注入以支持多语言。 */
+export function envBadgeTooltip(
+  input: BadgeInput,
+  t: (key: string, params?: Record<string, string>) => string,
+): string {
   const base = input.resolvedDomain || input.urlDomain
-  if (!base) return input.envName ? `环境：${input.envName}` : ''
+  if (!base) return input.envName ? t('editor.badgeEnv', { env: input.envName }) : ''
   if (input.urlDomain.startsWith('{{') && !input.resolvedDomain) {
-    return `${input.urlDomain} 未定义，请求将按字面量发送`
+    return t('editor.badgeUnresolved', { v: input.urlDomain })
   }
   return input.envName
-    ? `环境：${input.envName} | 基础路径：${input.resolvedDomain || input.urlDomain}`
-    : `基础路径：${input.resolvedDomain || input.urlDomain}（会话 Base URL）`
+    ? t('editor.badgeEnvBase', { env: input.envName, url: input.resolvedDomain || input.urlDomain })
+    : t('editor.badgeSession', { url: input.resolvedDomain || input.urlDomain })
 }

@@ -11,6 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Icon from './ui/Icon.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
 
@@ -25,6 +26,8 @@ const emit = defineEmits<{
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 const router = useRouter()
 const route = useRoute()
 
@@ -45,18 +48,18 @@ async function openMore(): Promise<void> {
       }))
     if (items.length) items[0] = { ...items[0], dividerBefore: true }
   } catch {
-    toast.error('项目列表加载失败')
+    toast.error(t('projectTabs.loadFail'))
   }
   items.push(
-    { key: 'new-project', label: '新建项目', icon: 'plus', iconAccent: true, dividerBefore: true },
-    { key: 'go-projects', label: '项目列表', icon: 'folder' },
+    { key: 'new-project', label: t('projectTabs.newProject'), icon: 'plus', iconAccent: true, dividerBefore: true },
+    { key: 'go-projects', label: t('projectTabs.projectList'), icon: 'folder' },
   )
   // 工作区模式：当前项目的重命名 / 删除收纲到此处（项目名称旁的 ⋯）
   if (props.projectActions && store.project) {
     const name = store.project.name
     items.push(
-      { key: 'rename-project', label: `重命名「${name}」`, icon: 'pencil', dividerBefore: true },
-      { key: 'delete-project', label: '删除项目', icon: 'trash', danger: true, confirm: `删除项目「${name}」？` },
+      { key: 'rename-project', label: t('projectTabs.rename', { name }), icon: 'pencil', dividerBefore: true },
+      { key: 'delete-project', label: t('projectTabs.delete'), icon: 'trash', danger: true, confirm: t('projectTabs.deleteConfirm', { name }) },
     )
   }
   menuRef.value?.openAt(moreBtn.value, items, 'left')
@@ -75,7 +78,7 @@ async function switchTo(projectId: string): Promise<void> {
     // 标签高亮 + 内容切换已是充分反馈，成功不弹 toast（避免频繁切换被打扰）
     if (route.path !== '/workspace') router.push('/workspace')
   } catch (err) {
-    toast.error('切换项目失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('projectTabs.switchFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -103,14 +106,14 @@ function onClose(projectId: string): void {
         <button
           class="pt-close"
           type="button"
-          :title="`关闭「${tab.name}」标签`"
+          :title="t('projectTabs.closeTab', { name: tab.name })"
           @click.stop="onClose(tab.id)"
         >
           <Icon name="x" :size="11" />
         </button>
       </div>
     </div>
-    <button ref="moreBtn" class="proj-more" type="button" title="更多项目" @click="openMore">
+    <button ref="moreBtn" class="proj-more" type="button" :title="t('projectTabs.more')" @click="openMore">
       <Icon name="more-horizontal" :size="14" />
     </button>
   </div>

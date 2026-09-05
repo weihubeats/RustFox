@@ -8,6 +8,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { useToast } from '../composables/useToast'
 import {
   effectiveVariable,
@@ -22,6 +23,8 @@ const props = defineProps<{ anchor: HTMLElement | null }>()
 const emit = defineEmits<{ close: []; manage: [] }>()
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 const toast = useToast()
 
 const env = computed(
@@ -109,7 +112,7 @@ async function save(): Promise<void> {
   const normalizedBase = normalizeBaseUrl(baseUrlValue.value)
   if (modules.length === 0) {
     if (normalizedBase) {
-      modules.push({ id: crypto.randomUUID(), module_name: '默认', base_url: normalizedBase, is_default: true })
+      modules.push({ id: crypto.randomUUID(), module_name: t('envmgr.defaultModuleName'), base_url: normalizedBase, is_default: true })
     }
   } else {
     // 优先写当前项目绑定的模块（快速编辑的是「本项目在这个环境的基址」）
@@ -129,7 +132,7 @@ async function save(): Promise<void> {
     baseUrlValue.value = envBaseUrl(saved, store.project?.id)
     dirty.value = false
   } catch (err) {
-    toast.error('保存环境失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('envmgr.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -192,7 +195,7 @@ onBeforeUnmount(() => {
           class="qv-input qv-base-input"
           spellcheck="false"
           :disabled="busy"
-          placeholder="默认模块 Base URL，如 https://api.example.com"
+          :placeholder="t('envquick.basePh')"
           @input="onEdit"
           @blur="save"
           @keydown.enter="(e) => (e.target as HTMLInputElement).blur()"
@@ -201,8 +204,8 @@ onBeforeUnmount(() => {
 
       <div v-if="rows.length" class="qv-table">
         <div class="qv-row qv-row-head">
-          <span class="qv-key">变量名</span>
-          <span class="qv-value">值（本地覆盖）</span>
+          <span class="qv-key">{{ t('envmgr.colKey') }}</span>
+          <span class="qv-value">{{ t('envquick.colValue') }}</span>
         </div>
         <div v-for="(row, i) in rows" :key="i" class="qv-row">
           <input
@@ -210,7 +213,7 @@ onBeforeUnmount(() => {
             class="qv-input qv-key"
             spellcheck="false"
             :disabled="busy"
-            placeholder="变量名"
+            :placeholder="t('envmgr.colKey')"
             @input="onEdit"
             @blur="save"
             @keydown.enter="(e) => (e.target as HTMLInputElement).blur()"
@@ -220,21 +223,21 @@ onBeforeUnmount(() => {
             class="qv-input qv-value"
             spellcheck="false"
             :disabled="busy"
-            :placeholder="row.key ? '' : '值'"
+            :placeholder="row.key ? '' : t('envquick.valuePh')"
             @input="onEdit"
             @blur="save"
             @keydown.enter="(e) => (e.target as HTMLInputElement).blur()"
           />
         </div>
       </div>
-      <p v-else class="qv-empty">该环境暂无变量，点击下方「添加变量」。</p>
+      <p v-else class="qv-empty">{{ t('envquick.empty') }}</p>
 
       <div class="qv-foot">
         <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="addVariable">
-          <Icon name="plus" :size="13" /> 添加变量
+          <Icon name="plus" :size="13" /> {{ t('envmgr.addVar') }}
         </button>
         <button class="rf-btn rf-btn-sm" type="button" @click="emit('manage')">
-          <Icon name="settings" :size="13" /> 管理环境
+          <Icon name="settings" :size="13" /> {{ t('envquick.manage') }}
         </button>
       </div>
     </div>

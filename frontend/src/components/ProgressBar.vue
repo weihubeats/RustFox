@@ -10,13 +10,16 @@
  * useFoxApi 的 `run()` 已自动 start/done，无需业务代码介入。
  */
 import { useProgress } from '../composables/useProgress'
+import { useLocaleStore } from '../stores/locale'
 
 const { visible, progress } = useProgress()
+const locale = useLocaleStore()
+const t = locale.t
 </script>
 
 <template>
   <Transition name="rf-progress">
-    <div v-if="visible" class="rf-progress" role="progressbar" aria-label="加载中">
+    <div v-if="visible" class="rf-progress" role="progressbar" :aria-label="t('common.loading')">
       <div class="rf-progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
   </Transition>

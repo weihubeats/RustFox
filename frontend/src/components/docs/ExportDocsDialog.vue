@@ -16,6 +16,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import Modal from '../ui/Modal.vue'
 import Icon from '../ui/Icon.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useLocaleStore } from '../../stores/locale'
 import { useFoxApi } from '../../composables/useFoxApi'
 import { useToast } from '../../composables/useToast'
 import type { Endpoint, ExportFormat, ExportedDoc } from '../../types/foxApi'
@@ -30,6 +31,8 @@ const emit = defineEmits<{ close: [] }>()
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 // ---------- 范围 ----------
 
@@ -50,50 +53,50 @@ interface FormatCard {
   icon: 'package' | 'list' | 'file' | 'code' | 'terminal'
 }
 
-const FORMAT_CARDS: FormatCard[] = [
+const formatCards = computed<FormatCard[]>(() => [
   {
     key: 'openapi',
     format: 'openapi',
     title: 'OpenAPI 3.0 (JSON/YAML)',
-    desc: '推荐 · 可直接导入 Postman / Swagger / Apifox',
+    desc: t('exportdocs.fmtOpenapiDesc'),
     icon: 'package',
   },
   {
     key: 'postman',
     format: 'postman',
     title: 'Postman Collection v2.1',
-    desc: '给前端/测试同学一键导入 Postman 调试',
+    desc: t('exportdocs.fmtPostmanDesc'),
     icon: 'list',
   },
   {
     key: 'markdown',
     format: 'markdown',
     title: 'Markdown (.md)',
-    desc: '适合放入 Git 仓库或 Notion / 语雀技术文档',
+    desc: t('exportdocs.fmtMarkdownDesc'),
     icon: 'file',
   },
   {
     key: 'html',
     format: 'html',
-    title: 'HTML 离线单页',
-    desc: '开箱即用的美观离线网页文档，支持离线预览',
+    title: t('exportdocs.fmtHtmlTitle'),
+    desc: t('exportdocs.fmtHtmlDesc'),
     icon: 'code',
   },
   {
     key: 'curl',
     format: 'curl_script',
-    title: 'cURL 命令脚本 (.sh)',
-    desc: '一键导出所有接口的可执行 cURL 脚本',
+    title: t('exportdocs.fmtCurlTitle'),
+    desc: t('exportdocs.fmtCurlDesc'),
     icon: 'terminal',
   },
-]
+])
 
 const selectedKey = ref('openapi')
 /** OpenAPI 卡片选中时的子格式。 */
 const openapiVariant = ref<'openapi_json' | 'openapi_yaml'>('openapi_json')
 
 const selectedFormat = computed<FormatCard | undefined>(() =>
-  FORMAT_CARDS.find((c) => c.key === selectedKey.value),
+  formatCards.value.find((c) => c.key === selectedKey.value),
 )
 
 const resolvedFormat = computed<ExportFormat>(() => {
@@ -127,7 +130,7 @@ async function startExport(): Promise<void> {
     //    setDirectoryURL（panel_ffi.rs），保存面板点击文件夹无法进入下级目录。
     const dir = await open({
       directory: true,
-      title: '选择文档保存目录',
+      title: t('exportdocs.saveDirTitle'),
     })
     if (!dir) return // 用户取消
 
@@ -137,18 +140,18 @@ async function startExport(): Promise<void> {
     await api.writeTextFile(path, doc.content)
     savedPath.value = path
 
-    toast.success('✓ 文档导出成功！', {
+    toast.success(t('exportdocs.exported'), {
       message: path.split('/').pop() || path,
       action: {
-        label: '打开文件位置',
+        label: t('exportdocs.reveal'),
         run: () => {
-          void revealItemInDir(path).catch(() => toast.error('无法定位文件'))
+          void revealItemInDir(path).catch(() => toast.error(t('exportdocs.revealFail')))
         },
       },
     })
     emit('close')
   } catch (err) {
-    toast.error('导出失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('workspace.exportFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     exporting.value = false
   }
@@ -156,10 +159,10 @@ async function startExport(): Promise<void> {
 </script>
 
 <template>
-  <Modal :open="true" title="导出 API 文档" width="560px" @close="emit('close')">
+  <Modal :open="true" :title="t('exportdocs.title')" width="560px" @close="emit('close')">
     <!-- 范围 -->
     <div class="sec">
-      <p class="sec-label">导出范围</p>
+      <p class="sec-label">{{ t('exportdocs.scope') }}</p>
       <div class="scope-grid">
         <button
           type="button"
@@ -167,8 +170,8 @@ async function startExport(): Promise<void> {
           :class="{ active: scope === 'current' }"
           @click="scope = 'current'"
         >
-          <span class="scope-title">当前接口</span>
-          <span class="scope-desc">{{ draft?.name || '未选择接口' }}</span>
+          <span class="scope-title">{{ t('exportdocs.scopeCurrent') }}</span>
+          <span class="scope-desc">{{ draft?.name || t('exportdocs.noEndpoint') }}</span>
         </button>
         <button
           type="button"
@@ -177,9 +180,9 @@ async function startExport(): Promise<void> {
           :disabled="!canExportProject"
           @click="canExportProject && (scope = 'project')"
         >
-          <span class="scope-title">整个项目</span>
+          <span class="scope-title">{{ t('exportdocs.scopeProject') }}</span>
           <span class="scope-desc">
-            {{ canExportProject ? `${projectName} 全部接口` : '无激活项目' }}
+            {{ canExportProject ? t('exportdocs.scopeProjectDesc', { name: projectName }) : t('exportdocs.noProject') }}
           </span>
         </button>
       </div>
@@ -187,10 +190,10 @@ async function startExport(): Promise<void> {
 
     <!-- 格式卡片 Grid -->
     <div class="sec">
-      <p class="sec-label">导出格式</p>
+      <p class="sec-label">{{ t('exportdocs.format') }}</p>
       <div class="fmt-grid">
         <button
-          v-for="c in FORMAT_CARDS"
+          v-for="c in formatCards"
           :key="c.key"
           type="button"
           class="fmt-card"
@@ -208,7 +211,7 @@ async function startExport(): Promise<void> {
 
       <!-- OpenAPI 子格式切换 -->
       <div v-if="selectedKey === 'openapi'" class="variant-row">
-        <span class="sec-label">序列化</span>
+        <span class="sec-label">{{ t('exportdocs.serialization') }}</span>
         <div class="variant-toggle">
           <button
             type="button"
@@ -231,10 +234,10 @@ async function startExport(): Promise<void> {
     </div>
 
     <template #footer>
-      <button type="button" class="rf-btn" @click="emit('close')">取消</button>
+      <button type="button" class="rf-btn" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button type="button" class="rf-btn rf-btn-primary" :disabled="exporting" @click="startExport">
         <Icon name="download" :size="13" />
-        {{ exporting ? '正在生成…' : '开始导出' }}
+        {{ exporting ? t('exportdocs.generating') : t('exportdocs.start') }}
       </button>
     </template>
   </Modal>

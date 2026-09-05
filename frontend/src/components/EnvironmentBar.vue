@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { envBaseUrl, envColorClass } from '../utils/environment'
 import CustomSelect from './ui/CustomSelect.vue'
 import EnvironmentManager from './EnvironmentManager.vue'
@@ -18,6 +19,8 @@ import type { Environment } from '../types/foxApi'
 const MANAGE_VALUE = '__manage__'
 
 const store = useWorkspaceStore()
+const locale = useLocaleStore()
+const t = locale.t
 
 const barEl = ref<HTMLElement | null>(null)
 const showQuick = ref(false)
@@ -28,9 +31,9 @@ const activeEnv = computed(
 )
 
 const options = computed(() => [
-  { value: '', label: '无环境' },
+  { value: '', label: t('envbar.noEnv') },
   ...store.environments.map((env) => ({ value: env.id, label: env.name })),
-  { value: MANAGE_VALUE, label: '管理环境…' },
+  { value: MANAGE_VALUE, label: t('envbar.manage') },
 ])
 
 /** 悬停 tooltip：完整 Base URL（无环境 / 未配置时不显示）。 */
@@ -64,17 +67,17 @@ function colorClass(name: string): string {
           pop-class="env-pop"
           :model-value="store.activeEnvId ?? ''"
           :options="options"
-          placeholder="环境：无"
+          :placeholder="t('envbar.placeholder')"
           size="sm"
           @change="onChange"
         >
           <template #display="{ selected }">
             <span class="edot" :class="`ed-${colorClass(selected?.label ?? '')}`"></span>
-            <span class="env-display-name">{{ selected?.label ?? '无环境' }}</span>
+            <span class="env-display-name">{{ selected?.label ?? t('envbar.noEnv') }}</span>
           </template>
           <template #option="{ option }">
             <template v-if="option.value === MANAGE_VALUE">
-              <span class="env-manage">管理环境…</span>
+              <span class="env-manage">{{ t('envbar.manage') }}</span>
             </template>
             <template v-else>
               <span class="env-opt-name">
@@ -89,7 +92,7 @@ function colorClass(name: string): string {
         </CustomSelect>
       </Tooltip>
       <span class="eb-sep" aria-hidden="true"></span>
-      <Tooltip :content="activeEnv ? '查看当前环境变量' : '没有激活的环境'" placement="bottom">
+      <Tooltip :content="activeEnv ? t('envbar.viewVars') : t('envbar.noActiveEnv')" placement="bottom">
         <IconButton
           class="eb-eye"
           name="eye"

@@ -7,43 +7,47 @@
 import { computed } from 'vue'
 import Modal from './ui/Modal.vue'
 import { shortcutGroups, shortcutLabel } from '../composables/useShortcuts'
+import { useLocaleStore } from '../stores/locale'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const groups = computed(() => shortcutGroups())
 
 /** 输入框局部快捷键（非全局注册，此处静态说明）。 */
 const contextual = [
-  { keys: '⌘/Ctrl + F', description: '在响应中查找' },
-  { keys: 'Enter', description: '地址栏回车发送请求' },
-  { keys: 'Esc', description: '清空地址栏路径 / 关闭弹层' },
+  { keys: '⌘/Ctrl + F', description: 'shortcutCtx.find' },
+  { keys: 'Enter', description: 'shortcutCtx.send' },
+  { keys: 'Esc', description: 'shortcutCtx.esc' },
 ]
 </script>
 
 <template>
   <Modal
     :open="props.open"
-    title="快捷键"
+    :title="t('shortcuts.title')"
     width="480px"
     @update:open="emit('update:open', $event)"
     @close="emit('update:open', false)"
   >
     <div v-for="g in groups" :key="g.group" class="sc-group">
-      <p class="sc-group-title">{{ g.group }}</p>
+      <p class="sc-group-title">{{ t(g.group) }}</p>
       <div v-for="item in g.items" :key="item.id" class="sc-row">
-        <span class="sc-desc">{{ item.description }}</span>
+        <span class="sc-desc">{{ t(item.description) }}</span>
         <kbd class="sc-keys">{{ shortcutLabel(item) }}</kbd>
       </div>
     </div>
     <div class="sc-group">
-      <p class="sc-group-title">输入框内</p>
+      <p class="sc-group-title">{{ t('shortcutCtx.title') }}</p>
       <div v-for="c in contextual" :key="c.keys + c.description" class="sc-row">
-        <span class="sc-desc">{{ c.description }}</span>
+        <span class="sc-desc">{{ t(c.description) }}</span>
         <kbd class="sc-keys">{{ c.keys }}</kbd>
       </div>
     </div>
-    <p v-if="!groups.length" class="sc-empty">当前视图无全局快捷键</p>
+    <p v-if="!groups.length" class="sc-empty">{{ t('shortcuts.empty') }}</p>
   </Modal>
 </template>
 

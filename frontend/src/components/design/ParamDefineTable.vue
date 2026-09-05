@@ -7,8 +7,12 @@
  * - 「+ 添加参数」在末尾追加空行（enabled 默认开启）；
  * - 类型下拉为原生 select 紧凑样式（行内控件不引 CustomSelect，避免每行浮层开销）。
  */
+import { useLocaleStore } from '../../stores/locale'
 import IconButton from '../ui/IconButton.vue'
 import type { FieldType, KeyValue } from '../../types/foxApi'
+
+const locale = useLocaleStore()
+const t = locale.t
 
 const props = withDefaults(
   defineProps<{
@@ -17,7 +21,8 @@ const props = withDefaults(
     /** 是否展示「示例值」列（Body 表单等场景可关）。 */
     showExample?: boolean
   }>(),
-  { keyPlaceholder: '参数名', showExample: true },
+  // defineProps 默认值会被提升到 setup 之外，不能引用 t()；占位符在模板兜底取词。
+  { showExample: true },
 )
 
 const emit = defineEmits<{ 'update:modelValue': [rows: KeyValue[]] }>()
@@ -71,11 +76,11 @@ function removeRow(index: number): void {
       <table class="pdt-table">
         <thead>
           <tr>
-            <th class="col-key">参数名</th>
-            <th class="col-type">类型</th>
-            <th class="col-req">必填</th>
-            <th class="col-desc">说明</th>
-            <th v-if="showExample" class="col-example">示例值</th>
+            <th class="col-key">{{ t('paramtable.colKey') }}</th>
+            <th class="col-type">{{ t('body.colType') }}</th>
+            <th class="col-req">{{ t('paramtable.required') }}</th>
+            <th class="col-desc">{{ t('paramtable.colDesc') }}</th>
+            <th v-if="showExample" class="col-example">{{ t('paramtable.colExample') }}</th>
             <th class="col-op"></th>
           </tr>
         </thead>
@@ -85,7 +90,7 @@ function removeRow(index: number): void {
               <input
                 class="pdt-input mono"
                 :value="row.key"
-                :placeholder="keyPlaceholder"
+                :placeholder="keyPlaceholder ?? t('paramtable.colKey')"
                 spellcheck="false"
                 @input="patch(i, { key: ($event.target as HTMLInputElement).value })"
               />
@@ -117,7 +122,7 @@ function removeRow(index: number): void {
               <input
                 class="pdt-input"
                 :value="row.description"
-                placeholder="参数说明"
+                :placeholder="t('paramtable.descPh')"
                 spellcheck="false"
                 @input="patch(i, { description: ($event.target as HTMLInputElement).value })"
               />
@@ -126,22 +131,22 @@ function removeRow(index: number): void {
               <input
                 class="pdt-input mono"
                 :value="row.example ?? ''"
-                placeholder="示例值"
+                :placeholder="t('paramtable.colExample')"
                 spellcheck="false"
                 @input="patch(i, { example: ($event.target as HTMLInputElement).value })"
               />
             </td>
             <td class="col-op">
-              <IconButton name="trash" :size="13" tone="danger" title="删除参数" @click="removeRow(i)" />
+              <IconButton name="trash" :size="13" tone="danger" :title="t('paramtable.deleteParam')" @click="removeRow(i)" />
             </td>
           </tr>
           <tr v-if="!rows.length">
-            <td :colspan="showExample ? 6 : 5" class="pdt-empty">暂无参数定义</td>
+            <td :colspan="showExample ? 6 : 5" class="pdt-empty">{{ t('paramtable.empty') }}</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <button type="button" class="pdt-add" @click="addRow">＋ 添加参数</button>
+    <button type="button" class="pdt-add" @click="addRow">{{ t('paramtable.add') }}</button>
   </div>
 </template>
 

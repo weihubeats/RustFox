@@ -8,8 +8,12 @@
  */
 import Icon from '../ui/Icon.vue'
 import IconButton from '../ui/IconButton.vue'
+import { useLocaleStore } from '../../stores/locale'
 import type { Project } from '../../types/foxApi'
 import { avatarStyle, initials, timeAgo } from './projectMeta'
+
+const locale = useLocaleStore()
+const t = locale.t
 
 defineProps<{
   project: Project
@@ -32,7 +36,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="proj-card" :data-project-id="project.id" @click="emit('open')">
-    <span v-if="draggable" class="dnd-handle" title="拖拽排序" @click.stop>
+    <span v-if="draggable" class="dnd-handle" :title="t('pcard.dragHint')" @click.stop>
       <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
         <circle cx="2" cy="2" r="1.3" />
         <circle cx="8" cy="2" r="1.3" />
@@ -48,35 +52,35 @@ const emit = defineEmits<{
         <span class="proj-title" v-tooltip-overflow="project.name">{{ project.name }}</span>
         <span class="proj-status" :class="{ active }">
           <span class="status-dot" aria-hidden="true"></span>
-          {{ active ? 'Active' : 'Draft' }}
+          {{ active ? t('pcard.statusActive') : t('pcard.statusDraft') }}
         </span>
       </div>
       <p class="proj-desc" :class="{ empty: !project.description }">
-        {{ project.description || '暂无项目描述...' }}
+        {{ project.description || t('pcard.noDesc') }}
       </p>
       <div class="proj-footer">
         <div class="proj-metrics">
-          <span class="metric"><Icon name="plug" :size="12" />{{ count }} APIs</span>
+          <span class="metric"><Icon name="plug" :size="12" />{{ t('pcard.apiCount', { n: count }) }}</span>
           <span class="metric-sep">·</span>
-          <span class="metric"><Icon name="clock" :size="12" />{{ timeAgo(project.updated_at) }}更新</span>
+          <span class="metric"><Icon name="clock" :size="12" />{{ t('pcard.updatedAgo', { v: timeAgo(project.updated_at) }) }}</span>
         </div>
         <span class="proj-open">
-          进入项目 <Icon name="arrow-up-right" :size="12" />
+          {{ t('pcard.open') }} <Icon name="arrow-up-right" :size="12" />
         </span>
       </div>
     </div>
     <div class="proj-side" data-no-drag>
       <div class="proj-more" @click.stop>
-        <IconButton name="more-horizontal" :size="16" title="更多操作" @click="emit('toggle-menu')" />
+        <IconButton name="more-horizontal" :size="16" :title="t('common.moreActions')" @click="emit('toggle-menu')" />
         <div v-if="menuOpen" class="more-menu" role="menu">
           <button class="menu-item" type="button" @click="emit('rename')">
-            <Icon name="pencil" :size="13" /> 重命名
+            <Icon name="pencil" :size="13" /> {{ t('common.rename') }}
           </button>
           <button class="menu-item" type="button" @click="emit('duplicate')">
-            <Icon name="copy" :size="13" /> 复制
+            <Icon name="copy" :size="13" /> {{ t('common.copyAction') }}
           </button>
           <button class="menu-item danger" type="button" @click="emit('delete')">
-            <Icon name="trash" :size="13" /> 删除
+            <Icon name="trash" :size="13" /> {{ t('common.delete') }}
           </button>
         </div>
       </div>

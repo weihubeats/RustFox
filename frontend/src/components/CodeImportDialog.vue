@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Modal from './ui/Modal.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import { SNIPPET_LANGS, detectLang, parseCodeSnippet } from '../utils/codeImport'
@@ -21,6 +22,8 @@ const emit = defineEmits<{ close: [] }>()
 const api = useFoxApi()
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const command = ref('')
 /** auto = 自动检测。 */
@@ -31,14 +34,11 @@ const parsed = ref<CurlParsed | null>(null)
 /** 最近一次解析使用的语言（预览展示用）。 */
 const resolvedLang = ref('')
 
-const PLACEHOLDER = `支持粘贴：
-curl -X POST 'https://api.example.com/users' -H 'Content-Type: application/json' -d '{"name":"a"}'
-
-await fetch('https://api.example.com/users', { method: 'POST', body: JSON.stringify({...}) })
-
-OkHttpClient client = new OkHttpClient(); Request request = new Request.Builder()…
-
-resp = requests.post("https://api.example.com/users", json={...})`
+/** 「自动检测」文案走字典；语言名（cURL / Java…）为品牌名保持原文。 */
+const placeholder = computed(() => t('codedlg.placeholder'))
+const langOptions = computed(() =>
+  SNIPPET_LANGS.map((l) => (l.value === 'auto' ? { ...l, label: t('codeimport.langAuto') } : l)),
+)
 
 /** 归一化 shell 续行（反斜杠换行 → 空格）。 */
 function normalize(cmd: string): string {
@@ -50,7 +50,7 @@ async function parse(): Promise<void> {
   if (!trimmed) return
   const target: SnippetLang | null = lang.value === 'auto' ? detectLang(trimmed) : (lang.value as SnippetLang)
   if (!target) {
-    error.value = '未能识别代码语言，请手动选择语言后重试'
+    error.value = t('codedlg.langUndetected')
     parsed.value = null
     return
   }
@@ -97,7 +97,7 @@ const bodyPreview = computed(() => {
   const body = parsed.value?.body
   if (!body) return null
   if ('raw' in body) return `${body.mode}: ${body.raw}`
-  if ('fields' in body) return `${body.mode}: ${body.fields.length} 个字段`
+  if ('fields' in body) return `${body.mode}: ${t('codedlg.fieldsCount', { n: body.fields.length })}`
   if ('path' in body) return `binary: ${body.path}`
   return body.mode
 })
@@ -109,22 +109,21 @@ const LANG_LABELS: Record<string, string> = Object.fromEntries(
 function importToEditor(): void {
   if (!parsed.value) return
   store.openCurlDraft(parsed.value, props.folderId)
-  toast.success('已导入到编辑器，保存时将提示填写接口名称')
+  toast.success(t('curldlg.imported'))
   emit('close')
 }
 </script>
 
 <template>
-  <Modal :open="true" title="从代码导入接口" width="620px" @close="emit('close')">
+  <Modal :open="true" :title="t('codedlg.title')" width="620px" @close="emit('close')">
     <p class="modal-hint">
-      粘贴 cURL / Java / Python / JavaScript / Go 的 HTTP 请求代码，
-      解析为接口草稿（cURL 为精确解析，其余语言为启发式解析，导入前请核对预览）。
+      {{ t('codedlg.hint') }}
     </p>
     <div class="lang-row">
-      <span class="lang-label">语言</span>
+      <span class="lang-label">{{ t('codedlg.lang') }}</span>
       <CustomSelect
         v-model="lang"
-        :options="SNIPPET_LANGS"
+        :options="langOptions"
         size="sm"
         class="lang-select"
       />
@@ -133,11 +132,11 @@ function importToEditor(): void {
       v-model="command"
       class="rf-input code-input"
       spellcheck="false"
-      :placeholder="PLACEHOLDER"
+      :placeholder="placeholder"
     ></textarea>
     <div class="modal-actions">
       <button class="rf-btn" type="button" :disabled="parsing || !command.trim()" @click="parse">
-        {{ parsing ? '解析中…' : '重新解析' }}
+        {{ parsing ? t('importdlg.parsing') : t('codedlg.reparse') }}
       </button>
     </div>
 
@@ -150,28 +149,28 @@ function importToEditor(): void {
         <span class="preview-lang">{{ LANG_LABELS[resolvedLang] ?? resolvedLang }}</span>
       </div>
       <div class="preview-row">
-        <span class="preview-label">请求头</span>
-        <span>{{ parsed.headers.length }} 个</span>
+        <span class="preview-label">{{ t('curldlg.headers') }}</span>
+        <span>{{ t('curldlg.count', { n: parsed.headers.length }) }}</span>
       </div>
       <div class="preview-row" v-if="parsed.body">
         <span class="preview-label">Body</span>
         <pre class="preview-body">{{ bodyPreview }}</pre>
       </div>
       <div class="preview-row" v-if="parsed.auth.type !== 'none'">
-        <span class="preview-label">认证</span>
+        <span class="preview-label">{{ t('curldlg.auth') }}</span>
         <span>{{ parsed.auth.type }}</span>
       </div>
     </div>
 
     <template #footer>
-      <button class="rf-btn" type="button" @click="emit('close')">取消</button>
+      <button class="rf-btn" type="button" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button
         class="rf-btn rf-btn-primary"
         type="button"
         :disabled="!parsed"
         @click="importToEditor"
       >
-        导入到编辑器
+        {{ t('curldlg.importBtn') }}
       </button>
     </template>
   </Modal>

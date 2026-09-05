@@ -7,7 +7,8 @@
  * - 键盘流：Tab 天然从 Key → Value；Value 内按 Enter / Tab 跳到下一行 Key，
  *   处于末尾时自动补行并聚焦。
  */
-import { nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 import IconButton from './IconButton.vue'
 
 export interface KVRow {
@@ -34,12 +35,18 @@ const props = withDefaults(
     showDescription: true,
     keyPlaceholder: 'Key',
     valuePlaceholder: 'Value',
-    descriptionPlaceholder: '描述',
+    descriptionPlaceholder: '',
     disabled: false,
   },
 )
 
 const emit = defineEmits<{ 'update:modelValue': [rows: KVRow[]] }>()
+
+const locale = useLocaleStore()
+const t = locale.t
+
+/** 未传描述列 placeholder 时按当前语言兜底。 */
+const effectiveDescPh = computed(() => props.descriptionPlaceholder || t('kv.descPh'))
 
 const rows = ref<KVRow[]>([])
 const keyInputs = new Map<number, HTMLInputElement>()
@@ -191,7 +198,7 @@ function gridStyle(): Record<string, string> | undefined {
         v-model="row.description"
         class="kvt-input kvt-col kvt-desc"
         :style="gridStyle() ? { width: '100%' } : undefined"
-        :placeholder="descriptionPlaceholder"
+        :placeholder="effectiveDescPh"
         :disabled="disabled"
         spellcheck="false"
         @input="onCellInput"
@@ -204,7 +211,7 @@ function gridStyle(): Record<string, string> | undefined {
           name="trash"
           :size="13"
           tone="danger"
-          title="删除"
+          :title="t('common.delete')"
           @click="remove(i)"
         />
       </span>

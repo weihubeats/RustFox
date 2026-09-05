@@ -1,13 +1,20 @@
 /**
  * RealtimeView 单测：WS/SSE 双页签渲染与切换（不建真实连接）。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import RealtimeView from './RealtimeView.vue'
+import { useLocaleStore } from '../stores/locale'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
+})
 
 function mountView() {
   setActivePinia(createPinia())

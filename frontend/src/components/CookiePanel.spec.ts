@@ -1,9 +1,11 @@
 /**
  * CookiePanel 单测：列表渲染 + 按域清理。
  */
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import CookiePanel from './CookiePanel.vue'
+import { useLocaleStore } from '../stores/locale'
 import type { CookieEntry } from '../types/foxApi'
 
 const apiMocks = {
@@ -32,6 +34,12 @@ function cookie(partial: Partial<CookieEntry> & { name: string }): CookieEntry {
 }
 
 describe('CookiePanel', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+    useLocaleStore().setMode('zh')
+  })
+
   it('按域名分组渲染 + 清理后刷新', async () => {
     apiMocks.cookieList.mockResolvedValue([
       cookie({ name: 'sid', value: 'abc', domain: 'api.example.com' }),

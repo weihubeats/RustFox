@@ -6,6 +6,7 @@
  * - 确认按钮支持 danger 样式。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useLocaleStore } from '../../stores/locale'
 
 const props = withDefaults(
   defineProps<{
@@ -15,8 +16,16 @@ const props = withDefaults(
     danger?: boolean
     disabled?: boolean
   }>(),
-  { title: '确定执行该操作吗？', confirmText: '确定', cancelText: '取消', danger: true, disabled: false },
+  { title: '', confirmText: '', cancelText: '', danger: true, disabled: false },
 )
+
+const locale = useLocaleStore()
+const t = locale.t
+
+/** 未传文案时按当前语言兜底。 */
+const effectiveTitle = computed(() => props.title || t('confirm.title'))
+const effectiveConfirm = computed(() => props.confirmText || t('confirm.ok'))
+const effectiveCancel = computed(() => props.cancelText || t('common.cancel'))
 
 const emit = defineEmits<{
   confirm: []
@@ -108,9 +117,9 @@ onBeforeUnmount(() => {
         role="alertdialog"
         @click.stop
       >
-        <p class="pc-title">{{ title }}</p>
+        <p class="pc-title">{{ effectiveTitle }}</p>
         <div class="pc-actions">
-          <button class="rf-btn rf-btn-sm" type="button" @click="onCancel">{{ cancelText }}</button>
+          <button class="rf-btn rf-btn-sm" type="button" @click="onCancel">{{ effectiveCancel }}</button>
           <button
             class="rf-btn rf-btn-sm"
             :class="danger ? 'rf-btn-danger' : 'rf-btn-primary'"
@@ -118,7 +127,7 @@ onBeforeUnmount(() => {
             autofocus
             @click="onConfirm"
           >
-            {{ confirmText }}
+            {{ effectiveConfirm }}
           </button>
         </div>
       </div>

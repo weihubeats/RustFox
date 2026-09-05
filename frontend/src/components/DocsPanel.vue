@@ -10,6 +10,7 @@
  */
 import { computed, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useLocaleStore } from '../stores/locale'
 import { useToast } from '../composables/useToast'
 import { copyText } from '../utils/clipboard'
 import { inferSchema } from '../utils/schemaInfer'
@@ -26,6 +27,8 @@ const props = withDefaults(defineProps<{ draft: Endpoint | null; url?: string }>
 
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const spec = computed(() => props.draft?.request ?? null)
 
@@ -37,48 +40,48 @@ const enabledParams = computed(() => enabled(spec.value?.params ?? []))
 const enabledHeaders = computed(() => enabled(spec.value?.headers ?? []))
 const pathVariables = computed(() => enabled(spec.value?.path_variables ?? []))
 
-/** 接口状态标签（与 DesignPanel 一致）。 */
-const STATUS_LABELS: Record<EndpointStatus, string> = {
-  designing: '设计中',
-  developing: '开发中',
-  testing: '测试中',
-  released: '已发布',
-  deprecated: '已废弃',
+/** 接口状态标签（与 DesignPanel 一致，复用 design.status* 键）。 */
+const STATUS_KEYS: Record<EndpointStatus, string> = {
+  designing: 'design.statusDesigning',
+  developing: 'design.statusDeveloping',
+  testing: 'design.statusTesting',
+  released: 'design.statusReleased',
+  deprecated: 'design.statusDeprecated',
 }
 
 // ---------- 认证 ----------
 
 const authView = computed(() => {
   const a: AuthSpec | undefined = spec.value?.auth
-  if (!a || a.type === 'none') return { label: '无', detail: '该接口无需认证' }
+  if (!a || a.type === 'none') return { label: t('body.none'), detail: t('docs.authNoneDetail') }
   switch (a.type) {
     case 'bearer':
-      return { label: 'Bearer Token', detail: `Authorization: Bearer ${a.token || '（未填写）'}` }
+      return { label: 'Bearer Token', detail: `Authorization: Bearer ${a.token || t('docs.unfilled')}` }
     case 'basic':
-      return { label: 'Basic Auth', detail: `${a.username || '（用户名未填写）'} : ${'•'.repeat(8)}` }
+      return { label: 'Basic Auth', detail: `${a.username || t('docs.unfilledUsername')} : ${'•'.repeat(8)}` }
     case 'apikey':
       return {
-        label: `API Key（${a.in === 'header' ? '请求头' : 'Query'}）`,
-        detail: `${a.key || '（键未填写）'} = ${a.value || '（未填写）'}`,
+        label: t('docs.authApiKey', { v: a.in === 'header' ? t('docs.authInHeader') : t('docs.authInQuery') }),
+        detail: `${a.key || t('docs.unfilledKey')} = ${a.value || t('docs.unfilled')}`,
       }
     case 'oauth2':
-      return { label: 'OAuth2', detail: `client_id: ${a.client_id || '（未填写）'}` }
+      return { label: 'OAuth2', detail: `client_id: ${a.client_id || t('docs.unfilled')}` }
     case 'digest':
-      return { label: 'Digest 认证', detail: `${a.username || '（用户名未填写）'} : ${'•'.repeat(8)}` }
+      return { label: t('docs.authDigest'), detail: `${a.username || t('docs.unfilledUsername')} : ${'•'.repeat(8)}` }
     case 'hawk':
-      return { label: 'Hawk 认证', detail: `id: ${a.key_id || '（未填写）'}（发送时实时计算 mac）` }
+      return { label: t('docs.authHawk'), detail: t('docs.authHawkDetail', { id: a.key_id || t('docs.unfilled') }) }
     case 'awsv4':
       return {
         label: 'AWS Signature V4',
-        detail: `${a.access_key || '（AK 未填写）'} / ${a.region || '（区域未填写）'} / ${a.service || '（服务未填写）'}`,
+        detail: `${a.access_key || t('docs.unfilledAk')} / ${a.region || t('docs.unfilledRegion')} / ${a.service || t('docs.unfilledService')}`,
       }
     case 'hmac':
       return {
         label: 'HMAC (AK-SK)',
-        detail: `${a.access_key || '（AK 未填写）'}（发送时实时计算 X-Signature）`,
+        detail: t('docs.authHmacDetail', { ak: a.access_key || t('docs.unfilledAk') }),
       }
     default:
-      return { label: '无', detail: '' }
+      return { label: t('body.none'), detail: '' }
   }
 })
 
@@ -117,7 +120,7 @@ const bodyView = computed<
     case 'json': {
       const schema = jsonSchemaOf(s.body.raw)
       if (schema) return { kind: 'schema', label, schema }
-      return { kind: 'raw', label, content: s.body.raw || '（空）' }
+      return { kind: 'raw', label, content: s.body.raw || t('docs.bodyEmpty') }
     }
     case 'urlencoded':
       return {
@@ -127,7 +130,7 @@ const bodyView = computed<
         fields: enabled(s.body.fields).map<FormRow>((f) => ({
           key: f.key,
           value: f.value,
-          kind: '文本',
+          kind: t('docs.fieldText'),
           description: f.description,
         })),
       }
@@ -139,16 +142,16 @@ const bodyView = computed<
         fields: enabled(s.body.fields).map<FormRow>((f) => ({
           key: f.key,
           value: f.value_type === 'file_path' ? `@${f.value}` : f.value,
-          kind: f.value_type === 'file_path' ? '文件' : '文本',
+          kind: f.value_type === 'file_path' ? t('docs.fieldFile') : t('docs.fieldText'),
           description: '',
         })),
       }
     case 'graphql':
-      return { kind: 'raw', label, content: s.body.spec.query || '（空）' }
+      return { kind: 'raw', label, content: s.body.spec.query || t('docs.bodyEmpty') }
     case 'text':
-      return { kind: 'raw', label, content: s.body.raw || '（空）' }
+      return { kind: 'raw', label, content: s.body.raw || t('docs.bodyEmpty') }
     case 'binary':
-      return { kind: 'raw', label, content: s.body.path || '（未选择文件）' }
+      return { kind: 'raw', label, content: s.body.path || t('docs.noFileSelected') }
     case 'none':
       return null
   }
@@ -174,9 +177,9 @@ async function copyPath(): Promise<void> {
   if (!path) return
   const ok = await copyText(path)
   if (ok) {
-    toast.success('已复制 Path')
+    toast.success(t('docs.pathCopied'))
   } else {
-    toast.error('复制失败，请手动选择文本')
+    toast.error(t('response.copyFail'))
   }
 }
 
@@ -198,20 +201,20 @@ const showExport = ref(false)
         <code class="head-path" v-tooltip-overflow>{{ draft.path }}</code>
         <div class="head-actions">
           <button class="head-export" type="button" @click="showExport = true">
-            <Icon name="download" :size="13" /> 导出文档
+            <Icon name="download" :size="13" /> {{ t('docs.exportDocs') }}
           </button>
           <button class="rf-btn rf-btn-sm" type="button" @click="copyPath">
-            <Icon name="copy" :size="12" /> 复制 Path
+            <Icon name="copy" :size="12" /> {{ t('docs.copyPath') }}
           </button>
           <button class="rf-btn rf-btn-sm rf-btn-primary" type="button" @click="jumpToDebug">
-            <Icon name="send" :size="12" /> 跳转调试
+            <Icon name="send" :size="12" /> {{ t('docs.jumpToDebug') }}
           </button>
         </div>
       </div>
       <div class="head-sub">
-        <h3 class="head-name">{{ draft.name || '未命名接口' }}</h3>
+        <h3 class="head-name">{{ draft.name || t('default.endpointName') }}</h3>
         <span class="head-status" :class="`s-${draft.status}`">
-          {{ STATUS_LABELS[draft.status] }}
+          {{ t(STATUS_KEYS[draft.status]) }}
         </span>
       </div>
       <p v-if="draft.description" class="head-desc">{{ draft.description }}</p>
@@ -222,30 +225,30 @@ const showExport = ref(false)
       <div class="doc-left">
         <!-- 基本信息 -->
         <section class="doc-card sec">
-          <h4 class="doc-sec-title">基本信息 (Overview)</h4>
+          <h4 class="doc-sec-title">{{ t('docs.secOverview') }}</h4>
           <dl class="meta-grid">
             <div class="meta-item">
-              <dt>接口名称</dt>
+              <dt>{{ t('design.endpointName') }}</dt>
               <dd>{{ draft.name || '—' }}</dd>
             </div>
             <div class="meta-item">
-              <dt>当前状态</dt>
+              <dt>{{ t('docs.currentStatus') }}</dt>
               <dd class="status-val">
                 <span class="status-dot" :class="`d-${draft.status}`"></span>
-                {{ STATUS_LABELS[draft.status] }}
+                {{ t(STATUS_KEYS[draft.status]) }}
               </dd>
             </div>
             <div class="meta-item">
-              <dt>超时时间</dt>
+              <dt>{{ t('docs.timeout') }}</dt>
               <dd>{{ spec?.timeout_ms ?? '-' }} ms</dd>
             </div>
             <div class="meta-item">
-              <dt>更新时间</dt>
+              <dt>{{ t('docs.updatedAt') }}</dt>
               <dd>{{ draft.updated_at.slice(0, 16).replace('T', ' ') }}</dd>
             </div>
           </dl>
           <div v-if="pathVariables.length" class="path-vars">
-            <span class="path-vars-label">Path 变量</span>
+            <span class="path-vars-label">{{ t('docs.pathVars') }}</span>
             <code v-for="pv in pathVariables" :key="pv.key" class="path-var">
               {{ pv.key }}={{ pv.value }}
             </code>
@@ -254,7 +257,7 @@ const showExport = ref(false)
 
         <!-- 认证方式 -->
         <section class="doc-card sec">
-          <h4 class="doc-sec-title">认证方式 (Authorization)</h4>
+          <h4 class="doc-sec-title">{{ t('docs.secAuth') }}</h4>
           <div class="auth-row">
             <span class="auth-badge">{{ authView.label }}</span>
             <code v-if="authView.detail" class="auth-detail">{{ authView.detail }}</code>
@@ -263,10 +266,10 @@ const showExport = ref(false)
 
         <!-- Query 参数 -->
         <section v-if="enabledParams.length" class="doc-card sec">
-          <h4 class="doc-sec-title">Query 参数 ({{ enabledParams.length }})</h4>
+          <h4 class="doc-sec-title">{{ t('docs.queryParams', { n: enabledParams.length }) }}</h4>
           <table class="kv-table">
             <thead>
-              <tr><th>Key</th><th>Value</th><th>Description</th></tr>
+              <tr><th>{{ t('docs.colKey') }}</th><th>{{ t('docs.colValue') }}</th><th>{{ t('docs.colDesc') }}</th></tr>
             </thead>
             <tbody>
               <tr v-for="p in enabledParams" :key="p.key">
@@ -280,10 +283,10 @@ const showExport = ref(false)
 
         <!-- 请求头 -->
         <section v-if="enabledHeaders.length" class="doc-card sec">
-          <h4 class="doc-sec-title">请求头 Headers ({{ enabledHeaders.length }})</h4>
+          <h4 class="doc-sec-title">{{ t('docs.headers', { n: enabledHeaders.length }) }}</h4>
           <table class="kv-table">
             <thead>
-              <tr><th>Key</th><th>Value</th><th>Description</th></tr>
+              <tr><th>{{ t('docs.colKey') }}</th><th>{{ t('docs.colValue') }}</th><th>{{ t('docs.colDesc') }}</th></tr>
             </thead>
             <tbody>
               <tr v-for="h in enabledHeaders" :key="h.key">
@@ -297,15 +300,15 @@ const showExport = ref(false)
 
         <!-- 请求 Body（Schema 树 / 表单字段表 / 源码） -->
         <section v-if="bodyView" class="doc-card sec">
-          <h4 class="doc-sec-title">请求 Body ({{ bodyView.label }})</h4>
+          <h4 class="doc-sec-title">{{ t('docs.reqBody', { v: bodyView.label }) }}</h4>
           <SchemaTreeTable v-if="bodyView.kind === 'schema'" :rows="bodyView.schema" />
           <table v-else-if="bodyView.kind === 'form'" class="kv-table">
             <thead>
               <tr>
-                <th>Key</th>
-                <th>Value</th>
-                <th v-if="bodyView.showKind">类型</th>
-                <th>Description</th>
+                <th>{{ t('docs.colKey') }}</th>
+                <th>{{ t('docs.colValue') }}</th>
+                <th v-if="bodyView.showKind">{{ t('body.colType') }}</th>
+                <th>{{ t('docs.colDesc') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -322,10 +325,10 @@ const showExport = ref(false)
 
         <!-- 响应 Body Schema -->
         <section class="doc-card sec">
-          <h4 class="doc-sec-title">响应 Body (Schema)</h4>
+          <h4 class="doc-sec-title">{{ t('docs.respBodySchema') }}</h4>
           <SchemaTreeTable v-if="responseSchema" :rows="responseSchema" />
           <p v-else class="schema-empty">
-            暂无可解析的 2xx 响应示例：在调试页发送请求并保存成功响应后，此处将自动生成响应字段表。
+            {{ t('docs.respSchemaEmpty') }}
           </p>
         </section>
       </div>
@@ -335,8 +338,8 @@ const showExport = ref(false)
         <ResponseExamplesPanel :examples="examples" :draft="draft" />
         <CodeSnippetsPanel v-if="url" :draft="draft" :url="url" />
         <section v-else class="doc-card sec">
-          <h4 class="doc-sec-title">代码生成 (Code)</h4>
-          <p class="schema-empty">在调试页填写 Base URL 后，此处可一键生成多语言请求代码。</p>
+          <h4 class="doc-sec-title">{{ t('docs.secCode') }}</h4>
+          <p class="schema-empty">{{ t('docs.codeNeedUrl') }}</p>
         </section>
       </div>
     </div>

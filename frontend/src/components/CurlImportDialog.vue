@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import Modal from './ui/Modal.vue'
 import type { CurlParsed } from '../types/foxApi'
 
@@ -16,6 +17,8 @@ const emit = defineEmits<{ close: [] }>()
 const api = useFoxApi()
 const store = useWorkspaceStore()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const command = ref('')
 const parsing = ref(false)
@@ -68,16 +71,15 @@ onBeforeUnmount(() => {
 function importToEditor(): void {
   if (!parsed.value) return
   store.openCurlDraft(parsed.value, props.folderId)
-  toast.success('已导入到编辑器，保存时将提示填写接口名称')
+  toast.success(t('curldlg.imported'))
   emit('close')
 }
 </script>
 
 <template>
-  <Modal :open="true" title="导入 cURL 命令" width="560px" @close="emit('close')">
+  <Modal :open="true" :title="t('curldlg.title')" width="560px" @close="emit('close')">
     <p class="modal-hint">
-      支持 -X / -H / -d / --data / -u 等常用参数（解析器见
-      <code>fox-core::curl_parser</code>）。
+      {{ t('curldlg.hintBefore') }}<code>fox-core::curl_parser</code>{{ t('curldlg.hintAfter') }}
     </p>
     <textarea
       v-model="command"
@@ -87,7 +89,7 @@ function importToEditor(): void {
     ></textarea>
     <div class="modal-actions">
       <button class="rf-btn" type="button" :disabled="parsing || !command.trim()" @click="parse">
-        {{ parsing ? '解析中…' : '解析' }}
+        {{ parsing ? t('importdlg.parsing') : t('importdlg.parse') }}
       </button>
     </div>
 
@@ -99,34 +101,34 @@ function importToEditor(): void {
         <span class="preview-url">{{ parsed.url }}</span>
       </div>
       <div class="preview-row">
-        <span class="preview-label">请求头</span>
-        <span>{{ parsed.headers.length }} 个</span>
+        <span class="preview-label">{{ t('curldlg.headers') }}</span>
+        <span>{{ t('curldlg.count', { n: parsed.headers.length }) }}</span>
       </div>
       <div class="preview-row" v-if="parsed.body">
         <span class="preview-label">Body</span>
         <pre class="preview-body">{{ bodyPreview }}</pre>
       </div>
       <div class="preview-row" v-if="parsed.auth.type !== 'none'">
-        <span class="preview-label">认证</span>
+        <span class="preview-label">{{ t('curldlg.auth') }}</span>
         <span>{{ parsed.auth.type }}</span>
       </div>
       <div v-if="parsed.ignored?.length" class="preview-ignored">
-        <span class="preview-label">已忽略</span>
-        <span class="ignored-text" :title="`以下参数导入时未生效：${parsed.ignored.join(' ')}`">
-          {{ parsed.ignored.join(' ') }}（未生效）
+        <span class="preview-label">{{ t('curldlg.ignored') }}</span>
+        <span class="ignored-text" :title="t('curldlg.ignoredHint', { v: parsed.ignored.join(' ') })">
+          {{ t('curldlg.notApplied', { v: parsed.ignored.join(' ') }) }}
         </span>
       </div>
     </div>
 
     <template #footer>
-      <button class="rf-btn" type="button" @click="emit('close')">取消</button>
+      <button class="rf-btn" type="button" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button
         class="rf-btn rf-btn-primary"
         type="button"
         :disabled="!parsed"
         @click="importToEditor"
       >
-        导入到编辑器
+        {{ t('curldlg.importBtn') }}
       </button>
     </template>
   </Modal>

@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { useLocaleStore } from '../stores/locale'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import Icon from './ui/Icon.vue'
@@ -20,6 +21,8 @@ const emit = defineEmits<{ close: [] }>()
 const store = useWorkspaceStore()
 const api = useFoxApi()
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 
 const rules = ref<MockRule[]>([])
 const busy = ref(false)
@@ -27,11 +30,11 @@ const editing = ref<MockRule | null>(null)
 
 const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }))
-const PRIORITY_OPTIONS = [
-  { value: 0, label: '优先级 0（默认）' },
-  { value: 1, label: '优先级 1（较高）' },
-  { value: 2, label: '优先级 2（最高）' },
-]
+const PRIORITY_OPTIONS = computed(() => [
+  { value: 0, label: t('mockrule.priority', { n: 0, v: t('mockrule.priorityDefault') }) },
+  { value: 1, label: t('mockrule.priority', { n: 1, v: t('mockrule.priorityHigh') }) },
+  { value: 2, label: t('mockrule.priority', { n: 2, v: t('mockrule.priorityTop') }) },
+])
 
 async function load(): Promise<void> {
   if (!store.project) return
@@ -39,7 +42,7 @@ async function load(): Promise<void> {
   try {
     rules.value = (await api.listMockRules(store.project.id)) ?? []
   } catch (err) {
-    toast.error('加载规则失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('mockrule.loadFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -82,7 +85,7 @@ function removeMatch(row: MockRule, which: 'match_query' | 'match_headers', inde
 async function save(): Promise<void> {
   if (!editing.value) return
   if (!editing.value.name.trim()) {
-    toast.error('请填写规则名称')
+    toast.error(t('mockrule.nameRequired'))
     return
   }
   busy.value = true
@@ -92,9 +95,9 @@ async function save(): Promise<void> {
     if (idx === -1) rules.value.push(saved)
     else rules.value[idx] = saved
     editing.value = null
-    toast.success('规则已保存')
+    toast.success(t('mockrule.saved'))
   } catch (err) {
-    toast.error('保存失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('mockrule.saveFail'), { message: err instanceof Error ? err.message : String(err) })
   } finally {
     busy.value = false
   }
@@ -106,18 +109,18 @@ async function remove(rule: MockRule): Promise<void> {
     rules.value = rules.value.filter((r) => r.id !== rule.id)
     if (editing.value?.id === rule.id) editing.value = null
   } catch (err) {
-    toast.error('删除失败', { message: err instanceof Error ? err.message : String(err) })
+    toast.error(t('mockrule.deleteFail'), { message: err instanceof Error ? err.message : String(err) })
   }
 }
 
-const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
+const listTitle = computed(() => t('mockrule.listTitle', { n: rules.value.length }))
 </script>
 
 <template>
-  <Modal :open="true" :title="editing ? '编辑 Mock 规则' : listTitle" width="620px" @close="emit('close')">
+  <Modal :open="true" :title="editing ? t('mockrule.editTitle') : listTitle" width="620px" @close="emit('close')">
     <div v-if="editing" class="rule-form">
       <div class="kv-row">
-        <input v-model="editing.name" class="rf-input rf-input-sm kv-key" placeholder="规则名称" />
+        <input v-model="editing.name" class="rf-input rf-input-sm kv-key" :placeholder="t('mockrule.namePh')" />
         <CustomSelect
           :model-value="editing.method"
           :options="METHOD_OPTIONS"
@@ -136,14 +139,14 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           size="sm"
           :min="100"
           :max="599"
-          placeholder="状态码"
+          :placeholder="t('mockrule.statusPh')"
           @update:model-value="editing.response_status = $event === '' ? 100 : Number($event)"
         />
         <CustomNumberInput
           :model-value="editing.delay_ms"
           size="sm"
           :min="0"
-          placeholder="延迟 ms"
+          :placeholder="t('mockrule.delayPh')"
           @update:model-value="editing.delay_ms = $event === '' ? 0 : Number($event)"
         />
         <CustomNumberInput
@@ -151,8 +154,8 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           size="sm"
           :min="0"
           :max="100"
-          placeholder="故障 %"
-          title="故障注入比例：百分之多少的命中请求返回故障状态码（0 = 关闭）"
+          :placeholder="t('mockrule.faultPh')"
+          :title="t('mockrule.faultHint')"
           @update:model-value="editing.fault_rate_pct = $event === '' ? 0 : Math.max(0, Math.min(100, Number($event)))"
         />
         <CustomNumberInput
@@ -160,8 +163,8 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           size="sm"
           :min="100"
           :max="599"
-          placeholder="故障码"
-          title="故障注入时的状态码"
+          :placeholder="t('mockrule.faultCodePh')"
+          :title="t('mockrule.faultCodeHint')"
           @update:model-value="editing.fault_status = $event === '' ? 500 : Number($event)"
         />
         <CustomSelect
@@ -171,23 +174,23 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           @update:model-value="editing.priority = Number($event)"
         />
         <label class="rule-enabled">
-          <input v-model="editing.enabled" type="checkbox" /> 启用
+          <input v-model="editing.enabled" type="checkbox" /> {{ t('mockrule.enabled') }}
         </label>
       </div>
-      <div class="rule-sub">Query 匹配</div>
+      <div class="rule-sub">{{ t('mockrule.queryMatch') }}</div>
       <div v-for="(m, i) in editing.match_query" :key="i" class="kv-row">
         <input v-model="m.key" class="rf-input rf-input-sm kv-key" placeholder="key" />
         <input v-model="m.value" class="rf-input rf-input-sm kv-value" placeholder="value" />
-        <IconButton name="x" :size="13" title="删除" @click="removeMatch(editing, 'match_query', i)" />
+        <IconButton name="x" :size="13" :title="t('common.delete')" @click="removeMatch(editing, 'match_query', i)" />
       </div>
       <button class="rf-btn rf-btn-sm" type="button" @click="addMatch(editing, 'match_query')">
         <Icon name="plus" :size="13" /> Query
       </button>
-      <div class="rule-sub">Header 匹配</div>
+      <div class="rule-sub">{{ t('mockrule.headerMatch') }}</div>
       <div v-for="(m, i) in editing.match_headers" :key="i" class="kv-row">
         <input v-model="m.key" class="rf-input rf-input-sm kv-key" placeholder="key" />
         <input v-model="m.value" class="rf-input rf-input-sm kv-value" placeholder="value" />
-        <IconButton name="x" :size="13" title="删除" @click="removeMatch(editing, 'match_headers', i)" />
+        <IconButton name="x" :size="13" :title="t('common.delete')" @click="removeMatch(editing, 'match_headers', i)" />
       </div>
       <button class="rf-btn rf-btn-sm" type="button" @click="addMatch(editing, 'match_headers')">
         <Icon name="plus" :size="13" /> Header
@@ -196,7 +199,7 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
         v-model="editing.response_body_template"
         class="rf-input rule-body"
         spellcheck="false"
-        placeholder='响应体模板（支持 {{path.id}} 占位，例如 { "id": "{{id}}" }）'
+        :placeholder="t('mockrule.bodyPh')"
       ></textarea>
     </div>
 
@@ -206,21 +209,21 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
         <span class="rule-path">{{ r.path }}</span>
         <span class="rule-status">{{ r.response_status }}</span>
         <span class="rule-meta">
-          {{ r.enabled ? '启用' : '停用' }} · 优先级 {{ r.priority }}<span v-if="(r.fault_rate_pct ?? 0) > 0"> · 故障 {{ r.fault_rate_pct }}%→{{ r.fault_status ?? 500 }}</span><span v-if="r.delay_ms"> · 延迟 {{ r.delay_ms }}ms</span>
+          {{ r.enabled ? t('mockrule.enabled') : t('mockrule.disabled') }} · {{ t('mockrule.priorityShort', { n: r.priority }) }}<span v-if="(r.fault_rate_pct ?? 0) > 0"> · {{ t('mockrule.faultMeta', { rate: r.fault_rate_pct ?? 0, code: r.fault_status ?? 500 }) }}</span><span v-if="r.delay_ms"> · {{ t('mockrule.delayMeta', { ms: r.delay_ms }) }}</span>
         </span>
-        <button class="rf-btn rf-btn-sm" type="button" @click="editing = { ...r }">编辑</button>
-        <Popconfirm :title="`删除规则「${r.name}」？`" @confirm="remove(r)">
-          <IconButton name="trash" :size="13" tone="danger" title="删除" />
+        <button class="rf-btn rf-btn-sm" type="button" @click="editing = { ...r }">{{ t('common.edit') }}</button>
+        <Popconfirm :title="t('mockrule.deleteConfirm', { name: r.name })" @confirm="remove(r)">
+          <IconButton name="trash" :size="13" tone="danger" :title="t('common.delete')" />
         </Popconfirm>
       </li>
     </ul>
-    <p v-else class="rule-hint">暂无规则。Mock 服务默认按接口路径 + 首个响应示例生成行为。</p>
+    <p v-else class="rule-hint">{{ t('mockrule.emptyHint') }}</p>
 
     <template #footer>
       <template v-if="editing">
-        <button class="rf-btn rf-btn-sm" type="button" @click="editing = null">取消</button>
+        <button class="rf-btn rf-btn-sm" type="button" @click="editing = null">{{ t('common.cancel') }}</button>
         <button class="rf-btn rf-btn-primary rf-btn-sm" type="button" :disabled="busy" @click="save">
-          保存
+          {{ t('common.save') }}
         </button>
       </template>
       <template v-else>
@@ -229,9 +232,9 @@ const listTitle = computed(() => `Mock 规则 (${rules.value.length})`)
           type="button"
           @click="editing = blankRule()"
         >
-          <Icon name="plus" :size="13" /> 新建规则
+          <Icon name="plus" :size="13" /> {{ t('mockrule.newRule') }}
         </button>
-        <button class="rf-btn rf-btn-sm" type="button" @click="emit('close')">关闭</button>
+        <button class="rf-btn rf-btn-sm" type="button" @click="emit('close')">{{ t('common.close') }}</button>
       </template>
     </template>
   </Modal>

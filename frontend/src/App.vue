@@ -14,9 +14,12 @@ import ProgressBar from './components/ProgressBar.vue'
 import Brand from './components/Brand.vue'
 import AboutDialog from './components/AboutDialog.vue'
 import { useToast } from './composables/useToast'
+import { useLocaleStore } from './stores/locale'
 import { startAutoUpdate } from './composables/useAutoUpdate'
 
 const toast = useToast()
+const locale = useLocaleStore()
+const t = locale.t
 const route = useRoute()
 
 /** 仪表板 / 工作区页自带顶栏品牌（工作区顶部栏已内嵌品牌），隐藏全局浮层品牌避免重复。 */
@@ -32,13 +35,13 @@ onMounted(async () => {
   window.addEventListener('error', (event) => {
     console.error('[window.error]', event.message, event.error)
     const msg = String(event.error?.message ?? event.message)
-    toast.error('页面错误', { message: msg, duration: 6000 })
+    toast.error(t('app.pageError'), { message: msg, duration: 6000 })
   })
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason
     console.error('[unhandledrejection]', reason)
     const msg = reason instanceof Error ? reason.message : String(reason)
-    toast.error('未处理的 Promise 错误', { message: msg, duration: 6000 })
+    toast.error(t('app.unhandledError'), { message: msg, duration: 6000 })
   })
   try {
     if ('__TAURI_INTERNALS__' in window) {
@@ -51,10 +54,10 @@ onMounted(async () => {
       if (getCurrentWindow().label === 'main') {
         stopAutoUpdate = startAutoUpdate({
           onUpdateAvailable: ({ version }) => {
-            toast.info(`发现新版本 v${version}`, {
+            toast.info(t('app.updateFound', { v: version }), {
               duration: 15000,
               action: {
-                label: '查看详情',
+                label: t('app.viewDetails'),
                 run: () => {
                   showAbout.value = true
                 },
@@ -76,8 +79,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="showFloatingBrand" class="app-brand" aria-label="RustFox 品牌">
-    <Brand title="RustFox" subtitle="API 调试工具" />
+  <div v-if="showFloatingBrand" class="app-brand" :aria-label="t('app.brandAria')">
+    <Brand title="RustFox" :subtitle="t('app.tagline')" />
   </div>
   <ProgressBar />
   <ToastHost />

@@ -4,8 +4,10 @@
  * Tauri dialog / opener 插件与 foxApi、store 均以模块级 mock 替换。
  */
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ExportSmokeDialog from './ExportSmokeDialog.vue'
+import { useLocaleStore } from '../../stores/locale'
 import { makeDraft } from '../../testUtils/draftFixture'
 import type { Endpoint } from '../../types/foxApi'
 
@@ -58,6 +60,9 @@ function mountDialog(d: Endpoint | null = draft()) {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia())
+  // 文案断言锁定中文（jsdom 默认语言为英文，跟随系统会解析出英文）
+  useLocaleStore().setMode('zh')
   vi.clearAllMocks()
   apiMock.exportSmokeDocs.mockResolvedValue({
     content: '# 演示项目 冒烟测试文档',
