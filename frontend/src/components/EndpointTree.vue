@@ -784,10 +784,7 @@ function onBatchMenuSelect(item: MenuItem): void {
   transition: background var(--dur) var(--ease);
 }
 .tree-row:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-:global(html[data-theme='light']) .tree-row:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--bg-hover);
 }
 /* 选中态：Obsidian 全宽紫 pill（渐变 + 光晕 + 白字），对标参考图侧边栏 */
 .tree-row.active {
@@ -819,9 +816,6 @@ function onBatchMenuSelect(item: MenuItem): void {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.25);
   color: #fff;
-}
-:global(html[data-theme='light']) .tree-row.active {
-  background: linear-gradient(135deg, #7e57ff, #6e46ff);
 }
 /* 多选态：淡蓝底（与激活态可叠加，激活优先显示） */
 .tree-row.selected {
@@ -983,11 +977,8 @@ function onBatchMenuSelect(item: MenuItem): void {
   color: var(--text-3);
 }
 .tree-actions :deep(.ib:hover) {
-  background: rgba(64, 64, 64, 0.5);
+  background: var(--bg-hover);
   color: var(--text-1);
-}
-:global(html[data-theme='light']) .tree-actions :deep(.ib:hover) {
-  background: rgba(0, 0, 0, 0.06);
 }
 
 .tree-input {

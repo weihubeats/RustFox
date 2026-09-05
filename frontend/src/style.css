@@ -148,6 +148,13 @@
   --code-caret: #c084fc;
   --code-placeholder: rgba(215, 219, 227, 0.35);
 
+  /* ---- 侧边栏（Obsidian 质感） ----
+   * 注意：组件内禁止写 `:global(html[data-theme=...])` 覆盖——该写法经构建
+   * 后丢失（已实证），主题差异一律用此类变量表达。 */
+  --sidebar-bg: #14161a;
+  --sidebar-border: #262933;
+  --sidebar-search-bg: #1c1f26;
+
   /* ---- 截断文本溢出 Tooltip（v-tooltip-overflow，见 directives/tooltipOverflow.ts） ---- */
   --overflow-tip-bg: rgba(33, 35, 41, 0.95);
   --overflow-tip-border: rgba(74, 78, 90, 0.5);
@@ -220,6 +227,11 @@
   --danger-border: rgba(220, 38, 38, 0.3);
   --info-border: rgba(37, 99, 235, 0.3);
   --mask: rgba(15, 23, 42, 0.45);
+
+  /* ---- 侧边栏（浅色跟随面板系） ---- */
+  --sidebar-bg: var(--bg-panel);
+  --sidebar-border: var(--border);
+  --sidebar-search-bg: var(--bg-code);
 
   /* ---- JSON 语法高亮（One Light 色阶，与深色 --tok-* 对应） ---- */
   --tok-key: #a626a4;

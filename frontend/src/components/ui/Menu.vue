@@ -184,10 +184,6 @@ defineExpose({ openAt, close })
   animation: menu-in 120ms var(--ease);
   transform-origin: top center;
 }
-:global(html[data-theme='light']) .rf-menu {
-  background: var(--bg-elevated);
-  border-color: var(--border-strong);
-}
 
 .rf-menu-item {
   display: flex;
@@ -206,13 +202,6 @@ defineExpose({ openAt, close })
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .rf-menu-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-:global(html[data-theme='light']) .rf-menu-item {
-  color: var(--text-2);
-}
-:global(html[data-theme='light']) .rf-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text-1);
 }
@@ -245,12 +234,6 @@ defineExpose({ openAt, close })
   color: var(--text-3);
 }
 .rf-menu-item:hover .rf-menu-icon {
-  color: var(--text-2);
-}
-:global(html[data-theme='light']) .rf-menu-icon {
-  color: var(--text-3);
-}
-:global(html[data-theme='light']) .rf-menu-item:hover .rf-menu-icon {
   color: var(--text-2);
 }
 .rf-menu-icon.accent {
@@ -290,9 +273,6 @@ defineExpose({ openAt, close })
   height: 1px;
   margin: 4px -6px;
   background: var(--border);
-}
-:global(html[data-theme='light']) .rf-menu-divider {
-  background: var(--border-strong);
 }
 
 .rf-menu-confirm-title {
