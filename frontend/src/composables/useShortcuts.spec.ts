@@ -1,12 +1,29 @@
 /**
- * useShortcuts 单测：注册 / 匹配 / 注销 / 输入框隔离。
+ * useShortcuts 单测：注册 / 匹配 / 注销 / 输入框隔离 / 自定义键位。
  */
-import { describe, expect, it, vi } from 'vitest'
-import { registerShortcut, shortcutGroups, shortcutLabel } from './useShortcuts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  SHORTCUT_DEFAULTS,
+  bindingLabel,
+  defaultBindingOf,
+  findBindingConflict,
+  isShortcutCustomized,
+  registerShortcut,
+  resetAllShortcutBindings,
+  setShortcutBinding,
+  shortcutDef,
+  shortcutGroups,
+  shortcutLabel,
+} from './useShortcuts'
 
 function keydown(init: KeyboardEventInit): void {
   window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
 }
+
+afterEach(() => {
+  resetAllShortcutBindings()
+  localStorage.removeItem('rustfox:shortcut-bindings')
+})
 
 describe('useShortcuts', () => {
   it('修饰键 + 主键匹配并 preventDefault', () => {
@@ -58,5 +75,67 @@ describe('useShortcuts', () => {
       '⌘/Ctrl + S',
     )
     u()
+  })
+
+  it('shortcutDef 取默认表构造注册项，未知 id 抛错', () => {
+    const def = shortcutDef('editor.send', () => {})
+    expect(def.key).toBe('Enter')
+    expect(def.group).toBe('请求编辑')
+    expect(def.inInput).toBe(true)
+    expect(() => shortcutDef('nope', () => {})).toThrow()
+  })
+
+  it('自定义覆盖即时改变匹配与展示文案', () => {
+    const handler = vi.fn()
+    const unregister = registerShortcut(shortcutDef('editor.save', handler))
+    // 默认 Ctrl+S 生效
+    keydown({ key: 's', ctrlKey: true })
+    expect(handler).toHaveBeenCalledTimes(1)
+
+    setShortcutBinding('editor.save', { mod: 'ctrl', shift: true, alt: false, key: 's' })
+    expect(isShortcutCustomized('editor.save')).toBe(true)
+    // 旧组合失效，新组合生效
+    keydown({ key: 's', ctrlKey: true })
+    expect(handler).toHaveBeenCalledTimes(1)
+    keydown({ key: 'S', ctrlKey: true, shiftKey: true })
+    expect(handler).toHaveBeenCalledTimes(2)
+    // 展示文案跟随自定义
+    expect(
+      shortcutLabel({ id: 'editor.save', key: 's', group: 'g', description: 'd', handler: () => {} }),
+    ).toBe('⌘/Ctrl + Shift + S')
+    expect(bindingLabel(defaultBindingOf('editor.save')!)).toBe('⌘/Ctrl + Shift + S')
+    unregister()
+  })
+
+  it('冲突检测：同组合返回对方定义，不同组合无冲突', () => {
+    const conflict = findBindingConflict('editor.save', {
+      mod: 'ctrl',
+      shift: false,
+      alt: false,
+      key: 'Enter',
+    })
+    expect(conflict?.id).toBe('editor.send')
+    // 自身不与自身冲突
+    expect(
+      findBindingConflict('editor.send', { mod: 'ctrl', shift: false, alt: false, key: 'Enter' }),
+    ).toBeNull()
+    // 修饰键不同即无冲突
+    expect(
+      findBindingConflict('editor.save', { mod: 'ctrl', shift: true, alt: false, key: 's' }),
+    ).toBeNull()
+  })
+
+  it('覆盖持久化到 localStorage，未知 id 被忽略', () => {
+    setShortcutBinding('editor.send', { mod: 'ctrl', shift: false, alt: true, key: 'Enter' })
+    const raw = localStorage.getItem('rustfox:shortcut-bindings')
+    expect(raw).toContain('editor.send')
+    setShortcutBinding('unknown.id', { mod: 'ctrl', shift: false, alt: false, key: 'x' })
+    expect(defaultBindingOf('unknown.id')).toBeNull()
+    expect(isShortcutCustomized('unknown.id')).toBe(false)
+  })
+
+  it('默认表 id 唯一', () => {
+    const ids = SHORTCUT_DEFAULTS.map((d) => d.id)
+    expect(new Set(ids).size).toBe(ids.length)
   })
 })

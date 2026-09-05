@@ -29,7 +29,7 @@ import EndpointEditor from '../components/EndpointEditor.vue'
 import CurlImportDialog from '../components/CurlImportDialog.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import MockRuleDialog from '../components/MockRuleDialog.vue'
-import { useShortcuts } from '../composables/useShortcuts'
+import { useShortcuts, shortcutDef } from '../composables/useShortcuts'
 import { useWindowDrag } from '../composables/useWindowDrag'
 
 const store = useWorkspaceStore()
@@ -45,17 +45,11 @@ const showMockRules = ref(false)
 const showSettings = ref(false)
 const showShortcuts = ref(false)
 
-/** 快捷键帮助（Ctrl+/）：集中注册表驱动，列表自动生成。 */
+/** 快捷键帮助（默认 Ctrl+/，可在设置 → 快捷键中自定义）：集中注册表驱动，列表自动生成。 */
 useShortcuts([
-  {
-    id: 'workspace.shortcuts-help',
-    key: '/',
-    group: '通用',
-    description: '打开快捷键帮助',
-    handler: () => {
-      showShortcuts.value = true
-    },
-  },
+  shortcutDef('workspace.shortcuts-help', () => {
+    showShortcuts.value = true
+  }),
 ])
 
 /**

@@ -12,7 +12,7 @@ import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, watch } fro
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
-import { useShortcuts } from '../composables/useShortcuts'
+import { useShortcuts, shortcutDef } from '../composables/useShortcuts'
 import {
   envBaseUrl,
   environmentVariableMap,
@@ -657,41 +657,14 @@ async function copyRequestUrl(): Promise<void> {
 
 /**
  * 全局快捷键（集中注册表，见 useShortcuts；帮助面板自动收录）。
+ * 默认键位来自 SHORTCUT_DEFAULTS，用户可在设置 → 快捷键中自定义。
  * inInput: true 保持原行为——原来是裸 window 监听，输入框内同样生效。
  */
 useShortcuts([
-  {
-    id: 'editor.save',
-    key: 's',
-    group: '请求编辑',
-    description: '保存当前接口',
-    inInput: true,
-    handler: () => save(),
-  },
-  {
-    id: 'editor.send',
-    key: 'Enter',
-    group: '请求编辑',
-    description: '发送当前请求',
-    inInput: true,
-    handler: () => void send(),
-  },
-  {
-    id: 'editor.new-request-t',
-    key: 't',
-    group: '请求编辑',
-    description: '新建接口',
-    inInput: true,
-    handler: () => store.openNewEndpoint(null),
-  },
-  {
-    id: 'editor.new-request-n',
-    key: 'n',
-    group: '请求编辑',
-    description: '新建接口',
-    inInput: true,
-    handler: () => store.openNewEndpoint(null),
-  },
+  shortcutDef('editor.save', () => save()),
+  shortcutDef('editor.send', () => void send()),
+  shortcutDef('editor.new-request-t', () => store.openNewEndpoint(null)),
+  shortcutDef('editor.new-request-n', () => store.openNewEndpoint(null)),
 ])
 
 /** 新建接口后自动聚焦地址输入框（TabBar「+」/ ⌘T ⌘N / 树内新建共用），便于直接输入路径。 */

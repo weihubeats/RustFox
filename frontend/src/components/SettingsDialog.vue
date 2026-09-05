@@ -5,13 +5,25 @@
  * 左栏：轻量 Menu List 导航（扁平行高 + 左侧紫色指示条）；
  * 右栏：卡片化设置组，Tab 切换淡入；简单项改动即自动保存。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { join } from '@tauri-apps/api/path'
 import { open } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useThemeStore, type ThemeMode } from '../stores/theme'
+import {
+  SHORTCUT_DEFAULTS,
+  bindingLabel,
+  defaultBindingOf,
+  findBindingConflict,
+  isShortcutCustomized,
+  resetAllShortcutBindings,
+  resetShortcutBinding,
+  setShortcutBinding,
+  shortcutBindingsTick,
+  type ShortcutBinding,
+} from '../composables/useShortcuts'
 import EnvironmentManager from './EnvironmentManager.vue'
 import Modal from './ui/Modal.vue'
 import Icon, { type IconName } from './ui/Icon.vue'
@@ -32,7 +44,7 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
 ]
 
 // ---------- 分类导航 ----------
-type TabId = 'general' | 'network' | 'sequences' | 'data' | 'environments' | 'logs'
+type TabId = 'general' | 'network' | 'shortcuts' | 'sequences' | 'data' | 'environments' | 'logs'
 interface TabDef {
   id: TabId
   label: string
@@ -41,6 +53,7 @@ interface TabDef {
 const tabs: TabDef[] = [
   { id: 'general', label: '通用设置', icon: 'settings' },
   { id: 'network', label: '网络与代理', icon: 'globe' },
+  { id: 'shortcuts', label: '快捷键', icon: 'keyboard' },
   { id: 'sequences', label: '自增序列', icon: 'list' },
   { id: 'data', label: '数据与备份', icon: 'folder' },
   { id: 'environments', label: '环境管理', icon: 'beaker' },
@@ -400,6 +413,106 @@ watch(activeTab, (tab) => {
   }
 })
 
+// ---------- 快捷键自定义 ----------
+/** 快捷键行（生效键位 + 是否改过，随覆盖变更自动刷新）。 */
+const shortcutRows = computed(() => {
+  // 订阅覆盖变更，改动即重算展示
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  shortcutBindingsTick.value
+  return SHORTCUT_DEFAULTS.map((d) => ({
+    ...d,
+    effective: defaultBindingOf(d.id) ?? d.binding,
+    customized: isShortcutCustomized(d.id),
+  }))
+})
+
+const shortcutGroups = computed(() => {
+  const order: string[] = []
+  const map = new Map<string, typeof shortcutRows.value>()
+  for (const row of shortcutRows.value) {
+    const list = map.get(row.group)
+    if (list) list.push(row)
+    else {
+      map.set(row.group, [row])
+      order.push(row.group)
+    }
+  }
+  return order.map((group) => ({ group, items: map.get(group)! }))
+})
+
+const customizedCount = computed(() => shortcutRows.value.filter((r) => r.customized).length)
+
+/** 正在录制的项 id（null = 未录制）。 */
+const recordingId = ref<string | null>(null)
+
+function startRecording(id: string): void {
+  recordingId.value = id
+}
+
+/** 录制中按 Esc 取消。 */
+function cancelRecording(): void {
+  recordingId.value = null
+}
+
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta'])
+
+/**
+ * 录制捕获（window 捕获阶段拦截，不触发全局快捷键）：
+ * 纯修饰键忽略；要求至少按住 ⌘/Ctrl（防裸字母劫持输入）；Esc 取消。
+ */
+function onRecordKeydown(e: KeyboardEvent): void {
+  const id = recordingId.value
+  if (!id) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') {
+    cancelRecording()
+    return
+  }
+  if (MODIFIER_KEYS.has(e.key)) return
+  if (!e.ctrlKey && !e.metaKey) {
+    toast.warning('请至少按住 ⌘/Ctrl 再按键', { message: '裸按键易与输入冲突' })
+    return
+  }
+  const binding: ShortcutBinding = {
+    mod: 'ctrl',
+    shift: e.shiftKey,
+    alt: e.altKey,
+    key: e.key,
+  }
+  const conflict = findBindingConflict(id, binding)
+  if (conflict) {
+    toast.error(`与「${conflict.description}」冲突`, { message: '请换一组按键，或先修改对方' })
+    return
+  }
+  setShortcutBinding(id, binding)
+  recordingId.value = null
+  const def = SHORTCUT_DEFAULTS.find((d) => d.id === id)
+  toast.success(`快捷键已更新：${def?.description ?? id}`, { message: bindingLabel(binding) })
+}
+
+watch(recordingId, (id) => {
+  if (id) window.addEventListener('keydown', onRecordKeydown, true)
+  else window.removeEventListener('keydown', onRecordKeydown, true)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onRecordKeydown, true)
+})
+
+function resetOneShortcut(id: string): void {
+  resetShortcutBinding(id)
+  const def = SHORTCUT_DEFAULTS.find((d) => d.id === id)
+  toast.success(`已恢复默认：${def?.description ?? id}`, {
+    message: def ? bindingLabel(def.binding) : undefined,
+  })
+}
+
+function resetAllShortcuts(): void {
+  resetAllShortcutBindings()
+  toast.success('快捷键已全部恢复默认')
+}
+
 // ---------- 通用派生 ----------
 const sequencesCount = computed(() => counters.value.length)
 const projectSummary = computed(() => {
@@ -516,16 +629,22 @@ const projectSummary = computed(() => {
                   </div>
                 </div>
                 <div class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
-                  <div class="flex items-center justify-between gap-4 pt-5 opacity-40">
+                  <button
+                    type="button"
+                    class="flex w-full items-center justify-between gap-4 pt-5 text-left"
+                    @click="activeTab = 'shortcuts'"
+                  >
                     <div class="max-w-md">
                       <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">快捷键</div>
-                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">发送请求、聚焦地址栏等全局快捷键。</p>
+                      <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">发送请求、保存接口等全局快捷键，点击前往自定义。</p>
                     </div>
                     <span
-                      class="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/[0.05] dark:bg-white/[0.03] dark:text-zinc-500"
+                      class="shrink-0 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/[0.05] dark:bg-white/[0.03] dark:text-zinc-400"
                     >
-                      即将推出
+                      {{ customizedCount ? `已自定义 ${customizedCount} 项` : `${SHORTCUT_DEFAULTS.length} 项可自定义 →` }}
                     </span>
+                  </button>
+                </div>
                   </div>
                 </div>
               </div>
@@ -596,6 +715,70 @@ const projectSummary = computed(() => {
                       <Icon name="zap" :size="13" />
                       {{ proxyTesting ? '测试中…' : '测试连通性' }}
                     </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 快捷键 -->
+            <section v-if="activeTab === 'shortcuts'">
+              <header class="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-base font-medium text-zinc-900 dark:text-zinc-100">快捷键</h2>
+                  <p class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    点击键位即开始录制，直接按下新组合；Esc 取消。改动即时生效并自动保存。
+                  </p>
+                </div>
+                <button
+                  class="rf-btn rf-btn-sm shrink-0"
+                  type="button"
+                  :disabled="!customizedCount"
+                  @click="resetAllShortcuts"
+                >
+                  <Icon name="refresh" :size="12" />
+                  全部恢复默认
+                </button>
+              </header>
+
+              <div v-for="g in shortcutGroups" :key="g.group" class="mb-4">
+                <div class="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  {{ g.group }}
+                </div>
+                <div class="overflow-hidden rounded-xl border border-zinc-200/70 bg-zinc-50/80 dark:border-white/[0.06] dark:bg-zinc-900/40">
+                  <div
+                    v-for="row in g.items"
+                    :key="row.id"
+                    class="flex items-center justify-between gap-3 border-b border-zinc-200/60 px-4 py-2.5 last:border-b-0 dark:border-white/[0.05]"
+                  >
+                    <div class="flex min-w-0 items-center gap-2">
+                      <span class="truncate text-[12.5px] text-zinc-900 dark:text-zinc-200">{{ row.description }}</span>
+                      <span
+                        v-if="row.customized"
+                        class="shrink-0 rounded-full bg-purple-100 px-1.5 py-px text-[10px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
+                      >
+                        已自定义
+                      </span>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        class="sc-key-btn"
+                        :class="{ recording: recordingId === row.id }"
+                        :title="recordingId === row.id ? '正在录制：按下新组合，Esc 取消' : '点击重新录制'"
+                        @click="recordingId === row.id ? cancelRecording() : startRecording(row.id)"
+                      >
+                        {{ recordingId === row.id ? '按下按键…' : bindingLabel(row.effective) }}
+                      </button>
+                      <button
+                        v-if="row.customized"
+                        type="button"
+                        class="sc-reset-btn"
+                        title="恢复默认键位"
+                        @click="resetOneShortcut(row.id)"
+                      >
+                        <Icon name="refresh" :size="12" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -928,6 +1111,57 @@ const projectSummary = computed(() => {
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--text-2);
+}
+
+/* 快捷键录制按钮：kbd 风格，录制态主题色呼吸 */
+.sc-key-btn {
+  min-width: 110px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.sc-key-btn:hover {
+  border-color: var(--accent);
+}
+.sc-key-btn.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: sc-key-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sc-key-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-tint); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+.sc-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.sc-reset-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-key-btn.recording {
+    animation: none;
+  }
 }
 </style>
 
