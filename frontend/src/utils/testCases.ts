@@ -4,7 +4,7 @@
  * - 快照：从请求（RequestSpec + path）提取 URL 路径 / Query 参数 / 请求头 / Body 文本；
  * - 回填：把用例快照写回请求（params / headers / body 按 body_type 还原）。
  */
-import type { BodySpec, KeyValue, RequestSpec, TestCaseCategory } from '../types/foxApi'
+import type { BodySpec, KeyValue, RequestSpec, TestCase, TestCaseCategory } from '../types/foxApi'
 import { tFallback } from '../stores/locale'
 
 /** 用例分组（与后端 CATEGORIES 一致）。 */
@@ -205,4 +205,22 @@ function parseFields(json: string): KeyValue[] {
     /* 忽略损坏快照 */
   }
   return []
+}
+
+/**
+ * 用例关键字匹配（测试用例面板搜索用）：名称 / 方法 / 路径 /
+ * 请求 Body 文本 / 参数与请求头键值均参与匹配（大小写不敏感）。
+ * 空关键字恒为 true。
+ */
+export function matchTestCaseKeyword(c: TestCase, keyword: string): boolean {
+  const q = keyword.trim().toLowerCase()
+  if (!q) return true
+  if (c.name.toLowerCase().includes(q)) return true
+  if (c.method.toLowerCase().includes(q)) return true
+  if (c.url_path.toLowerCase().includes(q)) return true
+  if (c.body_content.toLowerCase().includes(q)) return true
+  for (const p of [...c.params, ...c.headers]) {
+    if (p.key.toLowerCase().includes(q) || p.value.toLowerCase().includes(q)) return true
+  }
+  return false
 }

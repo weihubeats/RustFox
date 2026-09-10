@@ -191,4 +191,53 @@ describe('TestCaseDrawer', () => {
     ) as HTMLButtonElement
     expect(saveBtn.disabled).toBe(true)
   })
+
+  it('请求 Body 支持查找：FindBar 计数 + 输入不抢光标 + Esc 关闭', async () => {
+    // jsdom 缺少 Range#getClientRects，CodeMirror 无法聚焦——补上最小桩
+    // 以还原浏览器行为，否则「抢光标」bug 在测试里不可见。
+    Object.defineProperty(window.Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    })
+    mountDrawer()
+    // POST 用例默认落在 Body Tab，编辑器已挂载
+    await vi.waitFor(() => {
+      expect(document.querySelector('.cm-content')).toBeTruthy()
+    })
+    const toggle = document.querySelector<HTMLElement>('.drw-icon-btn')
+    expect(toggle).toBeTruthy()
+    ;(toggle as HTMLElement).click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('.findbar')).toBeTruthy()
+    })
+    const input = document.querySelector<HTMLInputElement>('.findbar-input')!
+    input.value = 'amount'
+    input.dispatchEvent(new Event('input'))
+    // 160ms 防抖后计数为 1 / 1，且编辑器内实时高亮（无需回车）
+    await vi.waitFor(() => {
+      expect(document.querySelector('.findbar-count')?.textContent).toContain('1 / 1')
+    })
+    await vi.waitFor(() => {
+      expect(document.querySelector('.cm-searchMatch')).toBeTruthy()
+    })
+    // 输入过程中焦点必须留在搜索框（FindBar 挂载即自动聚焦，编辑器不得抢光标）
+    await new Promise((r) => setTimeout(r, 350))
+    expect(document.activeElement).toBe(input)
+    // 按 Enter（下一个）才显式跳转到编辑器
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => {
+      expect(document.querySelector('.cm-editor')?.contains(document.activeElement)).toBe(true)
+    })
+    // 无命中时显示无匹配
+    input.value = 'no-such-body-zzz'
+    input.dispatchEvent(new Event('input'))
+    await vi.waitFor(() => {
+      expect(document.querySelector('.findbar-count')?.textContent).toContain('无匹配')
+    })
+    // Esc 关闭查找条
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await vi.waitFor(() => {
+      expect(document.querySelector('.findbar')).toBeNull()
+    })
+  })
 })

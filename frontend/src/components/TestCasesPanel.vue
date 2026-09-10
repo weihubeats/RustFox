@@ -9,7 +9,7 @@
 import { computed, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useLocaleStore } from '../stores/locale'
-import { CATEGORY_TONE, TEST_CASE_CATEGORIES, caseCategoryLabel, formatDuration, statusTextOf, statusToneOf } from '../utils/testCases'
+import { CATEGORY_TONE, TEST_CASE_CATEGORIES, caseCategoryLabel, formatDuration, matchTestCaseKeyword, statusTextOf, statusToneOf } from '../utils/testCases'
 import type { Endpoint, TestCase, TestCaseCategory } from '../types/foxApi'
 import EmptyState from './ui/EmptyState.vue'
 import Icon from './ui/Icon.vue'
@@ -31,13 +31,34 @@ type FilterKey = '全部' | TestCaseCategory
 
 const filter = ref<FilterKey>('全部')
 
+/** 关键字搜索：名称 / 方法 / 路径 / Body 文本 / 参数与请求头键值（见 matchTestCaseKeyword）。 */
+const keyword = ref('')
+
 /** 当前接口的用例（后端按创建时间排序，克隆/追加在尾部）。 */
 const cases = computed<TestCase[]>(() =>
   props.draft ? (store.testCases.get(props.draft.id) ?? []) : [],
 )
 
-const filtered = computed<TestCase[]>(() =>
-  filter.value === '全部' ? cases.value : cases.value.filter((c) => c.category === filter.value),
+const filtered = computed<TestCase[]>(() => {
+  const byCat =
+    filter.value === '全部' ? cases.value : cases.value.filter((c) => c.category === filter.value)
+  const q = keyword.value.trim()
+  if (!q) return byCat
+  return byCat.filter((c) => matchTestCaseKeyword(c, q))
+})
+
+/** 空态标题：无用例 → 空提示；有搜索词无命中 → 无匹配；仅分类无命中 → 分组空提示。 */
+const emptyTitle = computed(() => {
+  if (!cases.value.length) return t('cases.empty')
+  if (keyword.value.trim()) return t('cases.noMatchQ', { q: keyword.value.trim() })
+  return filter.value === '全部'
+    ? t('cases.empty')
+    : t('cases.emptyInGroup', { v: caseCategoryLabel(filter.value) })
+})
+
+/** 空态描述：搜索无命中时给清空指引，其余走新建指引。 */
+const emptyDescription = computed(() =>
+  cases.value.length && keyword.value.trim() ? t('cases.noMatchHint') : t('cases.emptyHint'),
 )
 
 /** 分类计数（全部 (N) + 各分类）：单遍聚合（原来每分类 filter 一遍，O(5N)）。 */
@@ -268,6 +289,7 @@ watch(
   () => props.draft?.id,
   () => {
     filter.value = '全部'
+    keyword.value = ''
   },
 )
 </script>
@@ -287,6 +309,25 @@ watch(
         >
           {{ key === '全部' ? t('cases.catAll') : caseCategoryLabel(key) }}
           <span class="tcp-count">{{ counts[key] }}</span>
+        </button>
+      </div>
+      <div class="tcp-search">
+        <Icon name="search" :size="12" class="tcp-search-icon" />
+        <input
+          v-model="keyword"
+          class="tcp-search-input"
+          type="text"
+          :placeholder="t('cases.searchPh')"
+          spellcheck="false"
+        />
+        <button
+          v-if="keyword"
+          class="tcp-search-clear"
+          type="button"
+          :title="t('cases.clearSearch')"
+          @click="keyword = ''"
+        >
+          <Icon name="x" :size="12" />
         </button>
       </div>
       <div class="tcp-actions">
@@ -389,8 +430,8 @@ watch(
       v-else
       icon="list"
       compact
-      :title="filter === '全部' ? t('cases.empty') : t('cases.emptyInGroup', { v: caseCategoryLabel(filter) })"
-      :description="t('cases.emptyHint')"
+      :title="emptyTitle"
+      :description="emptyDescription"
     />
 
     <TestCaseModal
@@ -477,6 +518,62 @@ watch(
 }
 .tcp-filter.active .tcp-count {
   color: var(--accent);
+}
+
+.tcp-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 140px;
+  max-width: 280px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.tcp-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint, rgba(168, 85, 247, 0.18));
+}
+.tcp-search-icon {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.tcp-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.tcp-search-input::placeholder {
+  color: var(--text-3);
+}
+.tcp-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tcp-search-clear:hover {
+  color: var(--text-1);
+  background: var(--bg-hover);
 }
 
 .tcp-actions {

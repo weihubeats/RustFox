@@ -7,11 +7,12 @@
  * - 请求区与响应区之间可拖拽分割条（双击恢复 50%，双方 min-height 120px）；
  * - 底部操作栏 sticky，左侧「立即运行」、右侧「取消 / 保存修改」。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ExecuteResponse, HttpMethod, KeyValue, TestCase, TestCaseCategory } from '../types/foxApi'
 import { TEST_CASE_CATEGORIES, caseCategoryLabel, formatDuration, statusToneOf, statusTextOf } from '../utils/testCases'
 import { useLocaleStore } from '../stores/locale'
 import CustomSelect from './ui/CustomSelect.vue'
+import FindBar from './ui/FindBar.vue'
 import Icon from './ui/Icon.vue'
 import JsonCodeMirror from './JsonCodeMirror.vue'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
@@ -101,6 +102,107 @@ function applyMethodDefaults(m: HttpMethod): void {
 
 watch(method, (m) => applyMethodDefaults(m))
 
+// ---------- 请求 Body 查找（Find in Request Body，与 BodyPanel 同款交互） ----------
+const drawerRef = ref<HTMLElement | null>(null)
+const bodyFindOpen = ref(false)
+const bodyQuery = ref('')
+const bodyActiveMatch = ref(0)
+
+/** 防抖后的实际搜索词：输入跟手，CodeMirror 跳转走防抖值（BodyPanel 同款 160ms）。 */
+const bodySearchQuery = ref('')
+let bodySearchTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(bodyQuery, (q) => {
+  if (bodySearchTimer) clearTimeout(bodySearchTimer)
+  if (!q) {
+    bodySearchQuery.value = ''
+    return
+  }
+  bodySearchTimer = setTimeout(() => {
+    bodySearchQuery.value = q
+  }, 160)
+})
+
+watch(bodyQuery, () => {
+  bodyActiveMatch.value = 0
+})
+
+function countBodyOccurrences(text: string, q: string): number {
+  if (!text || !q) return 0
+  const ql = q.toLowerCase()
+  const lower = text.toLowerCase()
+  let n = 0
+  let from = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) break
+    n += 1
+    from = idx + ql.length
+  }
+  return n
+}
+
+const bodyTotal = computed(() => countBodyOccurrences(bodyContent.value, bodySearchQuery.value))
+
+watch(bodyTotal, (n) => {
+  if (n === 0) bodyActiveMatch.value = 0
+  else if (bodyActiveMatch.value >= n) bodyActiveMatch.value = n - 1
+})
+
+/** 跳转到当前匹配：经 JsonCodeMirror 选中对应区间并滚动可见。
+ * 仅显式上一处/下一处导航时调用——输入过程中只更新计数，
+ * 不触碰编辑器，否则每敲一个字符就会被抢走光标。 */
+function jumpBodyMatch(): void {
+  if (!bodySearchQuery.value || !bodyTotal.value) return
+  bodyEditorRef.value?.selectMatch(bodySearchQuery.value, bodyActiveMatch.value)
+}
+
+function nextBodyMatch(): void {
+  if (!bodyTotal.value) return
+  bodyActiveMatch.value = (bodyActiveMatch.value + 1) % bodyTotal.value
+  jumpBodyMatch()
+}
+
+function prevBodyMatch(): void {
+  if (!bodyTotal.value) return
+  bodyActiveMatch.value = (bodyActiveMatch.value - 1 + bodyTotal.value) % bodyTotal.value
+  jumpBodyMatch()
+}
+
+function closeBodyFind(): void {
+  bodyFindOpen.value = false
+  bodyQuery.value = ''
+  bodySearchQuery.value = ''
+  bodyActiveMatch.value = 0
+}
+
+function toggleBodyFind(): void {
+  if (bodyFindOpen.value) closeBodyFind()
+  else bodyFindOpen.value = true
+}
+
+/** 抽屉内 ⌘F / Ctrl+F 聚焦 Body 查找（FindBar 输入中不重复触发）。 */
+function onDrawerKeydown(e: KeyboardEvent): void {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.findbar')) return
+  const root = drawerRef.value
+  if (root && target && root.contains(target)) {
+    if (!bodyEditable.value) return
+    e.preventDefault()
+    bodyFindOpen.value = true
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onDrawerKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onDrawerKeydown)
+  if (bodySearchTimer) clearTimeout(bodySearchTimer)
+})
+
 // ---------- 打开时同步草稿 ----------
 // 同时监听 `props.open` 与 `props.testCase`：抽屉已打开（open 恒为 true）时
 // 切换用例，`drawerCase` 会变而 `open` 不变，若只监听 open 则本地编辑 ref
@@ -122,6 +224,7 @@ watch(
     activeTab.value = 'params'
     result.value = null
     runError.value = ''
+    closeBodyFind()
     applyMethodDefaults(method.value)
   },
   { immediate: true },
@@ -293,7 +396,7 @@ function onSplitterDblClick(): void {
   <Teleport to="body">
     <Transition name="drw">
       <div v-if="open" class="drw-mask" @mousedown.self="emit('update:open', false)">
-        <aside class="drw" role="dialog" aria-modal="true">
+        <aside ref="drawerRef" class="drw" role="dialog" aria-modal="true">
           <header class="drw-head">
             <h3 class="drw-title">{{ t('casedrawer.title') }}</h3>
             <button class="drw-close" type="button" :title="t('common.close')" @click="emit('update:open', false)">
@@ -393,13 +496,35 @@ function onSplitterDblClick(): void {
                     >
                       {{ t('casedrawer.format') }}
                     </button>
+                    <button
+                      v-if="bodyEditable"
+                      class="drw-icon-btn"
+                      :class="{ active: bodyFindOpen }"
+                      type="button"
+                      :title="t('body.findHint')"
+                      @click="toggleBodyFind"
+                    >
+                      <Icon name="search" :size="13" />
+                    </button>
                     <span class="drw-body-hint">{{ bodyLabel }}</span>
                   </div>
+                  <FindBar
+                    v-if="bodyFindOpen && bodyEditable"
+                    v-model:query="bodyQuery"
+                    :index="bodyActiveMatch"
+                    :total="bodyTotal"
+                    :placeholder="t('body.findPh')"
+                    @prev="prevBodyMatch"
+                    @next="nextBodyMatch"
+                    @close="closeBodyFind"
+                  />
                   <div v-if="bodyEditable" class="drw-cm-wrap">
                     <JsonCodeMirror
                       ref="bodyEditorRef"
                       :model-value="bodyContent"
                       :placeholder-text='bodyType === "json" ? "{\"key\": \"value\"}" : t("casedrawer.bodyPh")'
+                      :query="bodyFindOpen ? bodySearchQuery : ''"
+                      :active-match="bodyActiveMatch"
                       @update:model-value="bodyContent = $event"
                     />
                   </div>
@@ -795,6 +920,32 @@ function onSplitterDblClick(): void {
 .drw-fmt-btn:hover {
   color: var(--text-1);
   background: var(--bg-hover);
+}
+
+.drw-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.drw-icon-btn:hover {
+  color: var(--text-1);
+  background: var(--bg-hover);
+}
+.drw-icon-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .drw-none {

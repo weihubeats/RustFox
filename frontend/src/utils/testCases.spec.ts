@@ -3,7 +3,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { RequestSpec } from '../types/foxApi'
+import type { RequestSpec, TestCase } from '../types/foxApi'
 import { useLocaleStore } from '../stores/locale'
 import {
   applyCaseToRequest,
@@ -12,6 +12,7 @@ import {
   bodyTypeOf,
   caseCategoryLabel,
   formatDuration,
+  matchTestCaseKeyword,
   restoreBody,
   snapshotRequest,
   statusTextOf,
@@ -162,5 +163,46 @@ describe('applyCaseToRequest', () => {
     applyCaseToRequest(r, snap)
     r.params[0].value = 'changed'
     expect(snap.params[0].value).toBe('1')
+  })
+})
+
+describe('matchTestCaseKeyword', () => {
+  function testCase(): TestCase {
+    return {
+      id: 'c1',
+      request_id: 'ep-1',
+      name: '内部划转-SGB',
+      category: '正向',
+      method: 'POST',
+      url_path: '/funds/transfer',
+      params: [{ key: 'debug', value: '0', enabled: true, description: '' }],
+      headers: [{ key: 'X-Trace', value: 'on', enabled: true, description: '' }],
+      body_type: 'json',
+      body_content: '{"amount":100,"currency":"CNY"}',
+      last_run_status: 'Untested',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }
+  }
+
+  it('空关键字恒匹配', () => {
+    expect(matchTestCaseKeyword(testCase(), '')).toBe(true)
+    expect(matchTestCaseKeyword(testCase(), '   ')).toBe(true)
+  })
+
+  it('请求 Body 文本参与匹配（大小写不敏感）', () => {
+    expect(matchTestCaseKeyword(testCase(), 'amount')).toBe(true)
+    expect(matchTestCaseKeyword(testCase(), 'AMOUNT')).toBe(true)
+    expect(matchTestCaseKeyword(testCase(), 'cny')).toBe(true)
+    expect(matchTestCaseKeyword(testCase(), 'no-such-body')).toBe(false)
+  })
+
+  it('名称 / 方法 / 路径 / 参数键值参与匹配', () => {
+    const c = testCase()
+    expect(matchTestCaseKeyword(c, '划转')).toBe(true)
+    expect(matchTestCaseKeyword(c, 'post')).toBe(true)
+    expect(matchTestCaseKeyword(c, '/funds/')).toBe(true)
+    expect(matchTestCaseKeyword(c, 'x-trace')).toBe(true)
+    expect(matchTestCaseKeyword(c, 'debug')).toBe(true)
+    expect(matchTestCaseKeyword(c, 'zzz')).toBe(false)
   })
 })

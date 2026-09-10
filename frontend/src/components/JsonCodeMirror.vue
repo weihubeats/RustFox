@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Compartment, EditorState } from '@codemirror/state'
-import { EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view'
+import { Decoration, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { json, jsonParseLinter } from '@codemirror/lang-json'
@@ -16,8 +16,12 @@ const props = withDefaults(
     readonly?: boolean
     placeholderText?: string
     autofocus?: boolean
+    /** 查找词：非空时实时高亮全部匹配（大小写不敏感），无需回车。 */
+    query?: string
+    /** 当前选中的匹配索引（0-based，高亮加深）。 */
+    activeMatch?: number
   }>(),
-  { readonly: false, placeholderText: '', autofocus: false },
+  { readonly: false, placeholderText: '', autofocus: false, query: '', activeMatch: 0 },
 )
 
 const emit = defineEmits<{
@@ -28,6 +32,7 @@ const host = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
 const readOnlyCompartment = new Compartment()
 const themeCompartment = new Compartment()
+const searchCompartment = new Compartment()
 
 /** 当前主题：以 <html> 的 data-theme 为准，并监听 rustfox:theme 全局事件联动。 */
 const theme = ref<'dark' | 'light'>(readThemeFromDom())
@@ -116,6 +121,10 @@ const darkTheme = EditorView.theme({
   '.cm-searchMatch': {
     backgroundColor: 'rgba(251, 191, 36, 0.25)',
   },
+  '.cm-searchMatchActive': {
+    backgroundColor: 'rgba(251, 146, 60, 0.55)',
+    outline: '1px solid rgba(251, 146, 60, 0.9)',
+  },
 })
 
 const lightTheme = EditorView.theme({
@@ -175,8 +184,53 @@ const lightTheme = EditorView.theme({
   '.cm-searchMatch': {
     backgroundColor: 'rgba(217, 119, 6, 0.2)',
   },
+  '.cm-searchMatchActive': {
+    backgroundColor: 'rgba(249, 115, 22, 0.35)',
+    outline: '1px solid rgba(249, 115, 22, 0.8)',
+  },
 })
 
+/** 搜索高亮 mark：普通匹配淡黄底，当前匹配额外加深（两类同带，便于统一查询与样式覆盖）。 */
+const searchMark = Decoration.mark({ class: 'cm-searchMatch' })
+const searchActiveMark = Decoration.mark({ class: 'cm-searchMatch cm-searchMatchActive' })
+
+/** 按 query 计算全文匹配装饰（大小写不敏感；空 query 返回空集）。 */
+function searchDecorations(docText: string, query: string, active: number) {
+  if (!query) return Decoration.none
+  const lower = docText.toLowerCase()
+  const ql = query.toLowerCase()
+  const marks: { from: number; to: number; value: Decoration }[] = []
+  let from = 0
+  let idx = 0
+  for (;;) {
+    const pos = lower.indexOf(ql, from)
+    if (pos === -1) break
+    marks.push({ from: pos, to: pos + query.length, value: idx === active ? searchActiveMark : searchMark })
+    idx += 1
+    from = pos + ql.length
+  }
+  return Decoration.set(marks)
+}
+
+/** 按当前文档 + 查找词刷新高亮（无 query 时不 dispatch，保持零开销）。 */
+function refreshSearchDecorations(): void {
+  if (!view || !props.query) return
+  view.dispatch({
+    effects: searchCompartment.reconfigure(
+      EditorView.decorations.of(
+        searchDecorations(view.state.doc.toString(), props.query, props.activeMatch),
+      ),
+    ),
+  })
+}
+
+/** 关闭查找时清掉残留高亮。 */
+function clearSearchDecorations(): void {
+  if (!view) return
+  view.dispatch({
+    effects: searchCompartment.reconfigure(EditorView.decorations.of(Decoration.none)),
+  })
+}
 /** 当前生效主题对应的扩展集（主题样式 + 高亮规则）。 */
 function currentThemeExtension() {
   const dark = theme.value === 'dark'
@@ -217,6 +271,11 @@ onMounted(() => {
       ...(largeDoc ? [] : [linter(jsonParseLinter())]),
       readOnlyCompartment.of(EditorState.readOnly.of(props.readonly)),
       placeholder(props.placeholderText),
+      searchCompartment.of(
+        EditorView.decorations.of(
+          searchDecorations(props.modelValue, props.query, props.activeMatch),
+        ),
+      ),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           scheduleEmit(update.state.doc.toString())
@@ -243,6 +302,18 @@ watch(
     if (current !== val) {
       view.dispatch({ changes: { from: 0, to: current.length, insert: val } })
     }
+    // 外部回写（如切换用例）后按新文档刷新高亮。
+    if (props.query) refreshSearchDecorations()
+  },
+)
+
+/** 查找词/当前匹配变化 → 实时刷新高亮（输入即标，无需回车）。 */
+watch(
+  () => [props.query, props.activeMatch] as const,
+  ([q]) => {
+    if (!view) return
+    if (q) refreshSearchDecorations()
+    else clearSearchDecorations()
   },
 )
 
@@ -287,7 +358,38 @@ function requestMeasure(): void {
   view?.requestMeasure()
 }
 
-defineExpose({ requestMeasure, focus: () => view?.focus() })
+/**
+ * 选中第 index 个匹配（大小写不敏感），并滚动到可见区。
+ * 供 FindBar 上一个/下一个跳转用；无匹配时不做任何事。
+ * 注意：滚动与聚焦会触发 CodeMirror 的异步布局测量，jsdom 等
+ * 无布局环境缺少 Range#getClientRects——此时仅选中不滚动/聚焦。
+ */
+function selectMatch(query: string, index: number): void {
+  if (!view || !query) return
+  const doc = view.state.doc.toString()
+  const lower = doc.toLowerCase()
+  const ql = query.toLowerCase()
+  let from = 0
+  let cur = 0
+  for (;;) {
+    const idx = lower.indexOf(ql, from)
+    if (idx === -1) return
+    if (cur === index) {
+      view.dispatch({
+        selection: { anchor: idx, head: idx + query.length },
+      })
+      if (typeof document.createRange().getClientRects === 'function') {
+        view.dispatch({ scrollIntoView: true })
+        view.focus()
+      }
+      return
+    }
+    cur += 1
+    from = idx + ql.length
+  }
+}
+
+defineExpose({ requestMeasure, selectMatch, focus: () => view?.focus() })
 
 onBeforeUnmount(() => {
   window.removeEventListener(THEME_EVENT, onThemeEvent)

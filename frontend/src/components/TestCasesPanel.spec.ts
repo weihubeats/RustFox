@@ -48,7 +48,7 @@ function draft(): Endpoint {
   return reactive(makeDraft({ id: 'ep-1', method: 'POST', path: '/funds/transfer' }))
 }
 
-function makeCase(id: string, name: string, category: TestCase['category']): TestCase {
+function makeCase(id: string, name: string, category: TestCase['category'], bodyContent = '{}'): TestCase {
   return {
     id,
     request_id: 'ep-1',
@@ -59,7 +59,7 @@ function makeCase(id: string, name: string, category: TestCase['category']): Tes
     params: [],
     headers: [],
     body_type: 'json',
-    body_content: '{}',
+    body_content: bodyContent,
     last_run_status: 'Untested',
     created_at: '2026-01-01T00:00:00.000Z',
   }
@@ -115,6 +115,33 @@ describe('TestCasesPanel', () => {
     expect(wrapper.findAll('.tcp-body-row')).toHaveLength(1)
     expect(wrapper.text()).toContain('金额超限')
     expect(wrapper.text()).not.toContain('内部划转-SGB')
+  })
+
+  it('关键字搜索命中请求 Body 文本', async () => {
+    store.set([
+      [
+        'ep-1',
+        [
+          makeCase('c1', '内部划转-SGB', '正向', '{"amount":100,"currency":"CNY"}'),
+          makeCase('c2', '金额超限', '边界值', '{"amount":999999}'),
+        ],
+      ],
+    ])
+    const wrapper = mountPanel(draft())
+    expect(wrapper.findAll('.tcp-body-row')).toHaveLength(2)
+    await wrapper.find('.tcp-search-input').setValue('cny')
+    expect(wrapper.findAll('.tcp-body-row')).toHaveLength(1)
+    expect(wrapper.text()).toContain('内部划转-SGB')
+    expect(wrapper.text()).not.toContain('金额超限')
+  })
+
+  it('搜索无命中时显示无匹配空态，可一键清空恢复', async () => {
+    const wrapper = mountPanel(draft())
+    await wrapper.find('.tcp-search-input').setValue('no-such-body-zzz')
+    expect(wrapper.findAll('.tcp-body-row')).toHaveLength(0)
+    expect(wrapper.text()).toContain('无匹配用例')
+    await wrapper.find('.tcp-search-clear').trigger('click')
+    expect(wrapper.findAll('.tcp-body-row')).toHaveLength(2)
   })
 
   it('点击用例名称 → 打开抽屉（不切调试页）', async () => {
