@@ -242,8 +242,10 @@ export const en: Record<ZhKey, string> = {
   'default.exampleName': 'Untitled example',
   'default.folderName': 'New folder',
 
-  'editor.urlPhBare': 'Enter a path like /api/v1/users, or paste a full URL',
-  'editor.urlPhJoin': 'Enter a path like /api/v1/users, auto-joined with {v}',
+  'editor.urlPhBare': 'Enter a path like /api/v1/users, or paste a full URL / cURL',
+  'editor.urlPhJoin': 'Enter a path like /api/v1/users, auto-joined with {v} (paste cURL to auto-import)',
+  'editor.curlAutoImported': 'cURL detected and imported into the current request',
+  'editor.curlParseFail': 'Failed to parse cURL: {v}',
   'editor.sendingHint': 'Request in flight. Click cancel to abort',
   'editor.cancelled': 'Request cancelled',
   'editor.cancelling': 'Cancelling request…',

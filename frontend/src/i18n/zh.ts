@@ -240,8 +240,10 @@ export const zh = {
   'default.exampleName': '未命名示例',
   'default.folderName': '新建文件夹',
 
-  'editor.urlPhBare': '输入接口路径，如 /api/v1/users，或直接粘贴完整 URL',
-  'editor.urlPhJoin': '输入接口路径，如 /api/v1/users，自动拼接 {v}',
+  'editor.urlPhBare': '输入接口路径，如 /api/v1/users，或直接粘贴完整 URL / cURL',
+  'editor.urlPhJoin': '输入接口路径，如 /api/v1/users，自动拼接 {v}（可粘贴 cURL 自动解析）',
+  'editor.curlAutoImported': '已识别 cURL 并导入到当前接口',
+  'editor.curlParseFail': 'cURL 解析失败：{v}',
   'editor.sendingHint': '请求发送中，点击取消按钮可中断',
   'editor.cancelled': '请求已取消',
   'editor.cancelling': '正在取消请求…',

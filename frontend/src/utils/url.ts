@@ -27,6 +27,20 @@ export function withProtocol(src: string, protocol: Protocol): string {
   return `${protocol}://${stripProtocol(src)}`
 }
 
+/**
+ * 是否为 cURL 命令（地址栏粘贴自动识别用）。
+ * 判定尽量保守：仅当文本以 `curl[.exe]` 开头（允许前导 `$`/`>`/`#` 等终端提示符、
+ * 空白与 shell 续行），避免普通 URL 误触。后端 `parse_curl` 本身更宽松，
+ * 这里只做路由分流，真正的合法性仍由解析器判定。
+ */
+export function isCurlCommand(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  // 去掉終端複製常見的前導提示符（`$ curl …` / `> curl …`）。
+  const stripped = t.replace(/^[$#>]+[ \t]+/, '').trimStart()
+  return /^(curl(\.exe)?)([\s\\]|$)/i.test(stripped) || /^\/\S*curl([\s\\]|$)/i.test(stripped)
+}
+
 /** 把导入 URL 拆成路径 + 查询参数 + origin；无 scheme 时按 https 补全。 */
 export function splitUrl(
   url: string,

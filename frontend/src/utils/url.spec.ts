@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitUrl, protocolFromDomain, stripProtocol, withProtocol } from './url'
+import { splitUrl, protocolFromDomain, stripProtocol, withProtocol, isCurlCommand } from './url'
 
 describe('splitUrl', () => {
   it('完整 URL 拆出路径、查询参数与 origin', () => {
@@ -51,5 +51,28 @@ describe('stripProtocol / withProtocol', () => {
     expect(withProtocol('http://api.x.com', 'https')).toBe('https://api.x.com')
     expect(withProtocol('api.x.com', 'https')).toBe('https://api.x.com')
     expect(withProtocol('ws://s.x.com', 'wss')).toBe('wss://s.x.com')
+  })
+})
+
+describe('isCurlCommand', () => {
+  it('识别标准 cURL 命令（含多行续行与大小写）', () => {
+    expect(isCurlCommand(`curl https://api.x.com/users`)).toBe(true)
+    expect(isCurlCommand(`  CURL -X POST 'https://api.x.com/users' -H 'Content-Type: application/json'`)).toBe(true)
+    expect(isCurlCommand(`curl \\\n  -X POST https://api.x.com/users`)).toBe(true)
+    expect(isCurlCommand(`curl.exe -X GET https://api.x.com`)).toBe(true)
+    expect(isCurlCommand(`/usr/bin/curl https://api.x.com/ping`)).toBe(true)
+  })
+
+  it('容忍终端提示符前缀', () => {
+    expect(isCurlCommand(`$ curl https://api.x.com/users`)).toBe(true)
+    expect(isCurlCommand(`> curl -X GET https://api.x.com`)).toBe(true)
+  })
+
+  it('普通 URL / 路径不误判', () => {
+    expect(isCurlCommand('')).toBe(false)
+    expect(isCurlCommand('https://api.x.com/users')).toBe(false)
+    expect(isCurlCommand('/api/v1/users')).toBe(false)
+    expect(isCurlCommand('https://api.x.com/curlies')).toBe(false)
+    expect(isCurlCommand('curlies are cute')).toBe(false)
   })
 })

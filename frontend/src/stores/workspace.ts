@@ -1454,6 +1454,28 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeTabId.value = blank.id
   }
 
+  /**
+   * 地址栏粘贴 cURL：把解析结果回填到已有草稿（原地覆盖 method / path /
+   * params / headers / auth / body），origin 按地址栏粘贴完整 URL 同款规则
+   * 写入域名源（环境变量优先，否则会话 Base URL）。
+   */
+  function applyCurlToDraft(draftId: string, parsed: CurlParsed): void {
+    const d = drafts.value.get(draftId)
+    if (!d) return
+    const { path, params, origin } = splitUrl(parsed.url)
+    d.method = parsed.method
+    d.path = path
+    d.request.params = params
+    d.request.headers = parsed.headers
+    d.request.auth = parsed.auth
+    d.request.body = parsed.body ?? { mode: 'none' }
+    if (urlDomain.value.startsWith('{{')) {
+      void setEnvironmentBaseUrl(origin)
+    } else {
+      sessionBaseUrl.value = origin
+    }
+  }
+
   // ---------- 请求历史（侧栏「请求历史」页签；发送成功后由编辑器触发刷新） ----------
   const histories = ref<RequestHistory[]>([])
   /** 「仅当前接口」过滤（HistoryPanel 复选框；变更后需重新 loadHistories）。 */
@@ -1586,6 +1608,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     saveFolder,
     deleteFolder,
     openCurlDraft,
+    applyCurlToDraft,
     importEndpoints,
     send,
     loadEnvironments,

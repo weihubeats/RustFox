@@ -23,6 +23,7 @@ import {
   resolveVariables,
   variableListToMap,
 } from '../utils/environment'
+import { isCurlCommand } from '../utils/url'
 import {
   applyMethodDefaults,
   envBadgeLabel as envBadgeLabelOf,
@@ -367,6 +368,49 @@ const envBadgeTooltip = computed(() => {
 
 /** 路径输入框元素引用（快捷按钮聚焦回跳）。 */
 const urlInputEl = ref<HTMLInputElement | null>(null)
+
+/** 地址栏 cURL 粘贴解析中（防重复触发）。 */
+const curlPasting = ref(false)
+
+/** 归一化 shell 续行 + 去终端提示符，与 CurlImportDialog 保持一致。 */
+function normalizeCurlCommand(raw: string): string {
+  return raw
+    .replace(/^\s*[$#>]+[ \t]+/, '')
+    .replace(/\\[ \t]*\r?\n/g, ' ')
+    .trim()
+}
+
+/** 地址栏粘贴 cURL 命令 → 解析后回填当前草稿（method / URL / headers / body / auth）。 */
+async function importCurlText(raw: string): Promise<void> {
+  if (!draft.value || curlPasting.value) return
+  const targetId = draft.value.id
+  curlPasting.value = true
+  try {
+    const parsed = await api.parseCurlCommand(normalizeCurlCommand(raw))
+    if (draft.value?.id !== targetId) return
+    store.applyCurlToDraft(targetId, parsed)
+    if (parsed.ignored?.length) {
+      toast.success(t('editor.curlAutoImported'), {
+        message: t('curldlg.ignoredHint', { v: parsed.ignored.join(' ') }),
+      })
+    } else {
+      toast.success(t('editor.curlAutoImported'))
+    }
+  } catch (err) {
+    toast.error(t('editor.curlParseFail', { v: err instanceof Error ? err.message : String(err) }))
+  } finally {
+    curlPasting.value = false
+  }
+}
+
+/** 地址栏粘贴：cURL 命令自动识别并解析，其余走常规 URL 拆分（urlPath setter）。 */
+function onUrlPaste(event: ClipboardEvent): void {
+  const text = event.clipboardData?.getData('text') ?? ''
+  if (!text || !draft.value || curlPasting.value) return
+  if (!isCurlCommand(text)) return
+  event.preventDefault()
+  void importCurlText(text)
+}
 
 /** 路径输入框 placeholder：有基础 URL 时提示自动拼接，无则提示粘贴完整 URL。 */
 const urlPlaceholder = computed(() => {
@@ -833,6 +877,7 @@ onUnmounted(() => {
             spellcheck="false"
             :placeholder="urlPlaceholder"
             @keydown="onUrlKeydown"
+            @paste="onUrlPaste"
           />
           <template v-if="urlPath">
             <Tooltip :content="t('editor.copyUrl')" placement="top" class="url-qbtn url-qbtn-copy">
