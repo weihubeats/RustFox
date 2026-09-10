@@ -41,7 +41,7 @@ Everything lives in a local `rustfox.db`; environment variable values are **AES-
 
 - 8 HTTP methods, 6 body types (JSON / Form / x-www-form-urlencoded / Multipart / GraphQL / Text)
 - Params / Headers / Body / Auth / Tests / Docs tabs; unsaved drafts are flagged automatically
-- Paste-to-import cURL: method / URL / headers / body / Basic Auth detected automatically
+- Paste-to-import cURL: method / URL / headers / body / Basic Auth detected automatically (pasting cURL straight into the address bar parses it into the current request too)
 - `{{name}}` variables resolved anywhere (environment > project precedence)
 
 ### Auth & security
@@ -63,6 +63,7 @@ Everything lives in a local `rustfox.db`; environment variable values are **AES-
 ### Automated testing & load testing
 
 - JSON test scripts: `pre_request` variable injection, `extract` capture, `assertions`
+- Test cases: multi-case management, list search by name / path / body, live find-highlight for the request body inside the drawer
 - Run one endpoint / a folder / the whole project; results and history are kept
 - Load testing: concurrency × total requests, with QPS, average latency, P50/P90/P99 and error samples charted via chart.js
 

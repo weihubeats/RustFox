@@ -41,7 +41,7 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 
 - 8 种 HTTP 方法、6 种请求体（JSON / Form / x-www-form-urlencoded / Multipart / GraphQL / Text）
 - Params / Headers / Body / Auth / Tests / Docs 分页编辑，未保存草稿自动标记
-- cURL 一键粘贴导入，自动识别方法 / URL / Header / Body / Basic Auth
+- cURL 一键粘贴导入，自动识别方法 / URL / Header / Body / Basic Auth（地址栏直接粘贴 cURL 也会自动解析回填当前接口）
 - 环境变量 `{{name}}` 任意位置自动解析（环境 > 项目 优先级）
 
 ### 认证与安全
@@ -63,6 +63,7 @@ Rust LTO 优化 + 单一进程模型 + SQLite 零拷贝本地存储——秒开�
 ### 自动化测试与压测
 
 - JSON 测试脚本：`pre_request` 注入变量、`extract` 提取传递、`assertions` 断言
+- 测试用例：多用例管理，列表按名称 / 路径 / Body 搜索，Drawer 内请求 Body 支持实时查找高亮
 - 单接口 / 文件夹 / 全项目一键运行，结果与历史留存
 - 压测：并发 × 总请求数，输出 QPS、平均耗时、P50/P90/P99、错误样例，chart.js 图表
 

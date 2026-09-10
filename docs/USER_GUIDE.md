@@ -175,6 +175,8 @@ Tests 页「压测」区：输入并发数与总请求数（默认 10 并发 × 
 Tests 页「测试用例」区（`TestCasesPanel` + `TestCaseDrawer`）：
 
 - 一个接口可维护**多个测试用例**（不同参数/断言组合），用例含独立 Method 联动与 CodeMirror 请求体编辑。
+- 用例列表支持**关键字搜索**（名称 / 方法 / 路径 / Body 文本 / 参数与请求头键值，不分大小写，可与分组筛选叠加）。
+- Drawer 请求 Body 内置**查找**（搜索按钮或 ⌘F/Ctrl+F）：输入即实时高亮全部匹配并计数，Enter 跳下一个，输入过程不抢光标。
 - Drawer 支持拖拽分割宽度；用例可逐个运行、查看结果、删除。
 - 「全部运行」一次跑完整个集合（后端并发 5，可取消，进度实时显示）。
 
@@ -191,6 +193,7 @@ Tests 页「测试用例」区（`TestCasesPanel` + `TestCaseDrawer`）：
 目录工具栏「＋ 新建」下拉与拖拽导入（首页 Dropzone / 项目卡片）支持：
 
 - **cURL 粘贴导入**（自动识别方法 / URL / Header / Body / Basic Auth，URL 拆 base_url + 路径 + query；`--retry`/`--proxy` 等不支持的参数会在预览中标出"已忽略"）
+- **地址栏直粘 cURL**：在请求地址栏直接粘贴 cURL 命令会自动识别并回填到**当前接口**（方法 / URL / Headers / Body / 认证），无需打开导入弹窗；普通 URL 粘贴仍走原有的 base_url 拆分。
 - **多语言代码导入**（cURL / JavaScript / Java / Go / Rust / Python / PHP 片段反向解析为接口）
 - **文档导入**：OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman Collection v2.1（JSON 或 YAML；3.1 自动转换为 3.0 子集导入，`webhooks` 顶层键会被丢弃）
 

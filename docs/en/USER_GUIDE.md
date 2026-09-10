@@ -175,6 +175,8 @@ In the "Load test" area of the Tests page, enter concurrency and total requests 
 The "Test cases" area of the Tests page (`TestCasesPanel` + `TestCaseDrawer`):
 
 - One endpoint can keep **multiple test cases** (different params/assertion combos), each with method linkage and a CodeMirror body editor.
+- The case list supports **keyword search** (name / method / path / body text / params & header keys and values, case-insensitive, combinable with the category filter).
+- The drawer's request body has built-in **find** (search button or ⌘F/Ctrl+F): matches highlight live with a count as you type, Enter jumps to the next match, and typing never steals focus.
 - The drawer supports drag-to-resize width; cases run individually, with results viewable and deletable.
 - "Run all" executes the whole collection in one shot (backend concurrency 5, cancellable, live progress).
 
@@ -191,6 +193,7 @@ Output is the **fully rendered** request (variables substituted, auth headers at
 The sidebar toolbar `+ New` dropdown and drag-and-drop import (dashboard Dropzone / project cards) support:
 
 - **Paste-to-import cURL** (method / URL / headers / body / Basic Auth auto-detected; URL split into base_url + path + query; unsupported flags like `--retry`/`--proxy` are listed as "ignored" in the preview)
+- **Paste cURL straight into the address bar**: a cURL command pasted there is auto-detected and applied to the **current request** (method / URL / headers / body / auth) with no import dialog; plain URLs still go through the usual base_url split.
 - **Polyglot code import** (cURL / JavaScript / Java / Go / Rust / Python / PHP snippets parsed back into endpoints)
 - **Doc import**: OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman Collection v2.1 (JSON or YAML; 3.1 is normalized to a 3.0 subset on import, top-level `webhooks` are dropped)
 
