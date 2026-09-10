@@ -317,7 +317,6 @@ pub(crate) fn render_spec(spec: &RequestSpec, vars: &VariableMap) -> RequestSpec
                     encoding: config.encoding,
                     payload_template: fox_core::resolve_variables(&config.payload_template, vars),
                 },
-
             },
         },
         body: match &spec.body {
