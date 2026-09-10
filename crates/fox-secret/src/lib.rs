@@ -58,10 +58,24 @@ fn key_path() -> PathBuf {
 /// 缓存避免每次一次同步磁盘 IO。密钥与进程同生命周期、不运行时轮换。
 static KEY_CACHE: OnceLock<MasterKey> = OnceLock::new();
 
+/// 首调互斥：`KEY_CACHE` 的 check-then-set 本身非原子——并行测试首次调用时
+/// 两线程可同时 miss 缓存、各自生成不同密钥，`OnceLock::set` 失败方被静默丢弃
+/// 却返回自己的密钥，后续加解密走缓存密钥即 `DecryptionFailed`（CI 新机无密钥
+/// 文件时稳定复现，本地有文件则永远命中缓存）。持锁内二次检查，保证同一进程
+/// 永远只用一把密钥。临界区仅同步文件 IO（无 await），async 上下文可直接调用。
+static KEY_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// 确保主密钥存在（不存在则生成并写入，权限 0600），返回主密钥。
 ///
 /// 首次调用后进程内缓存；后续调用零磁盘开销。
 pub fn ensure_master_key() -> Result<MasterKey> {
+    if let Some(key) = KEY_CACHE.get() {
+        return Ok(key.clone());
+    }
+    let _guard = KEY_INIT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // 持锁后二次检查：等待期间可能已有线程完成初始化。
     if let Some(key) = KEY_CACHE.get() {
         return Ok(key.clone());
     }
