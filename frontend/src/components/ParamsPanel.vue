@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import { useLocaleStore } from '../stores/locale'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import type { Endpoint, KeyValue } from '../types/foxApi'
 
@@ -69,6 +70,11 @@ function commitBulk(): void {
 function cancelBulk(): void {
   bulkMode.value = false
 }
+
+/** 批量编辑 Tab 缩进而非跳出焦点（Esc 取消 / ⌘Enter 提交保持不变）。 */
+function onBulkKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
+}
 </script>
 
 <template>
@@ -89,6 +95,7 @@ function cancelBulk(): void {
         spellcheck="false"
         :placeholder="t('params.bulkPh')"
         @blur="commitBulk"
+        @keydown.tab="onBulkKeydown"
         @keydown.esc.prevent="cancelBulk"
         @keydown.meta.enter.prevent="commitBulk"
       ></textarea>

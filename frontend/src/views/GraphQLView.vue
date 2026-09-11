@@ -20,6 +20,7 @@ import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
 import { useWorkspaceStore } from '../stores/workspace'
 import { escapeHtml, highlightGraphQL, highlightJSON } from '../utils/highlight'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import Modal from '../components/ui/Modal.vue'
 import type { BodySpec, ExecuteRequestArgs, ExecuteResponse, GraphQLSpec } from '../types/foxApi'
 
@@ -148,6 +149,11 @@ function syncScroll(e: Event, pre: HTMLElement | null) {
   if (!pre) return
   pre.scrollTop = ta.scrollTop
   pre.scrollLeft = ta.scrollLeft
+}
+
+/** Query / Variables 编辑器 Tab 缩进而非跳出焦点。 */
+function onCodeKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
 }
 
 // ---------- 构建请求 ----------
@@ -408,6 +414,7 @@ async function copyCode() {
             placeholder="query Hero($id: ID!) {&#10;  hero(id: $id) { name }&#10;}"
             @input="gql.query = ($event.target as HTMLTextAreaElement).value"
             @scroll="syncScroll($event, (queryEditor as HTMLElement | null))"
+            @keydown="onCodeKeydown"
           ></textarea>
         </div>
       </div>
@@ -429,6 +436,7 @@ async function copyCode() {
             placeholder='{"id": "42"}'
             @input="gql.variables = ($event.target as HTMLTextAreaElement).value"
             @scroll="syncScroll($event, (varsEditor as HTMLElement | null))"
+            @keydown="onCodeKeydown"
           ></textarea>
         </div>
         <label class="op-name-label">

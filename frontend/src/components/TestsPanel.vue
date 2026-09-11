@@ -9,6 +9,7 @@ import { useToast } from '../composables/useToast'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useLocaleStore } from '../stores/locale'
 import { formatDuration } from '../utils/format'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import Icon from './ui/Icon.vue'
 import type { Endpoint, EndpointResult } from '../types/foxApi'
 
@@ -65,6 +66,11 @@ async function runTests(): Promise<void> {
     testing.value = false
   }
 }
+
+/** 断言 JSON 编辑器 Tab 缩进而非跳出焦点。 */
+function onCodeKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
+}
 </script>
 
 <template>
@@ -78,6 +84,7 @@ async function runTests(): Promise<void> {
       class="rf-input tp-input"
       spellcheck="false"
       :placeholder="t('tests.ph')"
+      @keydown="onCodeKeydown"
     ></textarea>
     <div class="tp-run-row">
       <button class="rf-btn rf-btn-sm" type="button" :disabled="testing" @click="runTests">

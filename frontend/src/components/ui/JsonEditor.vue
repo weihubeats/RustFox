@@ -12,6 +12,7 @@ import { useToast } from '../../composables/useToast'
 import { useLocaleStore } from '../../stores/locale'
 import { copyText } from '../../utils/clipboard'
 import { highlightJSON, highlightJSONText } from '../../utils/highlight'
+import { handleTextareaTab } from '../../utils/textareaIndent'
 import { compactJson, prettyJson } from '../../utils/jsonFormat'
 import { JsonFormatError } from '../../utils/jsonFormat'
 import Icon from './Icon.vue'
@@ -183,6 +184,11 @@ function onInput(e: Event): void {
   emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
 }
 
+/** Tab / Shift+Tab 缩进而非跳出焦点（代码编辑器习惯）。 */
+function onTextareaKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab' && taRef.value) handleTextareaTab(taRef.value, e)
+}
+
 function syncScroll(e: Event): void {
   const ta = e.target as HTMLTextAreaElement
   scrollTop.value = ta.scrollTop
@@ -323,6 +329,7 @@ async function copyJson(): Promise<void> {
         @input="onInput"
         @change="onInput"
         @scroll="syncScroll"
+        @keydown="onTextareaKeydown"
       ></textarea>
     </div>
   </div>

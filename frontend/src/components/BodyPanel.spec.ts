@@ -231,4 +231,30 @@ describe('BodyPanel：raw JSON 编辑与格式化', () => {
     // 编辑器回到 JSON 视图
     expect(wrapper.findComponent({ name: 'JsonEditor' }).exists()).toBe(true)
   })
+
+  it('Tab 缩进：JsonEditor 内按 Tab 插入 2 空格（焦点不跳出）', async () => {
+    const draft = jsonDraft('{\n}')
+    const wrapper = mountPanel(draft)
+    const ta = wrapper.find('textarea')
+    const el = ta.element as HTMLTextAreaElement
+    el.selectionStart = el.selectionEnd = 2
+    await ta.trigger('keydown', { key: 'Tab' })
+    expect(rawOf(draft)).toBe('{\n  }')
+    expect(el.selectionStart).toBe(4)
+  })
+
+  it('Tab 缩进：raw 文本 textarea 同样缩进并回写草稿', async () => {
+    const d = makeDraft()
+    d.request.body = { mode: 'text', raw: 'hi' }
+    const draft = reactive(d)
+    const wrapper = mountPanel(draft)
+    const ta = wrapper.find('textarea.body-input')
+    expect(ta.exists()).toBe(true)
+    const el = ta.element as HTMLTextAreaElement
+    el.selectionStart = el.selectionEnd = 2
+    await ta.trigger('keydown', { key: 'Tab' })
+    // raw 文本走防抖缓冲：blur 落库
+    await ta.trigger('blur')
+    expect(rawOf(draft)).toBe('hi  ')
+  })
 })

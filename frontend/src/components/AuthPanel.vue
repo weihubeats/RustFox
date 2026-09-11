@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import CustomSelect from './ui/CustomSelect.vue'
 import type {
   ApiKeyLocation,
@@ -55,6 +56,11 @@ const ENCODING_OPTIONS = computed<Array<{ value: SignatureEncoding; label: strin
 
 /** 载荷模板占位符提示文案（含字面 `{{ }}`，避免在模板文本里嵌套花括号）。 */
 const SIG_HINT = computed(() => t('auth.sigHint'))
+
+/** 载荷模板 Tab 缩进而非跳出焦点。 */
+function onTemplateKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
+}
 
 /** 签名类认证的发送时行为说明。 */
 const SIGN_HINTS = computed<Record<string, string>>(() => ({
@@ -409,6 +415,7 @@ function setAuthType(type: string): void {
             class="rf-input rf-input-sm sig-template"
             placeholder="{{$key}}{{$secret}}{{$timestamp}}"
             spellcheck="false"
+            @keydown="onTemplateKeydown"
           ></textarea>
           <p class="sig-hint">
             {{ SIG_HINT }}

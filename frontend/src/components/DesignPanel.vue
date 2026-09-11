@@ -25,6 +25,7 @@ import Tabs from './ui/Tabs.vue'
 import type { TabItem } from './ui/Tabs.vue'
 import Tooltip from './ui/Tooltip.vue'
 import { highlightJSON } from '../utils/highlight'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import { statusTextOf } from '../utils/testCases'
 import { inferSchema, mockJsonFromSchema } from '../utils/schemaInfer'
 import type { SchemaRow } from '../utils/schemaInfer'
@@ -206,6 +207,11 @@ function respDisplayName(ex: ResponseExample): string {
 
 function onRespEdit(ex: ResponseExample, v: string): void {
   respEdits.value.set(ex.id, v)
+}
+
+/** JSON 编辑区 Tab 缩进而非跳出焦点。 */
+function onCodeKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
 }
 
 function toggleResp(id: string): void {
@@ -538,6 +544,7 @@ onBeforeUnmount(() => {
               class="body-json mono"
               spellcheck="false"
               placeholder='{ "field": "value" }'
+              @keydown="onCodeKeydown"
             ></textarea>
 
             <ParamDefineTable
@@ -590,6 +597,7 @@ onBeforeUnmount(() => {
                   spellcheck="false"
                   :placeholder="t('design.respBodyPh')"
                   @input="onRespEdit(ex, ($event.target as HTMLTextAreaElement).value)"
+                  @keydown="onCodeKeydown"
                 ></textarea>
                 <div class="resp-actions">
                   <button

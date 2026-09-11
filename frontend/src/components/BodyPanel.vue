@@ -19,6 +19,7 @@ import JsonEditor from './ui/JsonEditor.vue'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import SegmentedControl, { type SegmentOption } from './ui/SegmentedControl.vue'
 import { RAW_SUBTYPES, applyBodyTab, applyRawSubtype, rawSubtypeOf, removeContentType, restoreRaw, syncContentType, tabOf } from '../utils/bodyMode'
+import { handleTextareaTab } from '../utils/textareaIndent'
 import type { BodyTab, RawSubtype } from '../utils/bodyMode'
 import type { BodySpec, Endpoint, GraphQLSpec, KeyValue, MultipartField, RequestSpec } from '../types/foxApi'
 
@@ -262,6 +263,11 @@ function toggleFind(): void {
   }
 }
 
+/** 代码区 Tab / Shift+Tab 缩进而非跳出焦点（与 JsonEditor / CodeMirror 一致）。 */
+function onCodeKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Tab') handleTextareaTab(e.target as HTMLTextAreaElement, e)
+}
+
 function onWindowKeydown(e: KeyboardEvent): void {
   if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
   const target = e.target as HTMLElement | null
@@ -442,6 +448,7 @@ const binPath = useDebouncedField(
       :placeholder="RAW_PLACEHOLDER[rawSubtype as RawSubtype] ?? t('body.textPh')"
       @input="rawText.onInput(($event.target as HTMLTextAreaElement).value)"
       @blur="rawText.flush()"
+      @keydown="onCodeKeydown"
     ></textarea>
 
     <div v-else-if="activeTab === 'graphql'" class="gql-editor">
@@ -453,6 +460,7 @@ const binPath = useDebouncedField(
         placeholder="query Hero($id: ID!) { hero(id: $id) { name } }"
         @input="gqlQuery.onInput(($event.target as HTMLTextAreaElement).value)"
         @blur="gqlQuery.flush()"
+        @keydown="onCodeKeydown"
       ></textarea>
       <JsonEditor
         v-model="graphql.variables"
