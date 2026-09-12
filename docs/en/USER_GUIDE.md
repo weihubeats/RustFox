@@ -196,6 +196,7 @@ The sidebar toolbar `+ New` dropdown and drag-and-drop import (dashboard Dropzon
 - **Paste cURL straight into the address bar**: a cURL command pasted there is auto-detected and applied to the **current request** (method / URL / headers / body / auth) with no import dialog; plain URLs still go through the usual base_url split.
 - **Polyglot code import** (cURL / JavaScript / Java / Go / Rust / Python / PHP snippets parsed back into endpoints)
 - **Doc import**: OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman Collection v2.1 (JSON or YAML; 3.1 is normalized to a 3.0 subset on import, top-level `webhooks` are dropped)
+- Moving an entire workspace from Apifox / Postman (environments, auth, mock, assertion mapping included): see the [migration guide](MIGRATION.md)
 
 ## 8. Mock server (local API simulation)
 

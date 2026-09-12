@@ -196,6 +196,7 @@ Tests 页「测试用例」区（`TestCasesPanel` + `TestCaseDrawer`）：
 - **地址栏直粘 cURL**：在请求地址栏直接粘贴 cURL 命令会自动识别并回填到**当前接口**（方法 / URL / Headers / Body / 认证），无需打开导入弹窗；普通 URL 粘贴仍走原有的 base_url 拆分。
 - **多语言代码导入**（cURL / JavaScript / Java / Go / Rust / Python / PHP 片段反向解析为接口）
 - **文档导入**：OpenAPI 3.0 / 3.1 / Swagger 2.0 / Postman Collection v2.1（JSON 或 YAML；3.1 自动转换为 3.0 子集导入，`webhooks` 顶层键会被丢弃）
+- 从 Apifox / Postman 整站迁移（含环境变量、认证、Mock、断言对照表）：见 [迁移手册](MIGRATION.md)
 
 ## 8. Mock Server（本地接口模拟）
 
