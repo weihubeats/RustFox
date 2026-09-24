@@ -42,7 +42,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 门禁：tag 必须与 tauri.conf.json / package.json 版本一致，
       # 否则 updater 清单与产物命名会互相矛盾。放在装依赖之前，失败即快速退出。
@@ -149,7 +149,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
