@@ -288,6 +288,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmov"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -422,6 +428,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctutils"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
+dependencies = [
+ "cmov",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -465,6 +480,7 @@ dependencies = [
  "block-buffer 0.12.1",
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
+ "ctutils",
 ]
 
 [[package]]
@@ -631,7 +647,7 @@ dependencies = [
  "fox-core",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
 ]
@@ -645,7 +661,7 @@ dependencies = [
  "fox-sign",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "url",
 ]
 
@@ -663,7 +679,7 @@ dependencies = [
  "serde_json",
  "shell-words",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tracing",
  "uuid",
 ]
@@ -680,7 +696,7 @@ dependencies = [
  "fox-sign",
  "fox-storage",
  "futures",
- "hmac",
+ "hmac 0.13.0",
  "md-5",
  "reqwest",
  "rquickjs",
@@ -689,7 +705,7 @@ dependencies = [
  "serde_urlencoded",
  "sha2",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
@@ -722,7 +738,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "uuid",
@@ -738,7 +754,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
@@ -757,7 +773,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "uuid",
 ]
 
@@ -770,7 +786,7 @@ dependencies = [
  "dirs",
  "fox-core",
  "rand 0.8.7",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -780,12 +796,12 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "hex",
- "hmac",
+ "hmac 0.13.0",
  "md5",
  "rand 0.8.7",
  "serde",
  "sha2",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "url",
 ]
 
@@ -818,7 +834,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "uuid",
@@ -837,7 +853,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tracing",
@@ -1053,7 +1069,7 @@ version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
 dependencies = [
- "hmac",
+ "hmac 0.12.1",
 ]
 
 [[package]]
@@ -1063,6 +1079,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "hmac"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
+dependencies = [
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -2660,7 +2685,7 @@ dependencies = [
  "generic-array",
  "hex",
  "hkdf",
- "hmac",
+ "hmac 0.12.1",
  "itoa",
  "log",
  "md-5",
@@ -2701,7 +2726,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hkdf",
- "hmac",
+ "hmac 0.12.1",
  "home",
  "itoa",
  "log",
