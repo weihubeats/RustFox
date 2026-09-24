@@ -33,7 +33,7 @@ serde_json = "1"
 serde_norway = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-thiserror = "1"
+thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # 按实际用量裁剪特性（rt/macros/net/time/io-util/fs/sync），避免 full 拖慢编译
