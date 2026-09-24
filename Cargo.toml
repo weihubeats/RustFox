@@ -57,7 +57,7 @@ dirs = "5"
 aes-gcm = "0.10"
 base64 = "0.23"
 # 签名类认证（Digest / Hawk / AWS SigV4 / HMAC AK-SK）：fox-sign 专用
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 md5 = "0.8"
 hex = "0.4"
