@@ -120,7 +120,7 @@ jobs:
           mv "$MAC_DIR/RustFox.app.tar.gz.sig" "$MAC_DIR/RustFox_${RELEASE_TAG#v}_$ARCH.app.tar.gz.sig"
 
       - name: Upload artifacts (job)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rustfox-${{ matrix.name }}
           # 只上传分发产物本身；整目录上传会把 .app/AppDir 内部文件平铺成垃圾资产
