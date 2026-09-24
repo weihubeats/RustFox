@@ -62,7 +62,7 @@ sha2 = "0.10"
 md5 = "0.8"
 hex = "0.4"
 # 动态签名（App-Key/Secret/Timestamp/Sig）：fox-http signature.rs 用（md-5 v0.10）
-md-5 = "0.10"
+md-5 = "0.11"
 
 sqlx = { version = "0.7", features = [
     "runtime-tokio-rustls",
