@@ -59,7 +59,7 @@ base64 = "0.22"
 # 签名类认证（Digest / Hawk / AWS SigV4 / HMAC AK-SK）：fox-sign 专用
 hmac = "0.12"
 sha2 = "0.10"
-md5 = "0.7"
+md5 = "0.8"
 hex = "0.4"
 # 动态签名（App-Key/Secret/Timestamp/Sig）：fox-http signature.rs 用（md-5 v0.10）
 md-5 = "0.10"
