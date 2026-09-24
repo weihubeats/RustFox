@@ -90,7 +90,7 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 openapiv3 = "2.0"
 jsonpath-rust = "0.5"
 fake = "2.9"
-rand = "0.8"
+rand = "0.10"
 
 serde_urlencoded = "0.7"
 rquickjs = "0.12"
