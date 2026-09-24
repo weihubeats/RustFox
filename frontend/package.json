@@ -46,7 +46,7 @@
     "@types/node": "^26.2.0",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^5.2.0",
-    "@vue/test-utils": "^2.4.11",
+    "@vue/test-utils": "^2.5.1",
     "eslint": "^10.8.1",
     "eslint-plugin-vue": "^10.10.0",
     "jsdom": "^29.1.1",
