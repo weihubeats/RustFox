@@ -53,7 +53,7 @@ regex = "1"
 url = "2"
 bytes = "1"
 indexmap = { version = "2", features = ["serde"] }
-dirs = "5"
+dirs = "6"
 aes-gcm = "0.11"
 base64 = "0.23"
 # 签名类认证（Digest / Hawk / AWS SigV4 / HMAC AK-SK）：fox-sign 专用
