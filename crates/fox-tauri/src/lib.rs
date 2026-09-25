@@ -126,16 +126,22 @@ pub mod plugin {
                     {
                         tracing::warn!("开发种子数据写入失败（不影响应用使用）：{e}");
                     }
-                    // 恢复持久化的代理设置（失败静默保持直连）
-                    tauri::async_runtime::block_on(commands::settings::apply_saved_proxy(&db));
-                    // 恢复持久化的自增序列（{{$seq:key}}，失败静默默认从 1 开始）
-                    tauri::async_runtime::block_on(commands::seq::apply_saved_seq_counters(&db));
+                    // 三项互不依赖（各只读 settings、各自恢复自己的全局态）：
+                    // 代理设置（失败静默保持直连）/ 自增序列 `{{$seq:key}}`
+                    // （失败静默从 1 起）/ MCP 开关（控制面是否随应用自启），
+                    // 合并进一次 block_on 并发执行，替代原来三次串行 block_on。
+                    // 其后的激活态恢复依赖 db 移交 AppState，必须排在后面。
+                    let mcp_enabled = tauri::async_runtime::block_on(async {
+                        let ((), (), mcp_enabled) = tokio::join!(
+                            commands::settings::apply_saved_proxy(&db),
+                            commands::seq::apply_saved_seq_counters(&db),
+                            commands::agent::read_mcp_enabled(&db),
+                        );
+                        mcp_enabled
+                    });
                     // 按保留天数清理过期日志（失败仅记日志）
                     commands::log::cleanup_logs_on_startup(&db);
-                    // 恢复持久化的激活项目 / 环境（settings 表，含归属校验）；
-                    // MCP 开关需在 db 移交 AppState 前读出（控制面是否随应用自启）
-                    let mcp_enabled =
-                        tauri::async_runtime::block_on(commands::agent::read_mcp_enabled(&db));
+                    // 恢复持久化的激活项目 / 环境（settings 表，含归属校验）
                     let state = AppState::new(db);
                     let _ = tauri::async_runtime::block_on(state.restore_active());
                     app.manage(state);

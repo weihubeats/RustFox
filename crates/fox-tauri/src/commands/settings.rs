@@ -156,19 +156,24 @@ pub async fn get_default_data_dir() -> CommandResult<String> {
 pub async fn set_data_dir(path: String) -> CommandResult<()> {
     validate_data_dir_candidate(&path)?;
     let target = std::path::PathBuf::from(path.trim());
-    std::fs::create_dir_all(&target)
+    // 异步文件系统调用：不在 IPC 线程上做同步目录 / 文件 IO。
+    tokio::fs::create_dir_all(&target)
+        .await
         .map_err(|e| CommandError::with_code("IO", format!("创建目录失败：{e}")))?;
     // 可写探测（建删空文件；失败即拒收，避免重启后打不开库）。
     let probe = target.join(".rustfox-write-test");
-    std::fs::write(&probe, b"ok")
+    tokio::fs::write(&probe, b"ok")
+        .await
         .map_err(|e| CommandError::with_code("IO", format!("目录不可写：{e}")))?;
-    let _ = std::fs::remove_file(&probe);
+    let _ = tokio::fs::remove_file(&probe).await;
     let bootstrap = fox_storage::db::bootstrap_path();
     if let Some(parent) = bootstrap.parent() {
-        std::fs::create_dir_all(parent)
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| CommandError::with_code("IO", format!("创建配置目录失败：{e}")))?;
     }
-    std::fs::write(&bootstrap, target.to_string_lossy().as_bytes())
+    tokio::fs::write(&bootstrap, target.to_string_lossy().as_bytes())
+        .await
         .map_err(|e| CommandError::with_code("IO", format!("写入目录配置失败：{e}")))?;
     Ok(())
 }
@@ -177,8 +182,9 @@ pub async fn set_data_dir(path: String) -> CommandResult<()> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn reset_data_dir() -> CommandResult<()> {
     let bootstrap = fox_storage::db::bootstrap_path();
-    if bootstrap.exists() {
-        std::fs::remove_file(&bootstrap)
+    if tokio::fs::try_exists(&bootstrap).await.unwrap_or(false) {
+        tokio::fs::remove_file(&bootstrap)
+            .await
             .map_err(|e| CommandError::with_code("IO", format!("删除目录配置失败：{e}")))?;
     }
     Ok(())
@@ -220,14 +226,18 @@ fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
 
     /// 环境变量是进程全局的：涉及覆盖解析的用例串行执行。
-    fn env_serial() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    ///
+    /// 用 `tokio::sync::Mutex` 而非 std Mutex：守卫要跨 `.await` 持有，
+    /// std 守卫是线程绑定的，任务在 await 间被调度到别的线程会死锁
+    ///（clippy `await_holding_lock` 同样会拦下）。
+    async fn env_serial() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .await
     }
 
     /// 隔离 bootstrap 落盘位置（否则单测会污染真实数据目录）。
@@ -274,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_reset_data_dir_roundtrip() {
-        let _serial = env_serial();
+        let _serial = env_serial().await;
         let _iso = isolated_bootstrap("roundtrip");
         // 确保环境变量覆盖不干扰 bootstrap 路径断言
         let prev_data_env = std::env::var_os(fox_core::paths::DATA_DIR_ENV);

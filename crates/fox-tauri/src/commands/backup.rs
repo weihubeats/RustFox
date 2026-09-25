@@ -18,19 +18,35 @@ const BACKUP_SETTING_KEYS: &[&str] = &["http_proxy", "http_timeout_ms", "seq_cou
 /// 响应示例 + 请求用例 + 全局设置快照 + 全局变量/参数）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> CommandResult<String> {
-    let project = repo::get_project(&state.db, project_id).await?;
-    let folders = repo::list_folders(&state.db, project_id).await?;
-    let endpoints = repo::list_endpoints(&state.db, project_id).await?;
-    let environments = repo::list_environments(&state.db).await?;
-    let mock_rules = repo::list_mock_rules(&state.db, project_id).await?;
-    let global_variables = repo::get_global_variables(&state.db).await?;
-    let global_params = repo::get_global_params(&state.db).await?;
-    let mut settings = std::collections::HashMap::new();
-    for key in BACKUP_SETTING_KEYS {
-        if let Some(value) = repo::get_setting(&state.db, key).await? {
-            settings.insert((*key).to_string(), value);
-        }
-    }
+    // 互不依赖的读（全部只按 project_id / 全局维度查）合并并发：
+    // 8 次 SQLite 往返压成 1 次等待；设置键也并入，3 次 get_setting 合一条 IN 查询。
+    let (
+        project,
+        folders,
+        endpoints,
+        environments,
+        mock_rules,
+        global_variables,
+        global_params,
+        settings,
+    ) = tokio::join!(
+        repo::get_project(&state.db, project_id),
+        repo::list_folders(&state.db, project_id),
+        repo::list_endpoints(&state.db, project_id),
+        repo::list_environments(&state.db),
+        repo::list_mock_rules(&state.db, project_id),
+        repo::get_global_variables(&state.db),
+        repo::get_global_params(&state.db),
+        repo::get_settings(&state.db, BACKUP_SETTING_KEYS),
+    );
+    let project = project?;
+    let folders = folders?;
+    let endpoints = endpoints?;
+    let environments = environments?;
+    let mock_rules = mock_rules?;
+    let global_variables = global_variables?;
+    let global_params = global_params?;
+    let settings = settings?;
 
     // 批量一次查询（去 N+1：E 个接口原来 2E 次查询 + 2E 次 JSON 反序列化）。
     let active_ids: Vec<Uuid> = endpoints
@@ -38,15 +54,16 @@ pub async fn backup_export(state: State<'_, AppState>, project_id: Uuid) -> Comm
         .filter(|e| e.status != EndpointStatus::Deprecated)
         .map(|e| e.id)
         .collect();
-    let response_examples: Vec<_> =
-        repo::list_response_examples_by_endpoints(&state.db, &active_ids)
-            .await
-            .unwrap_or_default()
-            .into_values()
-            .flatten()
-            .collect();
-    let request_examples: Vec<_> = repo::list_request_examples_by_endpoints(&state.db, &active_ids)
-        .await
+    let (response_examples, request_examples) = tokio::join!(
+        repo::list_response_examples_by_endpoints(&state.db, &active_ids),
+        repo::list_request_examples_by_endpoints(&state.db, &active_ids),
+    );
+    let response_examples: Vec<_> = response_examples
+        .unwrap_or_default()
+        .into_values()
+        .flatten()
+        .collect();
+    let request_examples: Vec<_> = request_examples
         .unwrap_or_default()
         .into_values()
         .flatten()
@@ -88,26 +105,16 @@ pub async fn backup_restore(
         .map_err(fox_core::AppError::Database)?;
     let result: fox_core::Result<()> = async {
         repo::save_project(tx.as_mut(), &restored.project).await?;
-        for folder in &restored.folders {
-            repo::save_folder(tx.as_mut(), folder).await?;
-        }
-        for endpoint in &restored.endpoints {
-            repo::save_endpoint(tx.as_mut(), endpoint).await?;
-        }
+        // 每类实体一条多值 INSERT（每批 200 行，事务内），替代原来逐行
+        // INSERT：N 行从 N 次往返降到 ceil(N/200) 次，原子性不变。
+        repo::save_folders_bulk(tx.as_mut(), &restored.folders).await?;
+        repo::save_endpoints_bulk(tx.as_mut(), &restored.endpoints).await?;
         // 环境保存需项目列表做模块同步：同事务内预取一次（读己之写）。
         let projects = repo::list_projects(tx.as_mut()).await?;
-        for environment in &restored.environments {
-            repo::save_environment_with_projects(tx.as_mut(), environment, &projects).await?;
-        }
-        for rule in &restored.mock_rules {
-            repo::save_mock_rule(tx.as_mut(), rule).await?;
-        }
-        for example in &restored.response_examples {
-            repo::save_response_example(tx.as_mut(), example).await?;
-        }
-        for example in &restored.request_examples {
-            repo::create_request_example(tx.as_mut(), example).await?;
-        }
+        repo::save_environments_bulk(tx.as_mut(), &restored.environments, &projects).await?;
+        repo::save_mock_rules_bulk(tx.as_mut(), &restored.mock_rules).await?;
+        repo::save_response_examples_bulk(tx.as_mut(), &restored.response_examples).await?;
+        repo::save_request_examples_bulk(tx.as_mut(), &restored.request_examples).await?;
         Ok(())
     }
     .await;

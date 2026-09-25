@@ -27,7 +27,12 @@ pub async fn import_document(
     _state: State<'_, AppState>,
     text: String,
 ) -> CommandResult<ImportResult> {
-    let (endpoints, format) = import_any(&text).map_err(CommandError::from)?;
+    // OpenAPI/Postman 文本可达数 MB，serde 解析为纯 CPU 密集：
+    // 挪到阻塞线程池，避免卡住 IPC 执行线程。
+    let (endpoints, format) = tokio::task::spawn_blocking(move || import_any(&text))
+        .await
+        .map_err(|e| CommandError::with_code("INTERNAL", format!("文档解析任务失败：{e}")))?
+        .map_err(CommandError::from)?;
     if endpoints.is_empty() {
         return Err(CommandError::validation("文档中没有可导入的接口"));
     }
@@ -39,7 +44,9 @@ pub async fn import_document(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn read_text_file(path: String) -> CommandResult<String> {
     const MAX_LEN: u64 = 2 * 1024 * 1024;
-    let bytes = std::fs::read(&path)
+    // 异步读：不在 IPC 线程上做同步文件 IO。
+    let bytes = tokio::fs::read(&path)
+        .await
         .map_err(|e| CommandError::with_code("IO", format!("无法读取文件 {path}：{e}")))?;
     if bytes.len() as u64 > MAX_LEN {
         return Err(CommandError::validation("文件超过 2MB，请改用粘贴文本导入"));
@@ -330,12 +337,17 @@ pub async fn export_smoke_docs(
     }
 
     let mut cases_by_endpoint: HashMap<Uuid, Vec<fox_core::model::TestCase>> = HashMap::new();
-    for ep in &endpoints {
-        if let Ok(list) = repo::list_test_cases(&state.db, ep.id).await {
-            if !list.is_empty() {
-                cases_by_endpoint.insert(ep.id, list);
-            }
-        }
+    // 批量一次查询（去 N+1：E 个接口原来 E 次往返）；错误退化为无用例，
+    // 与原实现「单接口查询失败仅跳过该接口」保持一致的可用性。
+    let all_case_ids: Vec<Uuid> = endpoints.iter().map(|e| e.id).collect();
+    for case in repo::list_test_cases_by_endpoints(&state.db, &all_case_ids)
+        .await
+        .unwrap_or_default()
+    {
+        cases_by_endpoint
+            .entry(case.request_id)
+            .or_default()
+            .push(case);
     }
 
     let run_results = run_results.unwrap_or_default();
