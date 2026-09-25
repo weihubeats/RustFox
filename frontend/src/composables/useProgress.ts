@@ -16,6 +16,8 @@ import { readonly, ref } from 'vue'
 const visible = ref(false)
 const progress = ref(0)
 let timer: number | null = null
+/** done() 淡出定时器句柄：start() 抢跑（慢请求后又发新请求）时取消，避免中途隐藏。 */
+let fadeTimer: number | null = null
 
 /** 简易流水动画：每 200ms 递增，越接近 90% 越慢。 */
 function tick(): void {
@@ -35,6 +37,10 @@ export function useProgress() {
     visible: readonly(visible),
     progress: readonly(progress),
     start(): void {
+      if (fadeTimer !== null) {
+        window.clearTimeout(fadeTimer)
+        fadeTimer = null
+      }
       visible.value = true
       progress.value = 8
       if (timer !== null) window.clearInterval(timer)
@@ -45,8 +51,10 @@ export function useProgress() {
         window.clearInterval(timer)
         timer = null
       }
+      if (fadeTimer !== null) window.clearTimeout(fadeTimer)
       progress.value = 100
-      window.setTimeout(() => {
+      fadeTimer = window.setTimeout(() => {
+        fadeTimer = null
         visible.value = false
         progress.value = 0
       }, 240)

@@ -276,6 +276,7 @@ async function copyJson(): Promise<void> {
           class="je-btn"
           type="button"
           :title="t('jsonEditor.prettyHint')"
+          :aria-label="t('jsonEditor.prettyHint')"
           :disabled="!hasContent"
           @click="format('pretty')"
         >
@@ -285,12 +286,20 @@ async function copyJson(): Promise<void> {
           class="je-btn"
           type="button"
           :title="t('jsonEditor.compactHint')"
+          :aria-label="t('jsonEditor.compactHint')"
           :disabled="!hasContent"
           @click="format('compact')"
         >
           <Icon name="minimize-2" :size="12" />
         </button>
-        <button class="je-btn" type="button" :title="t('jsonEditor.copyHint')" :disabled="!hasContent" @click="copyJson">
+        <button
+          class="je-btn"
+          type="button"
+          :title="t('jsonEditor.copyHint')"
+          :aria-label="t('jsonEditor.copyHint')"
+          :disabled="!hasContent"
+          @click="copyJson"
+        >
           <Icon name="copy" :size="12" />
         </button>
       </div>

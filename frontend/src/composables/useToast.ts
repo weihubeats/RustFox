@@ -42,6 +42,8 @@ const MAX_VISIBLE = 5
 
 const toasts = ref<ToastItem[]>([])
 let nextId = 1
+/** id → 自动关闭定时器句柄：dismiss / clearAll 时清掉，避免回调里二次过滤已失效条目。 */
+const timers = new Map<number, number>()
 
 /** 类型 → 面板主题色（CSS 变量，双主题自动跟随）。 */
 export const TOAST_TYPE_META: Record<ToastType, { color: string }> = {
@@ -59,22 +61,37 @@ const TYPE_TITLE_KEY: Record<ToastType, string> = {
   error: 'toast.typeError',
 }
 
-function push(item: Omit<ToastItem, 'id'>): number {
-  const id = nextId++
-  const entry: ToastItem = { ...item, id, duration: item.duration ?? 3000 }
-  toasts.value = [...toasts.value.slice(-(MAX_VISIBLE - 1)), entry]
-  if (entry.duration > 0) {
-    window.setTimeout(() => dismiss(id), entry.duration)
-  }
-  return id
-}
-
+/** 关闭某条 toast 并清掉它的自动关闭定时器。 */
 export function dismiss(id: number): void {
+  clearTimer(id)
   toasts.value = toasts.value.filter((t) => t.id !== id)
 }
 
 export function clearAll(): void {
+  for (const id of timers.keys()) clearTimer(id)
   toasts.value = []
+}
+
+function clearTimer(id: number): void {
+  const handle = timers.get(id)
+  if (handle === undefined) return
+  window.clearTimeout(handle)
+  timers.delete(id)
+}
+
+function push(item: Omit<ToastItem, 'id'>): number {
+  const id = nextId++
+  const entry: ToastItem = { ...item, id, duration: item.duration ?? 3000 }
+  const kept = toasts.value.slice(-(MAX_VISIBLE - 1))
+  // 超过同屏上限被顶掉的最旧条目：连同它的自动关闭定时器一起丢弃
+  for (const old of toasts.value) {
+    if (!kept.includes(old)) clearTimer(old.id)
+  }
+  toasts.value = [...kept, entry]
+  if (entry.duration > 0) {
+    timers.set(id, window.setTimeout(() => dismiss(id), entry.duration))
+  }
+  return id
 }
 
 function toast(opts: {

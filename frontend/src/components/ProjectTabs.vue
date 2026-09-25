@@ -107,13 +107,21 @@ function onClose(projectId: string): void {
           class="pt-close"
           type="button"
           :title="t('projectTabs.closeTab', { name: tab.name })"
+          :aria-label="t('projectTabs.closeTab', { name: tab.name })"
           @click.stop="onClose(tab.id)"
         >
           <Icon name="x" :size="11" />
         </button>
       </div>
     </div>
-    <button ref="moreBtn" class="proj-more" type="button" :title="t('projectTabs.more')" @click="openMore">
+    <button
+      ref="moreBtn"
+      class="proj-more"
+      type="button"
+      :title="t('projectTabs.more')"
+      :aria-label="t('projectTabs.more')"
+      @click="openMore"
+    >
       <Icon name="more-horizontal" :size="14" />
     </button>
   </div>

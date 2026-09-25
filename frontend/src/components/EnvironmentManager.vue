@@ -22,6 +22,8 @@ import { useLocaleStore } from '../stores/locale'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { defaultModule, envBaseUrl, envColorClass, normalizeBaseUrl } from '../utils/environment'
+import { deepClone } from '../utils/clone'
+import { rowKey } from '../utils/rowKey'
 import CustomSelect from './ui/CustomSelect.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
@@ -84,10 +86,6 @@ function globalItemTitle(item: (typeof globalItems)[number]): string {
   })
 }
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
-
 function ensureDefaultModule(env: Environment): void {
   if (env.modules.length > 0 && !env.modules.some((m) => m.is_default)) {
     env.modules[0].is_default = true
@@ -95,7 +93,7 @@ function ensureDefaultModule(env: Environment): void {
 }
 
 function select(env: Environment | null): void {
-  selected.value = env ? clone(env) : null
+  selected.value = env ? deepClone(env) : null
   if (selected.value) ensureDefaultModule(selected.value)
   dirty.value = false
   scope.value = 'env'
@@ -103,14 +101,14 @@ function select(env: Environment | null): void {
 
 function selectGlobal(): void {
   scope.value = 'global'
-  globalVars.value = clone(store.globalVariables)
+  globalVars.value = deepClone(store.globalVariables)
   globalDirty.value = false
   selected.value = null
 }
 
 function selectParams(): void {
   scope.value = 'params'
-  globalParams.value = clone(store.globalParams)
+  globalParams.value = deepClone(store.globalParams)
   paramsDirty.value = false
   selected.value = null
 }
@@ -191,15 +189,17 @@ watch(
   () => props.open,
   (isOpen) => {
     if (!isOpen) return
-    envs.value = clone(store.environments)
+        // 环境表只做浅拷贝：左侧列表是纯读（渲染 + 点击 select 时才深克隆选中项），
+    // 深克隆整表会把每个环境的变量/模块数组都复制一遍，纯属白费。
+    envs.value = [...store.environments]
     const preferred = props.initialEnvId
       ? store.environments.find((e) => e.id === props.initialEnvId)
       : undefined
     const active = store.environments.find((e) => e.id === store.activeEnvId)
     select(preferred ?? active ?? store.environments[0] ?? null)
-    globalVars.value = clone(store.globalVariables)
+    globalVars.value = deepClone(store.globalVariables)
     globalDirty.value = false
-    globalParams.value = clone(store.globalParams)
+    globalParams.value = deepClone(store.globalParams)
     paramsDirty.value = false
     // 「新建环境」快捷入口：打开即建一条待保存的新环境（createNew 由调用方在关闭时复位）
     if (props.createNew) addEnvironment()
@@ -393,7 +393,7 @@ async function save(): Promise<void> {
         .filter((p) => p.key.trim() !== '')
         .map((p) => ({ ...p, key: p.key.trim() }))
       await store.saveGlobalParams(normalized)
-      globalParams.value = clone(store.globalParams)
+      globalParams.value = deepClone(store.globalParams)
       paramsDirty.value = false
       confirmLeave.value = false
       toast.success(t('envmgr.globalParamsSaved'))
@@ -411,7 +411,7 @@ async function save(): Promise<void> {
         .filter((v) => v.key.trim() !== '')
         .map((v) => ({ ...v, key: v.key.trim() }))
       await store.saveGlobalVariables(normalized)
-      globalVars.value = clone(store.globalVariables)
+      globalVars.value = deepClone(store.globalVariables)
       globalDirty.value = false
       confirmLeave.value = false
       toast.success(t('envmgr.globalVarsSaved'))
@@ -449,8 +449,8 @@ async function save(): Promise<void> {
       },
       { silent: true },
     )
-    selected.value = clone(saved)
-    envs.value = clone(store.environments)
+    selected.value = deepClone(saved)
+    envs.value = [...store.environments]
     dirty.value = false
     confirmLeave.value = false
     toast.success(t('envmgr.saved', { name: saved.name }))
@@ -463,12 +463,12 @@ async function save(): Promise<void> {
 
 function cancel(): void {
   guard(() => {
-    envs.value = clone(store.environments)
+    envs.value = [...store.environments]
     const active = store.environments.find((e) => e.id === store.activeEnvId)
     select(active ?? store.environments[0] ?? null)
-    globalVars.value = clone(store.globalVariables)
+    globalVars.value = deepClone(store.globalVariables)
     globalDirty.value = false
-    globalParams.value = clone(store.globalParams)
+    globalParams.value = deepClone(store.globalParams)
     paramsDirty.value = false
     emit('update:open', false)
   })
@@ -531,7 +531,7 @@ async function remove(env: Environment): Promise<void> {
             >
               <span class="edot ed-global"></span>
               <span class="em-global-name">{{ t(item.labelKey) }}</span>
-              <span v-if="!item.enabled" class="em-global-soon">soon</span>
+              <span v-if="!item.enabled" class="em-global-soon">{{ t('envmgr.soon') }}</span>
               <span v-else-if="item.key === 'global_variables'" class="em-global-count">
                 {{ store.globalVariables.filter((v) => v.enabled).length }}
               </span>
@@ -560,7 +560,7 @@ async function remove(env: Environment): Promise<void> {
                   :confirm-text="t('common.delete')"
                   @confirm="remove(env)"
                 >
-                  <IconButton name="trash" :size="12" tone="danger" class="em-row-del" />
+                  <IconButton name="trash" :size="12" tone="danger" class="em-row-del" :title="t('common.delete')" />
                 </Popconfirm>
               </div>
             </div>
@@ -692,7 +692,7 @@ async function remove(env: Environment): Promise<void> {
                 </div>
                 <div
                   v-for="(v, i) in selected.variables"
-                  :key="i"
+                  :key="rowKey(v)"
                   class="em-tr em-tr-var"
                   :class="{ off: !v.enabled }"
                 >
@@ -722,6 +722,7 @@ async function remove(env: Environment): Promise<void> {
                     type="checkbox"
                     class="em-col-enabled"
                     :checked="v.enabled"
+                    :aria-label="t('envmgr.colEnabled')"
                     @change="onAnyChange"
                   />
                   <IconButton
@@ -763,7 +764,7 @@ async function remove(env: Environment): Promise<void> {
                 </div>
                 <div
                   v-for="(v, i) in globalVars"
-                  :key="i"
+                  :key="rowKey(v)"
                   class="em-tr em-tr-var"
                   :class="{ off: !v.enabled }"
                 >
@@ -793,6 +794,7 @@ async function remove(env: Environment): Promise<void> {
                     type="checkbox"
                     class="em-col-enabled"
                     :checked="v.enabled"
+                    :aria-label="t('envmgr.colEnabled')"
                     @change="onGlobalChange"
                   />
                   <IconButton
@@ -837,7 +839,7 @@ async function remove(env: Environment): Promise<void> {
                 </div>
                 <div
                   v-for="(p, i) in globalParams"
-                  :key="i"
+                  :key="rowKey(p)"
                   class="em-tr em-tr-param"
                   :class="{ off: !p.enabled }"
                 >
@@ -860,14 +862,15 @@ async function remove(env: Environment): Promise<void> {
                     class="rf-input rf-input-sm em-col-loc"
                     @change="onParamsChange"
                   >
-                    <option value="header">Header</option>
-                    <option value="query">Query</option>
+                    <option value="header">{{ t('envmgr.locHeader') }}</option>
+                    <option value="query">{{ t('envmgr.locQuery') }}</option>
                   </select>
                   <input
                     v-model="p.enabled"
                     type="checkbox"
                     class="em-col-enabled"
                     :checked="p.enabled"
+                    :aria-label="t('envmgr.colEnabled')"
                     @change="onParamsChange"
                   />
                   <IconButton

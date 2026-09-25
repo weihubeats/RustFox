@@ -73,6 +73,7 @@ function onInputKeydown(e: KeyboardEvent): void {
       class="findbar-btn"
       type="button"
       :title="t('findbar.prev')"
+      :aria-label="t('findbar.prev')"
       :disabled="total === 0"
       @click="emit('prev')"
     >
@@ -82,12 +83,19 @@ function onInputKeydown(e: KeyboardEvent): void {
       class="findbar-btn"
       type="button"
       :title="t('findbar.next')"
+      :aria-label="t('findbar.next')"
       :disabled="total === 0"
       @click="emit('next')"
     >
       <Icon name="chevron-down" :size="13" />
     </button>
-    <button class="findbar-btn findbar-close" type="button" :title="t('findbar.close')" @click="emit('close')">
+    <button
+      class="findbar-btn findbar-close"
+      type="button"
+      :title="t('findbar.close')"
+      :aria-label="t('findbar.close')"
+      @click="emit('close')"
+    >
       <Icon name="x" :size="13" />
     </button>
   </div>

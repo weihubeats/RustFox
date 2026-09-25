@@ -36,18 +36,35 @@ watch(openAboutSignal, () => {
   showAbout.value = true
 })
 
+/** 同一消息短窗去重：连锁报错（error → unhandledrejection）只弹一次 toast。 */
+const lastError = { key: '', at: 0 }
+
+function reportGlobalError(message: string, error: unknown, titleKey: string): void {
+  console.error('[global.error]', message, error)
+  const now = Date.now()
+  if (lastError.key === message && now - lastError.at < 3000) return
+  lastError.key = message
+  lastError.at = now
+  toast.error(t(titleKey), { message, duration: 6000 })
+}
+
+/** 具名 handler：onBeforeUnmount 时对称移除，HMR / 单测反复挂载不残留监听。 */
+function onWindowError(event: ErrorEvent): void {
+  reportGlobalError(String(event.error?.message ?? event.message), event.error, 'app.pageError')
+}
+
+function onWindowRejection(event: PromiseRejectionEvent): void {
+  const reason = event.reason
+  reportGlobalError(
+    reason instanceof Error ? reason.message : String(reason),
+    reason,
+    'app.unhandledError',
+  )
+}
+
 onMounted(async () => {
-  window.addEventListener('error', (event) => {
-    console.error('[window.error]', event.message, event.error)
-    const msg = String(event.error?.message ?? event.message)
-    toast.error(t('app.pageError'), { message: msg, duration: 6000 })
-  })
-  window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason
-    console.error('[unhandledrejection]', reason)
-    const msg = reason instanceof Error ? reason.message : String(reason)
-    toast.error(t('app.unhandledError'), { message: msg, duration: 6000 })
-  })
+  window.addEventListener('error', onWindowError)
+  window.addEventListener('unhandledrejection', onWindowRejection)
   try {
     if ('__TAURI_INTERNALS__' in window) {
       unlistenAbout = await listen('rustfox://about', () => {
@@ -78,6 +95,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('error', onWindowError)
+  window.removeEventListener('unhandledrejection', onWindowRejection)
   unlistenAbout?.()
   stopAutoUpdate?.()
 })

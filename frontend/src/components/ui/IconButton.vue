@@ -12,6 +12,8 @@ withDefaults(
     size?: number
     tone?: 'default' | 'danger' | 'accent'
     title?: string
+    /** 无障碍名（只喂 aria-label，不渲染原生 title）：外层已有 <Tooltip> 时用它，避免双重气泡。 */
+    label?: string
     disabled?: boolean
   }>(),
   { size: 14, tone: 'default' },
@@ -26,7 +28,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>()
     class="ib"
     :class="`tone-${tone}`"
     :title="title"
-    :aria-label="title ?? name"
+    :aria-label="label ?? title ?? name"
     :disabled="disabled"
     @click="emit('click', $event)"
   >

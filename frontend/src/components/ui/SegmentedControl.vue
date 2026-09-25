@@ -2,16 +2,21 @@
 /**
  * SegmentedControl：分段控件（Body 类型等）。激活项为填充 pill。
  * 五态：default / hover / focus / active / disabled × 双主题。
+ * 键盘：←/→ 循环切换、Home/End 跳首尾（切换即激活）、roving tabindex；
+ * 选项带 panelId 时渲染 aria-controls（有关联面板时）。
  */
+import { computed } from 'vue'
 import Icon, { type IconName } from './Icon.vue'
 
 export interface SegmentOption {
   value: string
   label: string
   icon?: IconName
+  /** 关联面板元素 id：存在时该分段渲染 aria-controls。 */
+  panelId?: string
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     modelValue?: string | null
     options: SegmentOption[]
@@ -30,10 +35,44 @@ function pick(value: string): void {
   emit('update:modelValue', value)
   emit('change', value)
 }
+
+/** roving tabindex：激活项可 Tab 进入；未命中时退到第一个选项。 */
+const tabbableValue = computed(() => {
+  const active = props.options.find((o) => String(props.modelValue) === o.value)
+  return (active ?? props.options[0])?.value ?? ''
+})
+
+const NAV_KEYS = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+
+/** 方向键/Home/End：移动焦点并同步激活（自动激活模式，与点击等价）。 */
+function onKeydown(event: KeyboardEvent): void {
+  if (props.disabled || !NAV_KEYS.includes(event.key)) return
+  const container = event.currentTarget as HTMLElement
+  const items = [...container.querySelectorAll<HTMLButtonElement>('button.seg-item:not(:disabled)')]
+  if (!items.length) return
+  event.preventDefault()
+
+  let index = items.indexOf(document.activeElement as HTMLButtonElement)
+  if (index === -1) index = event.key === 'ArrowLeft' ? 0 : items.length - 1
+  if (event.key === 'ArrowRight') index = (index + 1) % items.length
+  else if (event.key === 'ArrowLeft') index = (index - 1 + items.length) % items.length
+  else if (event.key === 'Home') index = 0
+  else index = items.length - 1
+
+  const next = items[index]
+  const value = next.dataset.value
+  if (value !== undefined && value !== String(props.modelValue)) pick(value)
+  next.focus()
+}
 </script>
 
 <template>
-  <div class="seg" :class="[`size-${size}`, { disabled }]" role="tablist">
+  <div
+    class="seg"
+    :class="[`size-${size}`, { disabled }]"
+    role="tablist"
+    @keydown="onKeydown"
+  >
     <button
       v-for="o in options"
       :key="o.value"
@@ -41,7 +80,10 @@ function pick(value: string): void {
       class="seg-item"
       :class="{ active: String(modelValue) === o.value }"
       role="tab"
+      :data-value="o.value"
       :aria-selected="String(modelValue) === o.value"
+      :aria-controls="o.panelId"
+      :tabindex="tabbableValue === o.value ? 0 : -1"
       :disabled="disabled"
       @click="pick(o.value)"
     >

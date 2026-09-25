@@ -8,6 +8,9 @@
  * ```
  * 样式为 rf- 设计系统的 Vue 侧镜像（scoped + 变量对齐 styles.rs：
  * --rf-bg-panel / --rf-border / --rf-text / 语义色）。
+ *
+ * 播报策略：容器整体 aria-live="polite"（成功 / 信息 / 警告排队播报），
+ * error 条目单独 role="alert" + aria-live="assertive"，插入即打断播报。
  */
 import { TOAST_TYPE_META, useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
@@ -45,7 +48,15 @@ function onAction(item: ToastItem): void {
 <template>
   <div class="rf-toast-wrap" aria-live="polite">
     <TransitionGroup name="rf-toast">
-      <div v-for="item in toasts" :key="item.id" class="rf-toast" :class="`rf-toast-${item.type}`">
+      <div
+        v-for="item in toasts"
+        :key="item.id"
+        class="rf-toast"
+        :class="`rf-toast-${item.type}`"
+        :role="item.type === 'error' ? 'alert' : undefined"
+        :aria-live="item.type === 'error' ? 'assertive' : undefined"
+        aria-atomic="true"
+      >
         <span
           class="rf-toast-icon"
           :style="{ color: meta(item.type).color }"

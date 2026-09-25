@@ -33,6 +33,13 @@ export function clearTreeSelection(): void {
   treeSelection.folders.clear()
 }
 
+/**
+ * 键盘焦点行 id（模块级共享，跨递归实例唯一真源）。
+ * roving tabindex：只有焦点行 tabindex=0，其余 -1；↑↓/Home/End 沿可见行移动。
+ * 根实例负责初始化与失效兜底（行被删除 / 切换项目时回落到首行）。
+ */
+export const treeFocus = reactive({ id: null as string | null })
+
 /** 拖拽结束后抑制紧随其后的 click（避免误打开接口/文件夹）。 */
 let suppressClick = false
 
@@ -87,9 +94,11 @@ const TREE_INDEX: InjectionKey<import('vue').ComputedRef<TreeChildIndex>> =
  * - 行高 28px、hover/选中态、缩进引导线；
  * - 新建/重命名用行内输入（Enter 提交 / Esc 取消）；
  * - 根级新建文件夹由侧栏头部按钮触发（defineExpose(startEdit)）；
- * - 拖拽移动：跨实例共享载荷，dragover 显式 dropEffect=move。
+ * - 拖拽移动：跨实例共享载荷，dragover 显式 dropEffect=move；
+ * - ARIA 树语义（role=tree/treeitem + aria-level/expanded/selected）与键盘：
+ *   ↑↓ 移动焦点、Home/End 跳首尾、→ 展开 / ← 折叠、Enter 打开，roving tabindex。
  */
-import { computed, inject, provide, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
@@ -110,8 +119,10 @@ const props = withDefaults(
     /** 自增信号：全部展开 / 全部折叠（侧栏工具栏触发，递归层逐层透传）。 */
     expandTick?: number
     collapseTick?: number
+    /** ARIA 树层级（根 1，递归子层 +1，随实例透传）。 */
+    level?: number
   }>(),
-  { search: '', expandTick: 0, collapseTick: 0 },
+  { search: '', expandTick: 0, collapseTick: 0, level: 1 },
 )
 const emit = defineEmits<{ importCurl: [folderId: string | null] }>()
 
@@ -485,6 +496,8 @@ async function duplicate(e: Endpoint): Promise<void> {
 
 // ---------- 行内动作菜单 ----------
 const menu = ref<InstanceType<typeof Menu> | null>(null)
+/** 菜单打开时暂停树键盘导航：Menu 自己用 document keydown 处理方向键 / Enter / Esc。 */
+const menuOpen = ref(false)
 const menuTarget = ref<{ kind: 'folder' | 'endpoint'; id: string } | null>(null)
 
 function openFolderMenu(event: MouseEvent, f: Folder): void {
@@ -598,6 +611,157 @@ function onFolderRowClick(f: Folder, event: MouseEvent): void {
   onFolderClick(f, event)
 }
 
+// ---------- 键盘导航（ARIA tree：↑↓ 移动、Home/End 首尾、→ 展开、← 折叠、Enter 打开） ----------
+const rootEl = ref<HTMLElement | null>(null)
+
+/** roving tabindex：焦点行 0，其余 -1（焦点行由模块级 treeFocus 跨递归实例共享）。 */
+function rowTabbable(id: string): number {
+  return treeFocus.id === id ? 0 : -1
+}
+
+/** v-show 收起的子树按行内 display:none 判定（jsdom 无布局，不能依赖 getClientRects）。 */
+function isRowVisible(el: HTMLElement): boolean {
+  for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+    if (n.style.display === 'none') return false
+  }
+  return true
+}
+
+/** 整棵树当前可见的行（DOM 顺序 = 阅读顺序，跨递归实例）。 */
+function visibleRows(): HTMLElement[] {
+  const root = rootEl.value
+  if (!root) return []
+  return [...root.querySelectorAll<HTMLElement>('.tree-row[data-dnd-id]')].filter(isRowVisible)
+}
+
+function focusRow(el: HTMLElement | null): void {
+  if (!el) return
+  const id = el.dataset.dndId
+  if (id) treeFocus.id = id
+  el.focus()
+}
+
+/**
+ * 焦点行失效（行被删除 / 数据重载 / 切换项目）时回落到首行，
+ * 保证树始终有一行 tabindex=0，Tab 能进入整棵树。
+ */
+function syncTreeFocus(): void {
+  if (props.folderId !== null) return
+  const rows = visibleRows()
+  if (!rows.length) {
+    treeFocus.id = null
+    return
+  }
+  if (!rows.some((r) => r.dataset.dndId === treeFocus.id)) {
+    treeFocus.id = rows[0].dataset.dndId ?? null
+  }
+}
+
+/** 行获得焦点（鼠标点选 / 程序 focus）即同步 roving tabindex 真源。 */
+function onTreeFocusIn(event: FocusEvent): void {
+  if (props.folderId !== null) return
+  const target = event.target as HTMLElement | null
+  const row = (target?.closest('.tree-row[data-dnd-id]') ?? null) as HTMLElement | null
+  if (row?.dataset.dndId) treeFocus.id = row.dataset.dndId
+}
+
+/** 文件夹行的展开指示（chevron 旋转态）：open = 子树当前可见。 */
+function chevronOf(row: HTMLElement): HTMLElement | null {
+  if (row.dataset.dndKind !== 'folder') return null
+  return row.querySelector<HTMLElement>('.tree-chevron:not(.spacer)')
+}
+
+/** 通过 chevron 的点击处理器切换展开：由行所属实例自己执行，跨层状态不串。 */
+function toggleViaChevron(row: HTMLElement): void {
+  chevronOf(row)?.click()
+}
+
+const TREE_NAV_KEYS = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter']
+
+function onTreeKeydown(event: KeyboardEvent): void {
+  // 处理只挂在根实例上（嵌套实例的按键冒泡到根统一处理）
+  if (props.folderId !== null) return
+  if (menuOpen.value) return // 菜单打开时方向键归菜单
+  if (!TREE_NAV_KEYS.includes(event.key)) return
+  const target = event.target as HTMLElement
+  // 行内编辑输入框保留原生键盘行为（方向键在文本光标上，不抢焦点）
+  if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+  // 行内按钮（⋯ 菜单）的 Enter 归原生 click；方向键仍可离开它继续在树内移动
+  if (event.key === 'Enter' && target.closest('button, a')) return
+  const rows = visibleRows()
+  if (!rows.length) return
+  const current = target.closest<HTMLElement>('.tree-row[data-dnd-id]')
+  if (!current) return
+  const index = rows.indexOf(current)
+
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const id = current.dataset.dndId ?? ''
+    if (current.dataset.dndKind === 'folder') toggleViaChevron(current)
+    else {
+      const e = store.endpoints.find((x) => x.id === id)
+      if (e) {
+        clearTreeSelection()
+        store.openEndpoint(e)
+      }
+    }
+    return
+  }
+  if (index === -1) return
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const next = event.key === 'ArrowDown' ? index + 1 : index - 1
+    focusRow(rows[Math.min(Math.max(next, 0), rows.length - 1)])
+    return
+  }
+  if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault()
+    focusRow(event.key === 'Home' ? rows[0] : rows[rows.length - 1])
+    return
+  }
+
+  const chevron = chevronOf(current)
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    if (!chevron) return // 接口行无展开语义
+    if (!chevron.classList.contains('open')) {
+      toggleViaChevron(current) // 折叠 → 展开
+      return
+    }
+    // 已展开 → 焦点下移进第一个子行（.tree-children 紧跟在文件夹行之后）
+    const kids = current.nextElementSibling?.querySelectorAll<HTMLElement>('.tree-row[data-dnd-id]')
+    focusRow([...(kids ?? [])].find(isRowVisible) ?? null)
+    return
+  }
+
+  // ArrowLeft：展开的文件夹先折叠，否则上移到父文件夹行
+  event.preventDefault()
+  if (chevron?.classList.contains('open') && !searchActive.value) {
+    toggleViaChevron(current)
+    return
+  }
+  const parentRow = current.closest('.tree-children')?.previousElementSibling
+  if (parentRow?.matches?.('.tree-row[data-dnd-id]')) focusRow(parentRow as HTMLElement)
+}
+
+// 数据 / 搜索变化重算焦点行；根实例挂载后兜底初始化。
+// length 一并 watch：嵌套层增删行时根实例自身的 child* 不变，但行消失会让焦点行失效。
+if (props.folderId === null) {
+  watch(
+    [childFolders, childEndpoints, () => store.folders.length, () => store.endpoints.length],
+    () => {
+      void nextTick(syncTreeFocus)
+    },
+  )
+  onMounted(() => {
+    void nextTick(syncTreeFocus)
+  })
+  onBeforeUnmount(() => {
+    treeFocus.id = null
+  })
+}
+
 const selectionCount = computed(
   () => treeSelection.endpoints.size + treeSelection.folders.size,
 )
@@ -645,11 +809,25 @@ function onBatchMenuSelect(item: MenuItem): void {
 </script>
 
 <template>
-  <div class="tree" :data-dnd-tree-root="folderId ?? ''" @click.capture="onTreeClickCapture">
+  <div
+    class="tree"
+    ref="rootEl"
+    :role="folderId === null ? 'tree' : undefined"
+    :aria-multiselectable="folderId === null ? true : undefined"
+    :data-dnd-tree-root="folderId ?? ''"
+    @click.capture="onTreeClickCapture"
+    @keydown="onTreeKeydown"
+    @focusin="onTreeFocusIn"
+  >
     <template v-for="f in childFolders" :key="f.id">
       <div
         class="tree-row"
         :class="{ 'dnd-over': isOverFolder(f.id), selected: treeSelection.folders.has(f.id) }"
+        role="treeitem"
+        :aria-level="level"
+        :aria-expanded="expanded.has(f.id) || searchActive"
+        :aria-selected="treeSelection.folders.has(f.id)"
+        :tabindex="rowTabbable(f.id)"
         data-dnd-kind="folder"
         :data-dnd-id="f.id"
         @pointerdown="onRowPointerDown($event, 'folder', f.id)"
@@ -658,6 +836,7 @@ function onBatchMenuSelect(item: MenuItem): void {
         <span
           class="tree-chevron"
           :class="{ open: expanded.has(f.id) || searchActive }"
+          aria-hidden="true"
           @click.stop="toggleFolder(f.id)"
         >
           <Icon name="chevron-right" :size="12" :stroke-width="1.25" />
@@ -683,12 +862,13 @@ function onBatchMenuSelect(item: MenuItem): void {
           </span>
         </template>
       </div>
-      <div v-show="expanded.has(f.id) || searchActive" class="tree-children">
+      <div v-show="expanded.has(f.id) || searchActive" class="tree-children" role="group">
         <EndpointTree
           :folder-id="f.id"
           :search="props.search"
           :expand-tick="props.expandTick"
           :collapse-tick="props.collapseTick"
+          :level="level + 1"
           @import-curl="$emit('importCurl', $event)"
         />
       </div>
@@ -716,6 +896,10 @@ function onBatchMenuSelect(item: MenuItem): void {
           'insert-after': isInsertAfter(e.id),
           'dragging-src': isDraggingSrc(e.id),
         }"
+        role="treeitem"
+        :aria-level="level"
+        :aria-selected="treeSelection.endpoints.has(e.id) || store.activeTabId === e.id"
+        :tabindex="rowTabbable(e.id)"
         data-dnd-kind="endpoint"
         :data-dnd-id="e.id"
         :data-dnd-index="i"
@@ -772,8 +956,8 @@ function onBatchMenuSelect(item: MenuItem): void {
       </button>
     </div>
 
-    <Menu ref="menu" @select="onMenuSelect" @confirm="onMenuConfirm" />
-    <Menu ref="batchMenu" @select="onBatchMenuSelect" />
+    <Menu ref="menu" @select="onMenuSelect" @confirm="onMenuConfirm" @open="menuOpen = true" @close="menuOpen = false" />
+    <Menu ref="batchMenu" @select="onBatchMenuSelect" @open="menuOpen = true" @close="menuOpen = false" />
 
   <Teleport to="body">
     <div

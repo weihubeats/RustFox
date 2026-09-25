@@ -223,6 +223,7 @@ const canAdd = computed(() => isContainer(root.value) || root.value.type === 'ob
             type="checkbox"
             :checked="row.node.required"
             :disabled="disabled"
+            :aria-label="t('paramtable.required')"
             @change="setRequired(row.node, ($event.target as HTMLInputElement).checked)"
           />
         </label>

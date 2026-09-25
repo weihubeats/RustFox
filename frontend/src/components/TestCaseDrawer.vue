@@ -399,7 +399,13 @@ function onSplitterDblClick(): void {
         <aside ref="drawerRef" class="drw" role="dialog" aria-modal="true">
           <header class="drw-head">
             <h3 class="drw-title">{{ t('casedrawer.title') }}</h3>
-            <button class="drw-close" type="button" :title="t('common.close')" @click="emit('update:open', false)">
+            <button
+              class="drw-close"
+              type="button"
+              :title="t('common.close')"
+              :aria-label="t('common.close')"
+              @click="emit('update:open', false)"
+            >
               <Icon name="x" :size="15" />
             </button>
           </header>
@@ -502,6 +508,7 @@ function onSplitterDblClick(): void {
                       :class="{ active: bodyFindOpen }"
                       type="button"
                       :title="t('body.findHint')"
+                      :aria-label="t('body.findHint')"
                       @click="toggleBodyFind"
                     >
                       <Icon name="search" :size="13" />

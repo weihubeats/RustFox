@@ -224,3 +224,70 @@ describe('TabBar：新建按钮紧跟末尾且不被滚丢', () => {
     wrapper.unmount()
   })
 })
+
+describe('TabBar：键盘导航（role=tablist + roving tabindex + ←→ / Delete）', () => {
+  function rows(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>('.tab-scroll .tab')]
+  }
+
+  function press(target: HTMLElement, k: string): void {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+  }
+
+  it('容器 role=tablist，页签 role=tab + aria-selected + roving tabindex', () => {
+    const wrapper = mountBar()
+    expect(document.querySelector('.tab-scroll')?.getAttribute('role')).toBe('tablist')
+    const list = rows()
+    expect(list).toHaveLength(8)
+    expect(list.every((el) => el.getAttribute('role') === 'tab')).toBe(true)
+    // 激活项 t8 可 Tab 进入，其余 -1
+    expect(list.map((el) => el.getAttribute('tabindex'))).toEqual([
+      '-1', '-1', '-1', '-1', '-1', '-1', '-1', '0',
+    ])
+    expect(list[7].getAttribute('aria-selected')).toBe('true')
+    expect(list[0].getAttribute('aria-selected')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('← / → 移动焦点并激活相邻页签', () => {
+    const wrapper = mountBar()
+    const active = rows()[7]
+    active.focus()
+    press(active, 'ArrowLeft')
+    expect(mocked.activeTabId).toBe('t7')
+    expect(document.activeElement).toBe(rows()[6])
+    press(rows()[6], 'ArrowRight')
+    expect(mocked.activeTabId).toBe('t8')
+    wrapper.unmount()
+  })
+
+  it('Home / End 跳首尾，末尾回绕到首', () => {
+    const wrapper = mountBar()
+    rows()[7].focus()
+    press(rows()[7], 'Home')
+    expect(mocked.activeTabId).toBe('t1')
+    press(rows()[0], 'ArrowLeft')
+    expect(mocked.activeTabId).toBe('t8')
+    wrapper.unmount()
+  })
+
+  it('Delete 走既有关闭链路：干净页签直接 closeTab', async () => {
+    const wrapper = mountBar()
+    rows()[7].focus()
+    press(rows()[7], 'Delete')
+    await nextTick()
+    expect(mocked.closeTab).toHaveBeenCalledWith('t8')
+    wrapper.unmount()
+  })
+
+  it('Delete 脏页签弹既有 Popconfirm，不直接关闭', async () => {
+    mocked.isDirty.mockImplementation((id: string) => id === 't8')
+    const wrapper = mountBar()
+    rows()[7].focus()
+    press(rows()[7], 'Delete')
+    await nextTick()
+    expect(mocked.closeTab).not.toHaveBeenCalled()
+    expect(document.querySelector('.pc-pop')).toBeTruthy()
+    wrapper.unmount()
+  })
+})

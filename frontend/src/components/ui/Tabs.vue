@@ -1,15 +1,21 @@
 <script setup lang="ts">
 /**
  * Tabs：标签页导航。激活 = accent 文本 + 2px 下划线；支持数量徽标。
+ * 键盘：←/→ 循环切换、Home/End 跳首尾（切换即激活），roving tabindex
+ * （仅激活项 tabindex=0，其余 -1），传 panelId 时渲染 aria-controls。
  */
+import { computed } from 'vue'
+
 export interface TabItem {
   key: string
   label: string
   count?: number
   disabled?: boolean
+  /** 关联面板元素 id：存在时该页签渲染 aria-controls。 */
+  panelId?: string
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     modelValue?: string
     tabs: TabItem[]
@@ -27,10 +33,40 @@ function pick(key: string): void {
   emit('update:modelValue', key)
   emit('change', key)
 }
+
+/** roving tabindex：激活项可 Tab 进入；未命中（激活项缺失/禁用）时退到首个可用项。 */
+const tabbableKey = computed(() => {
+  const active = props.tabs.find((t) => t.key === props.modelValue)
+  if (active && !active.disabled) return active.key
+  return props.tabs.find((t) => !t.disabled)?.key ?? ''
+})
+
+const NAV_KEYS = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+
+/** 方向键/Home/End：移动焦点并同步激活（自动激活模式，与点击等价）。 */
+function onKeydown(event: KeyboardEvent): void {
+  if (!NAV_KEYS.includes(event.key)) return
+  const container = event.currentTarget as HTMLElement
+  const items = [...container.querySelectorAll<HTMLButtonElement>('button.tab:not(:disabled)')]
+  if (!items.length) return
+  event.preventDefault()
+
+  let index = items.indexOf(document.activeElement as HTMLButtonElement)
+  if (index === -1) index = event.key === 'ArrowLeft' ? 0 : items.length - 1
+  if (event.key === 'ArrowRight') index = (index + 1) % items.length
+  else if (event.key === 'ArrowLeft') index = (index - 1 + items.length) % items.length
+  else if (event.key === 'Home') index = 0
+  else index = items.length - 1
+
+  const next = items[index]
+  const key = next.dataset.key
+  if (key !== undefined && key !== props.modelValue) pick(key)
+  next.focus()
+}
 </script>
 
 <template>
-  <div class="tabs" :class="`size-${size}`" role="tablist">
+  <div class="tabs" :class="`size-${size}`" role="tablist" @keydown="onKeydown">
     <button
       v-for="t in tabs"
       :key="t.key"
@@ -38,7 +74,10 @@ function pick(key: string): void {
       class="tab"
       :class="{ active: modelValue === t.key }"
       role="tab"
+      :data-key="t.key"
       :aria-selected="modelValue === t.key"
+      :aria-controls="t.panelId"
+      :tabindex="tabbableKey === t.key ? 0 : -1"
       :disabled="t.disabled"
       @click="pick(t.key)"
     >

@@ -325,6 +325,7 @@ watch(
           class="tcp-search-clear"
           type="button"
           :title="t('cases.clearSearch')"
+          :aria-label="t('cases.clearSearch')"
           @click="keyword = ''"
         >
           <Icon name="x" :size="12" />

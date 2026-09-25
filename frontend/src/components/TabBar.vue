@@ -6,7 +6,9 @@
  *   tab 再多也不会把它滚丢；
  * - 激活态 = text-1 + 底部主题色下划线；未保存草稿在标题旁显示小圆点，
  *   hover 时圆点被 ✕ 替换（两者不同时出现，避免挤占）；
- * - 关闭按钮 hover 才出现；脏标签关闭走 Popconfirm。
+ * - 关闭按钮 hover 才出现；脏标签关闭走 Popconfirm；
+ * - 键盘：容器 role=tablist、页签 role=tab + roving tabindex，←/→ 与
+ *   Home/End 切换，Enter/Space 激活，Delete 关闭（脏页签走既有确认）。
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -123,18 +125,83 @@ function onTabMenuConfirm(item: MenuItem): void {
   // 二次确认通过：强制执行（与 onSelect 同分支）
   runMenuAction(item)
 }
+
+// ---------- 页签键盘导航：roving tabindex + ←/→ 切换、Enter/Space 激活、Delete 关闭 ----------
+/** 页签容器内的 .tab 列表（DOM 顺序 = 视觉顺序）。 */
+function tabElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>('.tab')]
+}
+
+/** roving tabindex：激活页签可 Tab 进入；无激活项时退到第一个页签。 */
+function tabbableId(): string | null {
+  const ids = store.openTabs
+  if (store.activeTabId && ids.includes(store.activeTabId)) return store.activeTabId
+  return ids[0] ?? null
+}
+
+/**
+ * Delete 关闭当前页签：直接点页签上的关闭按钮——干净页签立即关闭，
+ * 脏页签沿用既有 Popconfirm 二次确认（与鼠标点击完全同链路）。
+ */
+function closeViaButton(row: HTMLElement): void {
+  row.querySelector<HTMLButtonElement>('.tab-close')?.click()
+}
+
+function onTabListKeydown(event: KeyboardEvent): void {
+  const container = event.currentTarget as HTMLElement
+  const rows = tabElements(container)
+  if (!rows.length) return
+  const current = (event.target as HTMLElement).closest<HTMLElement>('.tab')
+  const index = current ? rows.indexOf(current) : -1
+  if (index === -1) return
+
+  if (event.key === 'Delete') {
+    // 焦点已在关闭按钮上时不重复触发（按钮自身 Enter/Space 即关闭）
+    if ((event.target as HTMLElement).closest('button')) return
+    event.preventDefault()
+    closeViaButton(rows[index])
+    return
+  }
+
+  const NAV_KEYS = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+  if (!NAV_KEYS.includes(event.key)) return
+  event.preventDefault()
+
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % rows.length
+  else if (event.key === 'ArrowLeft') next = (index - 1 + rows.length) % rows.length
+  else if (event.key === 'Home') next = 0
+  else next = rows.length - 1
+
+  const row = rows[next]
+  const id = row.dataset.tabId
+  if (id !== undefined && id !== store.activeTabId) store.activeTabId = id
+  row.focus()
+}
+
+/** Enter / Space：div 页签无原生激活，补齐与鼠标点击等价的激活语义。 */
+function onTabActivateKey(event: KeyboardEvent, id: string): void {
+  if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
+  event.preventDefault()
+  store.activeTabId = id
+}
 </script>
 
 <template>
   <div ref="barEl" class="tab-bar">
-    <div class="tab-scroll">
+    <div class="tab-scroll" role="tablist" @keydown="onTabListKeydown">
       <div
         v-for="tab in tabs"
         :key="tab.id"
         class="tab"
         :class="{ active: store.activeTabId === tab.id }"
+        role="tab"
+        :data-tab-id="tab.id"
+        :aria-selected="store.activeTabId === tab.id"
+        :tabindex="tabbableId() === tab.id ? 0 : -1"
         @click="store.activeTabId = tab.id"
         @mousedown="onTabMouseDown($event, tab.id)"
+        @keydown="onTabActivateKey($event, tab.id)"
       >
         <span class="method-tag" :class="methodTone(tab.method)">{{ tab.method }}</span>
         <span class="tab-title" v-tooltip-overflow="tab.title">{{ tab.title }}</span>
@@ -228,6 +295,10 @@ function onTabMenuConfirm(item: MenuItem): void {
 .tab:hover {
   background: var(--bg-hover);
   color: var(--text-1);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 .tab.active {
   color: var(--text-1);

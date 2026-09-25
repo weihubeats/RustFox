@@ -16,12 +16,16 @@ import { useToast } from '../composables/useToast'
 import { copyText } from '../utils/clipboard'
 import { envBaseUrl, envColorClass } from '../utils/environment'
 import CustomSelect from './ui/CustomSelect.vue'
-import EnvironmentManager from './EnvironmentManager.vue'
 import EnvironmentQuickView from './EnvironmentQuickView.vue'
 import Icon from './ui/Icon.vue'
 import IconButton from './ui/IconButton.vue'
 import Tooltip from './ui/Tooltip.vue'
+import { lazyComponent } from '../composables/lazyComponent'
 import type { Environment } from '../types/foxApi'
+
+// 环境管理大弹窗（1400+ 行）挂在顶栏常驻组件上会把它的 chunk 拖进首屏：
+// 异步化后首次打开环境管理才拉取，顶栏不再为一个低频弹窗买单。
+const EnvironmentManager = lazyComponent(() => import('./EnvironmentManager.vue'))
 
 const store = useWorkspaceStore()
 const locale = useLocaleStore()
@@ -203,6 +207,7 @@ function onManagerOpenChange(open: boolean): void {
                 type="button"
                 class="env-act"
                 :title="t('envbar.copyUrl')"
+                :aria-label="t('envbar.copyUrl')"
                 @click.stop="copyEnvUrl(option.value)"
               >
                 <Icon name="copy" :size="12" />
@@ -211,6 +216,7 @@ function onManagerOpenChange(open: boolean): void {
                 type="button"
                 class="env-act"
                 :title="t('envbar.editEnv')"
+                :aria-label="t('envbar.editEnv')"
                 @click.stop="openManager(String(option.value))"
               >
                 <Icon name="pencil" :size="12" />
@@ -237,6 +243,7 @@ function onManagerOpenChange(open: boolean): void {
           class="eb-eye"
           name="eye"
           :size="14"
+          :label="activeEnv ? t('envbar.viewVars') : t('envbar.noActiveEnv')"
           :disabled="!activeEnv"
           @click="showQuick = !showQuick"
         />

@@ -16,24 +16,30 @@ import Brand from '../components/Brand.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import EndpointTree from '../components/EndpointTree.vue'
 import EnvironmentBar from '../components/EnvironmentBar.vue'
-import CookiePanel from '../components/CookiePanel.vue'
-import HistoryPanel from '../components/HistoryPanel.vue'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
+import Skeleton from '../components/ui/Skeleton.vue'
 import Menu, { type MenuItem } from '../components/ui/Menu.vue'
 import CreatePanel, { type CreateActionKey } from '../components/CreatePanel.vue'
 import Modal from '../components/ui/Modal.vue'
-import SettingsDialog from '../components/SettingsDialog.vue'
 import ShortcutsHelp from '../components/ShortcutsHelp.vue'
 import TabBar from '../components/TabBar.vue'
 import Tabs, { type TabItem } from '../components/ui/Tabs.vue'
 import Tooltip from '../components/ui/Tooltip.vue'
 import EndpointEditor from '../components/EndpointEditor.vue'
-import CurlImportDialog from '../components/CurlImportDialog.vue'
-import ImportDialog from '../components/ImportDialog.vue'
-import MockRuleDialog from '../components/MockRuleDialog.vue'
 import { useShortcuts, shortcutDef } from '../composables/useShortcuts'
 import { useWindowDrag } from '../composables/useWindowDrag'
+import { lazyComponent } from '../composables/lazyComponent'
+
+// 低频重型面板按需加载（composables/lazyComponent.ts：骨架 + 可翻译的错误重试层）。
+// 侧栏历史 / Cookie 页签与四个弹窗都是 v-if 打开才渲染，首次点开才拉各自 chunk，
+// 不再随首屏主 chunk 下发（SettingsDialog 近 1800 行是其中大头）。
+const HistoryPanel = lazyComponent(() => import('../components/HistoryPanel.vue'))
+const CookiePanel = lazyComponent(() => import('../components/CookiePanel.vue'))
+const SettingsDialog = lazyComponent(() => import('../components/SettingsDialog.vue'))
+const CurlImportDialog = lazyComponent(() => import('../components/CurlImportDialog.vue'))
+const ImportDialog = lazyComponent(() => import('../components/ImportDialog.vue'))
+const MockRuleDialog = lazyComponent(() => import('../components/MockRuleDialog.vue'))
 
 const store = useWorkspaceStore()
 const router = useRouter()
@@ -119,6 +125,20 @@ function onSidebarResizeUp(): void {
   document.body.style.userSelect = ''
   document.removeEventListener('mousemove', onSidebarResizeMove)
   document.removeEventListener('mouseup', onSidebarResizeUp)
+}
+
+/** 键盘调宽（分割条可 Tab 聚焦）：← → 每次 10px，Shift 40px，Home/End 到上下限，Enter 恢复默认。 */
+function onSidebarKeydown(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 40 : 10
+  let next = sidebarWidth.value
+  if (event.key === 'ArrowLeft') next -= step
+  else if (event.key === 'ArrowRight') next += step
+  else if (event.key === 'Home') next = SIDEBAR_MIN
+  else if (event.key === 'End') next = SIDEBAR_MAX
+  else if (event.key === 'Enter') next = SIDEBAR_DEFAULT
+  else return
+  event.preventDefault()
+  sidebarWidth.value = Math.min(Math.max(next, SIDEBAR_MIN), SIDEBAR_MAX)
 }
 
 // ---------- 侧栏页签：接口目录 / 请求历史 ----------
@@ -504,10 +524,10 @@ onBeforeUnmount(() => {
                 </button>
               </Tooltip>
               <Tooltip :content="t('workspace.collapseAll')">
-                <IconButton name="chevrons-down-up" :size="14" @click="collapseTick++" />
+                <IconButton name="chevrons-down-up" :size="14" :label="t('workspace.collapseAll')" @click="collapseTick++" />
               </Tooltip>
               <Tooltip :content="t('workspace.expandAll')">
-                <IconButton name="chevrons-up-down" :size="14" @click="expandTick++" />
+                <IconButton name="chevrons-up-down" :size="14" :label="t('workspace.expandAll')" @click="expandTick++" />
               </Tooltip>
             </div>
           </div>
@@ -517,7 +537,18 @@ onBeforeUnmount(() => {
               {{ loading ? t('common.retrying') : t('common.retry') }}
             </button>
           </div>
-          <div v-else class="tree-wrap">
+          <div
+            v-else-if="loading && !store.folders.length && !store.endpoints.length"
+            class="sk-tree"
+            aria-busy="true"
+            :aria-label="t('common.loading')"
+          >
+            <Skeleton width="64%" height="14px" />
+            <Skeleton width="48%" height="14px" />
+            <Skeleton width="72%" height="14px" />
+            <Skeleton width="42%" height="14px" />
+          </div>
+          <div v-else class="tree-wrap" :aria-busy="loading">
             <EndpointTree
               ref="treeRef"
               :folder-id="null"
@@ -535,11 +566,16 @@ onBeforeUnmount(() => {
         class="sidebar-resizer"
         :class="{ active: sidebarResizing }"
         role="separator"
+        tabindex="0"
         aria-orientation="vertical"
         :aria-label="t('workspace.resizeSidebar')"
+        :aria-valuenow="Math.round(sidebarWidth)"
+        :aria-valuemin="SIDEBAR_MIN"
+        :aria-valuemax="SIDEBAR_MAX"
         :title="t('workspace.resizeHint')"
         @mousedown="onSidebarResizeDown"
-        @dblclick="sidebarWidth = 300"
+        @dblclick="sidebarWidth = SIDEBAR_DEFAULT"
+        @keydown="onSidebarKeydown"
       ></div>
       <main class="rf-main">
         <TabBar
@@ -652,6 +688,21 @@ onBeforeUnmount(() => {
   background: var(--rf-bg-panel);
   cursor: grab;
   user-select: none;
+}
+
+/* ---- 窄窗回退（<1080px）：侧栏随视口收窄，把宽度让给右侧请求/响应编辑区；
+   顶栏允许换行，避免 Docs/Mock/环境/工具组横向溢出（≥1080px 布局不变） ---- */
+@media (max-width: 1080px) {
+  .rf-sidebar {
+    max-width: 34vw;
+  }
+  .top-bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 48px;
+    padding: 4px 12px;
+    row-gap: 4px;
+  }
 }
 
 .tb-region {
@@ -787,8 +838,13 @@ onBeforeUnmount(() => {
   z-index: 10;
 }
 .sidebar-resizer:hover,
-.sidebar-resizer.active {
+.sidebar-resizer.active,
+.sidebar-resizer:focus-visible {
   background: var(--accent);
+}
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
 }
 
 .rf-heading {
@@ -916,6 +972,14 @@ onBeforeUnmount(() => {
 .tree-wrap {
   flex: 1;
   overflow-y: auto;
+  padding: 8px 12px 12px;
+}
+
+/* ---- 加载骨架：首屏目录拉取中占位（与 ProjectList 的 sk-grid 同语言） ---- */
+.sk-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 8px 12px 12px;
 }
 

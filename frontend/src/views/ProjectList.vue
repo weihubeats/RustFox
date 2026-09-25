@@ -118,8 +118,11 @@ async function onDragEnd(): Promise<void> {
   suppressClickUntil = Date.now() + 400
   const ordered: Project[] = []
   const els = gridEl.value?.querySelectorAll<HTMLElement>('[data-project-id]') ?? []
+  // id → 项目 的一次建表：卡片数平方级的 find 换成 Map 查找（拖拽重排只有这一个热循环）
+  const byId = new Map(projects.value.map((p) => [p.id, p]))
   for (const el of els) {
-    const found = projects.value.find((p) => p.id === el.dataset.projectId)
+    const id = el.dataset.projectId
+    const found = id ? byId.get(id) : undefined
     if (found) ordered.push(found)
   }
   if (ordered.length !== projects.value.length) return
@@ -143,7 +146,6 @@ function onCardOpen(p: Project): void {
 
 function initSortable(): void {
   if (sortable.value || !gridEl.value) return
-  console.log('[dnd] init sortable', gridEl.value)
   sortable.value = Sortable.create(gridEl.value, {
     animation: 200,
     easing: 'cubic-bezier(0.2, 0, 0, 1)',
@@ -160,14 +162,9 @@ function initSortable(): void {
     disabled: !dragEnabled.value,
     filter: 'button, a, input, select, textarea, [data-no-drag]',
     preventOnFilter: true,
-    onChoose: () => console.log('[dnd] choose'),
-    onStart: () => console.log('[dnd] start'),
-    onEnd: () => {
-      console.log('[dnd] end')
-      void onDragEnd()
-    },
     onMove: (evt) =>
       !evt.related?.closest('button, a, input, select, textarea, [data-no-drag]'),
+    onEnd: () => void onDragEnd(),
   })
 }
 

@@ -99,7 +99,13 @@ function shortValue(v: string): string {
         />
       </div>
       <span class="cp-count">{{ t('cookie.count', { n: cookies.length }) }}</span>
-      <button class="cp-reload" type="button" :title="t('common.refresh')" @click="reload">
+      <button
+        class="cp-reload"
+        type="button"
+        :title="t('common.refresh')"
+        :aria-label="t('common.refresh')"
+        @click="reload"
+      >
         <Icon name="refresh" :size="13" />
       </button>
       <Popconfirm

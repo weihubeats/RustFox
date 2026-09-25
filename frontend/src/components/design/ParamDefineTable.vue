@@ -8,6 +8,7 @@
  * - 类型下拉为原生 select 紧凑样式（行内控件不引 CustomSelect，避免每行浮层开销）。
  */
 import { useLocaleStore } from '../../stores/locale'
+import { rowKey } from '../../utils/rowKey'
 import IconButton from '../ui/IconButton.vue'
 import EmptyState from '../ui/EmptyState.vue'
 import type { FieldType, KeyValue } from '../../types/foxApi'
@@ -45,10 +46,17 @@ function enabledOf(row: KeyValue): boolean {
   return row.enabled ?? true
 }
 
-/** 单元格修改：浅拷贝该行后整组回传，保持草稿数组响应式更新。 */
+/**
+ * 单元格修改：就地更新该行对象 + 整组回传新数组。
+ * 就地写保住了行对象身份——`:key="rowKey(row)"` 才能稳定，键入时行 DOM 不被
+ * 重建（原实现每次键入 `{...row}` 浅拷贝回传，换稳定 key 会让输入框丢焦点）；
+ * 回传新数组仍走父级 writeRows，下游拿到的更新链路不变。
+ */
 function patch(index: number, part: Partial<KeyValue>): void {
-  const next = props.rows.map((row, i) => (i === index ? { ...row, ...part } : row))
-  emit('update:modelValue', next)
+  const row = props.rows[index]
+  if (!row) return
+  Object.assign(row, part)
+  emit('update:modelValue', [...props.rows])
 }
 
 function addRow(): void {
@@ -90,7 +98,7 @@ function removeRow(index: number): void {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, i) in rows" :key="i">
+          <tr v-for="(row, i) in rows" :key="rowKey(row)">
             <td class="col-key">
               <input
                 class="pdt-input mono"
@@ -118,6 +126,7 @@ function removeRow(index: number): void {
                 class="pdt-check"
                 type="checkbox"
                 :checked="requiredOf(row)"
+                :aria-label="t('paramtable.required')"
                 @change="
                   patch(i, { required: ($event.target as HTMLInputElement).checked })
                 "
@@ -128,6 +137,7 @@ function removeRow(index: number): void {
                 class="pdt-check"
                 type="checkbox"
                 :checked="enabledOf(row)"
+                :aria-label="t('paramtable.enabled')"
                 @change="
                   patch(i, { enabled: ($event.target as HTMLInputElement).checked })
                 "

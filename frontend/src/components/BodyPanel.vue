@@ -20,6 +20,7 @@ import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import SegmentedControl, { type SegmentOption } from './ui/SegmentedControl.vue'
 import { RAW_SUBTYPES, applyBodyTab, applyRawSubtype, rawSubtypeOf, removeContentType, restoreRaw, syncContentType, tabOf } from '../utils/bodyMode'
 import { handleTextareaTab } from '../utils/textareaIndent'
+import { deepClone } from '../utils/clone'
 import type { BodyTab, RawSubtype } from '../utils/bodyMode'
 import type { BodySpec, Endpoint, GraphQLSpec, KeyValue, MultipartField, RequestSpec } from '../types/foxApi'
 
@@ -61,7 +62,7 @@ const rawMemory = new Map<string, { subtype: RawSubtype; raw: string }>()
 const bodyMemory = new Map<string, Partial<Record<BodyTab, BodySpec>>>()
 
 function cloneBody(b: BodySpec): BodySpec {
-  return JSON.parse(JSON.stringify(b)) as BodySpec
+  return deepClone(b)
 }
 
 /** form-data ↔ urlencoded 可互转：直接切换时保留实时转换，不读旧记忆。 */
@@ -412,6 +413,7 @@ const binPath = useDebouncedField(
           :class="{ active: findOpen }"
           type="button"
           :title="t('body.findHint')"
+          :aria-label="t('body.findHint')"
           @click="toggleFind"
         >
           <Icon name="search" :size="13" />
@@ -487,9 +489,9 @@ const binPath = useDebouncedField(
     <div v-else-if="activeTab === 'form-data'" class="mp-table">
       <div class="mp-head">
         <span class="mp-col mp-check"></span>
-        <span class="mp-col mp-key rf-mono">Key</span>
+        <span class="mp-col mp-key rf-mono">{{ t('kv.colKey') }}</span>
         <span class="mp-col mp-type rf-mono">{{ t('body.colType') }}</span>
-        <span class="mp-col mp-value rf-mono">Value</span>
+        <span class="mp-col mp-value rf-mono">{{ t('kv.colValue') }}</span>
         <span class="mp-col mp-actions"></span>
       </div>
       <div
@@ -499,9 +501,14 @@ const binPath = useDebouncedField(
         :class="{ off: f.enabled === false }"
       >
         <span class="mp-col mp-check">
-          <input v-model="f.enabled" type="checkbox" class="mp-check-box" />
+          <input
+            v-model="f.enabled"
+            type="checkbox"
+            class="mp-check-box"
+            :aria-label="f.key ? t('body.fieldToggleKey', { v: f.key }) : t('body.fieldToggle')"
+          />
         </span>
-        <input v-model="f.key" class="mp-input mp-col mp-key" placeholder="Key" spellcheck="false" />
+        <input v-model="f.key" class="mp-input mp-col mp-key" :placeholder="t('kv.colKey')" spellcheck="false" />
         <CustomSelect
           v-model="f.value_type"
           :options="MULTIPART_TYPE_OPTIONS"
@@ -511,7 +518,7 @@ const binPath = useDebouncedField(
         <input
           v-model="f.value"
           class="mp-input mp-col mp-value"
-          :placeholder="f.value_type === 'file_path' ? '/path/to/file' : 'Value'"
+          :placeholder="f.value_type === 'file_path' ? '/path/to/file' : t('kv.colValue')"
           spellcheck="false"
           @keydown.enter.prevent="addMultipartField"
         />

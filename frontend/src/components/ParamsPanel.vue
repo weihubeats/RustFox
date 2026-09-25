@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import { useLocaleStore } from '../stores/locale'
+import { useVarCandidates } from '../composables/useVarCandidates'
 import { handleTextareaTab } from '../utils/textareaIndent'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import type { Endpoint, KeyValue } from '../types/foxApi'
@@ -15,6 +16,9 @@ const props = defineProps<{ draft: Endpoint | null }>()
 
 const locale = useLocaleStore()
 const t = locale.t
+
+/** value 列 {{变量}} 自动补全候选（内置 + 环境/项目/全局变量）。 */
+const varCandidates = useVarCandidates()
 
 const params = computed(() => props.draft?.request.params ?? [])
 
@@ -102,7 +106,12 @@ function onBulkKeydown(e: KeyboardEvent): void {
       <p class="bulk-hint">{{ t('params.bulkHint') }}</p>
     </div>
 
-    <KeyValueTable v-else :model-value="params" @update:model-value="applyParams" />
+    <KeyValueTable
+      v-else
+      :model-value="params"
+      :var-candidates="varCandidates"
+      @update:model-value="applyParams"
+    />
   </div>
 </template>
 
