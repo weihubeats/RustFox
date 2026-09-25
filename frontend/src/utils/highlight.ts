@@ -17,6 +17,8 @@ export function escapeHtml(s: string): string {
 
 const GRAPHQL_KEYWORDS =
   'query|mutation|subscription|fragment|on|schema|scalar|type|interface|union|enum|input|implements|directive|extend|true|false|null'
+/** 模块级预构建：原实现每个标识符 token 都 split('|') 一次再 includes。 */
+const GRAPHQL_KEYWORD_SET: ReadonlySet<string> = new Set(GRAPHQL_KEYWORDS.split('|'))
 
 /** 轻量 GraphQL 高亮（注释 / 字符串 / 变量 / 关键字 / 数字）。 */
 export function highlightGraphQL(code: string): string {
@@ -31,7 +33,7 @@ export function highlightGraphQL(code: string): string {
     else if (str) out += `<span class="hl-s">${escapeHtml(full)}</span>`
     else if (variable) out += `<span class="hl-v">${escapeHtml(full)}</span>`
     else if (ident) {
-      if (GRAPHQL_KEYWORDS.split('|').includes(ident)) {
+      if (GRAPHQL_KEYWORD_SET.has(ident)) {
         out += `<span class="hl-k">${escapeHtml(full)}</span>`
       } else {
         out += escapeHtml(full)

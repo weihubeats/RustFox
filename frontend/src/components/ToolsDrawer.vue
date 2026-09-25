@@ -4,10 +4,14 @@
  * 承载低频工具：断言测试（fox-test 运行器）与压测（并发基准）。
  */
 import Drawer from './ui/Drawer.vue'
-import LoadTestPanel from './LoadTestPanel.vue'
-import TestsPanel from './TestsPanel.vue'
+import { lazyComponent } from '../composables/lazyComponent'
 import { useLocaleStore } from '../stores/locale'
 import type { Endpoint } from '../types/foxApi'
+
+// 抽屉内容挂在 Drawer 的 v-if="open" 分支下：不打开抽屉就不实例化，
+// 两个工具面板（断言 / 压测）各自的 chunk 只在首次打开「工具」时拉取。
+const LoadTestPanel = lazyComponent(() => import('./LoadTestPanel.vue'))
+const TestsPanel = lazyComponent(() => import('./TestsPanel.vue'))
 
 defineProps<{
   open: boolean

@@ -22,6 +22,7 @@ function show(): void {
     // 先渲染气泡再测量定位：v-if 未激活时 tipEl 为空，直接 position() 会
     // 停留在 (0,0) 导致气泡漂到窗口左上角（遮挡 macOS 交通灯）。
     visible.value = true
+    visibleSubscribers.add(onReposition)
     void nextTick(position)
   }, 250)
 }
@@ -32,6 +33,7 @@ function hide(): void {
     timer = null
   }
   visible.value = false
+  visibleSubscribers.delete(onReposition)
 }
 
 function position(): void {
@@ -69,10 +71,29 @@ watch(
  * 只挂一组 window 监听（每实例一组 scroll+resize 会显著放大滚动开销）。
  */
 const repositionSubscribers = new Set<() => void>()
+/** 只有气泡真的显示中才需要重定位：其余实例连遍历都跳过。 */
+const visibleSubscribers = new Set<() => void>()
 let windowListenersAttached = false
+let rafId: number | null = null
 
+/**
+ * 滚动 / resize 合帧：capture 阶段的 scroll 会在一次滚动里连续触发多次，
+ * 原来每次都同步遍历订阅者逐个 getBoundingClientRect（强制重排风暴）。
+ * 改为每帧最多重排一次，且只跑可见实例。
+ */
 function notifyReposition(): void {
-  for (const fn of repositionSubscribers) fn()
+  if (visibleSubscribers.size === 0 || rafId !== null) return
+  rafId = window.requestAnimationFrame(() => {
+    rafId = null
+    for (const fn of visibleSubscribers) fn()
+  })
+}
+
+function cancelPendingReposition(): void {
+  if (rafId !== null) {
+    window.cancelAnimationFrame(rafId)
+    rafId = null
+  }
 }
 
 function attachWindowListeners(): void {
@@ -98,6 +119,9 @@ onBeforeUnmount(() => {
   // 先清掉 pending 的 show timer：卸载后回调仍会置 visible 并尝试定位
   hide()
   repositionSubscribers.delete(onReposition)
+  visibleSubscribers.delete(onReposition)
+  // 合帧回调是模块级的：仅当已无可见气泡时才撤销，避免误伤其它实例的重定位。
+  if (visibleSubscribers.size === 0) cancelPendingReposition()
   detachWindowListenersIfIdle()
 })
 </script>

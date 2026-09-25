@@ -1,3 +1,5 @@
+import { preloadBootLocale } from './stores/locale'
+
 /**
  * vitest setup：修复 Node ≥24 实验性全局 localStorage 残缺问题。
  *
@@ -64,3 +66,7 @@ if (!isFunctionalStorage(current)) {
     writable: true,
   })
 }
+
+// 启动语言字典：应用侧由 main.ts 的 bootstrap 在挂载前补齐，测试没有这一步。
+// jsdom 环境语言是 en-US，不预热的话 translate('en', …) 会回落到中文文案。
+await preloadBootLocale()

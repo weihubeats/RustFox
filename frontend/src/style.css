@@ -730,6 +730,32 @@ kbd,
   color: var(--text-2);
 }
 
+/* ---- 按需加载面板的 loading / error 占位（composables/lazyComponent.ts） ---- */
+
+.rf-lazy-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+}
+
+.rf-lazy-error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--danger-tint);
+  border: 1px solid var(--danger-border);
+}
+
+.rf-lazy-error-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+
 /* ---- 文档预览（DocsPanel 族）：轻量卡片与节标题（跨组件共用，须全局） ---- */
 
 .doc-card {

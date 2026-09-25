@@ -8,14 +8,9 @@ import App from './App.vue'
 import router from './router'
 import { useThemeStore } from './stores/theme'
 import { useLocaleStore } from './stores/locale'
-import '@fontsource/geist-sans/400.css'
-import '@fontsource/geist-sans/500.css'
-import '@fontsource/geist-sans/600.css'
-import '@fontsource/geist-sans/700.css'
-import '@fontsource/jetbrains-mono/400.css'
-import '@fontsource/jetbrains-mono/500.css'
-import '@fontsource/jetbrains-mono/600.css'
-import '@fontsource/jetbrains-mono/700.css'
+// 字体：仅 latin 子集 + 仅 woff2 + 400/500/700（原 8 个 fontsource 入口产出
+// 44 个 woff/woff2 共 760KB，占 dist 约 1/3），声明见 fonts.css。
+import './fonts.css'
 import './style.css'
 import tooltipOverflow from './directives/tooltipOverflow'
 import focusEnd from './directives/focusEnd'
@@ -27,8 +22,18 @@ if (navigator.userAgent.includes('Mac')) {
 
 const pinia = createPinia()
 
-// 防闪烁（FOUC）：在挂载前同步读取持久化主题与语言并写入 <html>。
+// 防闪烁（FOUC）：主题同步生效；语言字典按需（en 动态 import），在挂载前补齐。
 useThemeStore(pinia).init()
-useLocaleStore(pinia).init()
+void bootstrap()
 
-createApp(App).use(pinia).use(router).directive('tooltip-overflow', tooltipOverflow).directive('focus-end', focusEnd).mount('#app')
+async function bootstrap(): Promise<void> {
+  // 等启动语言字典就绪再挂载：首帧即完整文案，不回落另一语言。
+  // （模块顶层 await 会撞 es2020 构建目标，故放这里。）
+  await useLocaleStore(pinia).init()
+  createApp(App)
+    .use(pinia)
+    .use(router)
+    .directive('tooltip-overflow', tooltipOverflow)
+    .directive('focus-end', focusEnd)
+    .mount('#app')
+}

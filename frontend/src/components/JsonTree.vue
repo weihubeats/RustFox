@@ -45,7 +45,9 @@ const props = withDefaults(
     /** 渲染行数上限：展开全部 / 查找强制展开时，避免一次渲染数万行 DOM 冻结页面。 */
     maxLines?: number
   }>(),
-  { expandDepth: 99, query: '', activeMatch: 0, maxLines: 10_000 },
+  // 3000 行：万行级 DOM 挂载会让大响应首帧明显卡顿（原默认 10000）。
+  // 超出时末行给出提示，引导切到响应区「原始」行视图分页查看全部内容。
+  { expandDepth: 99, query: '', activeMatch: 0, maxLines: 3000 },
 )
 
 const emit = defineEmits<{ 'match-count': [number] }>()
@@ -176,6 +178,8 @@ const lines = computed<Line[]>(() => {
           text: t('jsonTree.capped', { n: props.maxLines.toLocaleString() }),
           cls: 'meta',
         },
+        tok(' · ', 'punct'),
+        tok(t('jsonTree.cappedHint'), 'meta'),
       ],
     })
   }

@@ -213,9 +213,9 @@ const cookies = computed<Cookie[]>(() => {
 })
 
 const responseTabs = computed<TabItem[]>(() => [
-  { key: 'body', label: 'Body' },
-  { key: 'headers', label: 'Headers', count: headerRows.value.length },
-  { key: 'cookies', label: 'Cookies', count: cookies.value.length },
+  { key: 'body', label: t('response.tabBody') },
+  { key: 'headers', label: t('response.tabHeaders'), count: headerRows.value.length },
+  { key: 'cookies', label: t('response.tabCookies'), count: cookies.value.length },
 ])
 
 // ---------- 操作 ----------
@@ -339,6 +339,52 @@ function highlightPrettyText(raw: string, q: string): string {
  */
 const prettyHighlightOff = computed(() => prettyLines.value.length > 5000)
 
+/** 行视图行对象：稳定 key + 已算好的高亮 HTML。 */
+interface LineRow {
+  n: number
+  key: string
+  html: string
+}
+
+/**
+ * 行 key：行号 + 内容哈希（FNV-1a）+ 长度。
+ * 原来用索引当 key，新响应 / 增行时 Vue 会复用错位的 DOM；内容进 key 后
+ * 只有真正变化的行会被复用，且重复内容行靠行号区分。哈希只在行数组或
+ * 高亮输入变化时算一次（computed 缓存），不进每次渲染。
+ */
+function rowKey(index: number, text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `${index}:${(h >>> 0).toString(36)}:${text.length}`
+}
+
+/**
+ * 行高亮提升为 computed：模板里原来每次重渲染（切查找、折叠、activeMatch
+ * 变化……）都对所有可见行重跑 escape + 正则；现在只在行数组 / 查找词 /
+ * 高亮开关变化时重算一次，渲染直接读缓存。
+ */
+const prettyRows = computed<LineRow[]>(() => {
+  const q = searchQuery.value
+  const off = prettyHighlightOff.value
+  return shownPrettyLines.value.map((ln, i) => ({
+    n: i + 1,
+    key: rowKey(i, ln),
+    html: off ? highlightText(ln, q) : highlightPrettyText(ln, q),
+  }))
+})
+
+const rawRows = computed<LineRow[]>(() => {
+  const q = searchQuery.value
+  return shownRawLines.value.map((ln, i) => ({
+    n: i + 1,
+    key: rowKey(i, ln),
+    html: highlightText(ln, q),
+  }))
+})
+
 function nextMatch(): void {
   if (!total.value) return
   activeMatch.value = (activeMatch.value + 1) % total.value
@@ -447,28 +493,44 @@ onUnmounted(() => {
             class="rp-icon-btn"
             type="button"
             :class="{ active: findOpen }"
+            :aria-label="t('response.findHint')"
             @click="toggleFind"
           >
             <Icon name="search" :size="13" />
           </button>
         </Tooltip>
         <Tooltip v-if="treeVisible" :content="treeExpanded ? t('response.collapseAll') : t('response.expandAll')" placement="bottom">
-          <button class="rp-icon-btn" type="button" @click="toggleTreeAll">
+          <button
+            class="rp-icon-btn"
+            type="button"
+            :aria-label="treeExpanded ? t('response.collapseAll') : t('response.expandAll')"
+            @click="toggleTreeAll"
+          >
             <Icon :name="treeExpanded ? 'chevron-up' : 'chevron-down'" :size="13" />
           </button>
         </Tooltip>
         <Tooltip :content="t('response.saveExample')" placement="bottom">
-          <button class="rp-icon-btn" type="button" @click="emit('saveExample')">
+          <button
+            class="rp-icon-btn"
+            type="button"
+            :aria-label="t('response.saveExample')"
+            @click="emit('saveExample')"
+          >
             <Icon name="save" :size="13" />
           </button>
         </Tooltip>
         <Tooltip :content="t('response.copyBody')" placement="bottom">
-          <button class="rp-icon-btn" type="button" @click="copyBody">
+          <button class="rp-icon-btn" type="button" :aria-label="t('response.copyBody')" @click="copyBody">
             <Icon name="copy" :size="13" />
           </button>
         </Tooltip>
         <Tooltip :content="collapsed ? t('response.expand') : t('response.collapse')" placement="bottom">
-          <button class="rp-icon-btn" type="button" @click="toggleCollapsed">
+          <button
+            class="rp-icon-btn"
+            type="button"
+            :aria-label="collapsed ? t('response.expand') : t('response.collapse')"
+            @click="toggleCollapsed"
+          >
             <Icon :name="collapsed ? 'chevron-down' : 'chevron-up'" :size="13" />
           </button>
         </Tooltip>
@@ -500,9 +562,9 @@ onUnmounted(() => {
           @match-count="treeTotal = $event"
         />
         <div v-else-if="viewMode === 'pretty'" class="rp-lines">
-          <div v-for="(ln, i) in shownPrettyLines" :key="i" class="rp-line">
-            <span class="rp-line-gutter">{{ i + 1 }}</span>
-            <span class="rp-line-text" v-html="prettyHighlightOff ? highlightText(ln, searchQuery) : highlightPrettyText(ln, searchQuery)"></span>
+          <div v-for="row in prettyRows" :key="row.key" class="rp-line">
+            <span class="rp-line-gutter">{{ row.n }}</span>
+            <span class="rp-line-text" v-html="row.html"></span>
           </div>
           <button
             v-if="hasMorePretty"
@@ -514,9 +576,9 @@ onUnmounted(() => {
           </button>
         </div>
         <div v-else-if="viewMode === 'raw'" class="rp-lines">
-          <div v-for="(ln, i) in shownRawLines" :key="i" class="rp-line">
-            <span class="rp-line-gutter">{{ i + 1 }}</span>
-            <span class="rp-line-text" v-html="highlightText(ln, searchQuery)"></span>
+          <div v-for="row in rawRows" :key="row.key" class="rp-line">
+            <span class="rp-line-gutter">{{ row.n }}</span>
+            <span class="rp-line-text" v-html="row.html"></span>
           </div>
           <button v-if="hasMoreRaw" class="rp-more" type="button" @click="showMoreLines">
             {{ t('response.showMore', { shown: visibleLines, total: rawLines.length }) }}

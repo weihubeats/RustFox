@@ -6,6 +6,7 @@
  */
 import type { BodySpec, KeyValue, RequestSpec, TestCase, TestCaseCategory } from '../types/foxApi'
 import { tFallback } from '../stores/locale'
+import { deepClone } from './clone'
 
 /** 用例分组（与后端 CATEGORIES 一致）。 */
 export const TEST_CASE_CATEGORIES: TestCaseCategory[] = [
@@ -142,8 +143,8 @@ export function snapshotRequest(
   request: RequestSpec,
 ): { params: KeyValue[]; headers: KeyValue[]; body_type: string; body_content: string } {
   return {
-    params: JSON.parse(JSON.stringify(request.params)) as KeyValue[],
-    headers: JSON.parse(JSON.stringify(request.headers)) as KeyValue[],
+    params: deepClone(request.params),
+    headers: deepClone(request.headers),
     body_type: bodyTypeOf(request.body),
     body_content: bodyContentOf(request.body),
   }
@@ -159,8 +160,8 @@ export function applyCaseToRequest(
     body_content: string
   },
 ): void {
-  request.params = JSON.parse(JSON.stringify(snapshot.params)) as KeyValue[]
-  request.headers = JSON.parse(JSON.stringify(snapshot.headers)) as KeyValue[]
+  request.params = deepClone(snapshot.params)
+  request.headers = deepClone(snapshot.headers)
   request.body = restoreBody(snapshot.body_type, snapshot.body_content)
 }
 

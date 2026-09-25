@@ -1,0 +1,60 @@
+/**
+ * 字体声明（替代 @fontsource 的整包 CSS 入口）：
+ *
+ * - 只取 latin 子集：fontsource 的 {weight}.css 入口会连带 latin-ext、cyrillic、
+ *   greek、vietnamese 等子集（构建产出 44 个 woff+woff2、约 760KB），本应用
+ *   界面文案为中英双语，非 latin 子集走系统字体回退，无需下发；
+ * - 只取 woff2：fontsource 的 CSS 同时列 woff 兜底，现代 WebView（WKWebView /
+ *   WebView2）全部支持 woff2，woff 属于纯冗余产物；
+ * - 字重 400/500/700：全仓 font-medium 37 处 + 多个组件 font-weight 500，
+ *   保留 500；600 不保留——CSS 字体匹配会回退到已有的 700 真字面（非合成加粗），
+ *   标题仅轻微变粗，换来 2 个文件 / 约 57KB。
+ *
+ * 字体族名与 style.css 的 --font-ui / --font-mono 保持一致。
+ */
+
+/* ---- Geist Sans（UI 正文字体） ---- */
+@font-face {
+  font-family: 'Geist Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-700-normal.woff2') format('woff2');
+}
+
+/* ---- JetBrains Mono（输入框 / 代码字体） ---- */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+}

@@ -13,6 +13,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { copyText } from '../utils/clipboard'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
+import { lazyComponent } from '../composables/lazyComponent'
 import { useThemeStore, type ThemeMode } from '../stores/theme'
 import { useLocaleStore, type LocaleMode } from '../stores/locale'
 import {
@@ -39,12 +40,14 @@ import {
   requestOpenAbout,
   skippedUpdateVersion,
 } from '../composables/useAutoUpdate'
-import EnvironmentManager from './EnvironmentManager.vue'
 import Modal from './ui/Modal.vue'
 import Icon, { type IconName } from './ui/Icon.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import { envBaseUrl } from '../utils/environment'
 import type { Environment, LogFile, Project, ProjectStat, SeqCounter } from '../types/foxApi'
+
+// 环境管理是独立大弹窗：设置面板只在点「编辑 / 新建环境」时才需要它的 chunk。
+const EnvironmentManager = lazyComponent(() => import('./EnvironmentManager.vue'))
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -1249,6 +1252,7 @@ const projectSummary = computed(() => {
                         type="button"
                         class="sc-reset-btn"
                         :title="t('settings.resetKeyHint')"
+                        :aria-label="t('settings.resetKeyHint')"
                         @click="resetOneShortcut(row.id)"
                       >
                         <Icon name="refresh" :size="12" />
@@ -1357,6 +1361,7 @@ const projectSummary = computed(() => {
                                 class="rf-btn rf-btn-sm rf-btn-ghost"
                                 type="button"
                                 :title="t('settings.seqResetTitle')"
+                                :aria-label="t('settings.seqResetTitle')"
                                 @click="resetSeq(c)"
                               >
                                 <Icon name="refresh" :size="12" />
@@ -1365,6 +1370,7 @@ const projectSummary = computed(() => {
                                 class="rf-btn rf-btn-sm rf-btn-ghost text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400"
                                 type="button"
                                 :title="t('settings.seqDeleteTitle')"
+                                :aria-label="t('settings.seqDeleteTitle')"
                                 @click="deleteSeq(c)"
                               >
                                 <Icon name="trash" :size="12" />
@@ -1470,6 +1476,7 @@ const projectSummary = computed(() => {
                     :class="{ copied: copiedDataDir }"
                     type="button"
                     :title="copiedDataDir ? t('settings.dataDirCopied') : t('settings.dataDirCopy')"
+                    :aria-label="copiedDataDir ? t('settings.dataDirCopied') : t('settings.dataDirCopy')"
                     :disabled="!dataDir"
                     @click="copyDataDir"
                   >
