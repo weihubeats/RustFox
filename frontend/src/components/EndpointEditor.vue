@@ -4,11 +4,12 @@
  *
  * - 直接编辑 store 草稿对象（Map 值经 Vue 集合响应式代理，嵌套修改即跟踪）；
  * - Base URL 为本地临时值（不落库），发送时与 path 拼接；
- * - 配置区为横向 Tab 系统：Params / Auth / Headers / Body / Scripts / Tests / Code，
- *   各渲染独立面板组件（Tests 断言、Code 生成代码已从底部工具区迁入）；
+ * - 配置区为横向 Tab 系统：Params / Auth / Headers / Body / Examples / Code，
+ *   各渲染独立面板组件（前置脚本 Scripts 与请求 Tab 的 Tests 已下线：
+ *   断言迁至「工具」抽屉，代码生成即 Code 页签）；
  * - Ctrl+S 保存 / Ctrl+Enter 发送；响应区展示状态码、耗时与正文（JSON 自动美化）。
  */
-import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useToast } from '../composables/useToast'
 import { useFoxApi } from '../composables/useFoxApi'
@@ -23,6 +24,10 @@ import {
   variableListToMap,
 } from '../utils/environment'
 import { isCurlCommand } from '../utils/url'
+import { useVarCandidates } from '../composables/useVarCandidates'
+import { useVarAutocomplete } from '../composables/useVarAutocomplete'
+import { lazyComponent } from '../composables/lazyComponent'
+import { deepClone } from '../utils/clone'
 import {
   applyMethodDefaults,
   envBadgeLabel as envBadgeLabelOf,
@@ -32,11 +37,8 @@ import AuthPanel from './AuthPanel.vue'
 import BodyPanel from './BodyPanel.vue'
 import CodeExportMenu from './CodeExportMenu.vue'
 import CodePanel from './CodePanel.vue'
-import DesignPanel from './DesignPanel.vue'
-import EnvironmentManager from './EnvironmentManager.vue'
 import HeadersPanel from './HeadersPanel.vue'
-import MockPanel from './MockPanel.vue'
-import MockRuleDialog from './MockRuleDialog.vue'
+import CustomNumberInput from './ui/CustomNumberInput.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import EmptyState from './ui/EmptyState.vue'
 import Skeleton from './ui/Skeleton.vue'
@@ -45,6 +47,7 @@ import IconButton from './ui/IconButton.vue'
 import Menu, { type MenuItem } from './ui/Menu.vue'
 import Modal from './ui/Modal.vue'
 import ParamsPanel from './ParamsPanel.vue'
+import PathVariablesPanel from './PathVariablesPanel.vue'
 import Popconfirm from './ui/Popconfirm.vue'
 import ResponsePanel from './ResponsePanel.vue'
 import RequestExamplesPanel from './RequestExamplesPanel.vue'
@@ -52,6 +55,7 @@ import Tabs from './ui/Tabs.vue'
 import TestCaseModal from './TestCaseModal.vue'
 import Tooltip from './ui/Tooltip.vue'
 import ToolsDrawer from './ToolsDrawer.vue'
+import VarSuggest from './ui/VarSuggest.vue'
 import type { TabItem } from './ui/Tabs.vue'
 import type {
   ExecuteResponse,
@@ -68,10 +72,16 @@ const api = useFoxApi()
 const locale = useLocaleStore()
 const t = locale.t
 
-// DocsPanel / TestCasesPanel 内部链路引入 CodeMirror 全家桶（约 300KB），
-// 异步化后拆出主 chunk，仅首次切到对应视图时加载
-const DocsPanel = defineAsyncComponent(() => import('./DocsPanel.vue'))
-const TestCasesPanel = defineAsyncComponent(() => import('./TestCasesPanel.vue'))
+// 低频 / 重型面板按需加载（composables/lazyComponent.ts：骨架 + 可翻译的错误重试层）。
+// 切视图 / 开弹窗才出现的：Design、Mock 视图与 Mock 规则弹窗；Docs / 用例视图内部链路
+// 引入 CodeMirror 全家桶（约 300KB），首次切到才拉。EnvironmentManager 常驻但不在首屏
+// 关键路径——异步化把它挪出主 chunk（挂载后后台取），不加 v-if 以免丢掉弹窗进出场动画。
+const DesignPanel = lazyComponent(() => import('./DesignPanel.vue'))
+const MockPanel = lazyComponent(() => import('./MockPanel.vue'))
+const MockRuleDialog = lazyComponent(() => import('./MockRuleDialog.vue'))
+const EnvironmentManager = lazyComponent(() => import('./EnvironmentManager.vue'))
+const DocsPanel = lazyComponent(() => import('./DocsPanel.vue'))
+const TestCasesPanel = lazyComponent(() => import('./TestCasesPanel.vue'))
 
 const sendingMap = ref<Map<string, { requestId: string; startedAt: number }>>(new Map())
 
@@ -143,11 +153,12 @@ type ConfigTabKey =
   | 'auth'
   | 'headers'
   | 'body'
+  | 'path'
   | 'examples'
   | 'code'
 
-/** 合法 Tab 集合（历史数据可能持久化过已下线的 scripts / tests）。 */
-const VALID_TABS: readonly ConfigTabKey[] = ['params', 'auth', 'headers', 'body', 'examples', 'code']
+/** 合法 Tab 集合（历史数据可能持久化过已下线的前置脚本 Scripts / Tests 页签）。 */
+const VALID_TABS: readonly ConfigTabKey[] = ['params', 'auth', 'headers', 'body', 'path', 'examples', 'code']
 
 /** 未保存 active_tab 时的智能默认（不写回草稿，避免标记脏）。 */
 const smartTab = ref<ConfigTabKey>('params')
@@ -181,16 +192,20 @@ const configTabs = computed<TabItem[]>(() => {
   if (!d) return []
   const bodyMode = d.request.body.mode
   return [
-    { key: 'params', label: 'Params', count: d.request.params.length },
-    { key: 'auth', label: 'Auth' },
-    { key: 'headers', label: 'Headers', count: d.request.headers.length },
+    { key: 'params', label: t('editor.tabParams'), count: d.request.params.length },
+    { key: 'auth', label: t('editor.tabAuth') },
+    { key: 'headers', label: t('editor.tabHeaders'), count: d.request.headers.length },
     {
       key: 'body',
-      label: bodyMode !== 'none' ? `Body (${BODY_TAB_LABELS[bodyMode] ?? bodyMode})` : 'Body',
+      label:
+        bodyMode !== 'none'
+          ? `${t('editor.tabBody')} (${BODY_TAB_LABELS[bodyMode] ?? bodyMode})`
+          : t('editor.tabBody'),
       count: bodyMode !== 'none' ? 1 : undefined,
     },
-    { key: 'examples', label: 'Examples' },
-    { key: 'code', label: 'Code' },
+    { key: 'path', label: t('editor.tabPath'), count: d.request.path_variables?.length ?? 0 },
+    { key: 'examples', label: t('editor.tabExamples') },
+    { key: 'code', label: t('editor.tabCode') },
   ]
 })
 
@@ -238,7 +253,7 @@ watch(
       methodRevert = null
       return
     }
-    methodRevert ??= { from: prev?.[1] ?? m, snapshot: JSON.parse(JSON.stringify(d.request)) as RequestSpec }
+    methodRevert ??= { from: prev?.[1] ?? m, snapshot: deepClone(d.request) }
     const tab = applyMethodDefaults(d.request, m)
     d.request.active_tab = tab
     smartTab.value = tab
@@ -364,6 +379,24 @@ const envBadgeLabel = computed(() =>
 /** 路径输入框元素引用（快捷按钮聚焦回跳）。 */
 const urlInputEl = ref<HTMLInputElement | null>(null)
 
+/** 地址栏 {{变量}} 候选：内置变量 + 环境/项目/全局变量（随 store 变化刷新）。 */
+const varCandidates = useVarCandidates()
+
+/** 地址栏 {{ 自动补全（↑↓ 选择、Enter/Tab 插入、Esc 关闭）。 */
+const urlAc = useVarAutocomplete(varCandidates)
+const { open: urlAcOpen, items: urlAcItems, activeIndex: urlAcIndex, anchor: urlAcAnchor } = urlAc
+
+/** 输入 / 点击（重设光标）后刷新补全状态。 */
+function onUrlAcSync(event: Event): void {
+  urlAc.onInput(event.target as HTMLInputElement)
+}
+
+/** 弹层候选项 → 插入 `{{name}}`（composable 内 dispatch input 同步 v-model）。 */
+function onUrlAcPick(index: number): void {
+  const el = urlInputEl.value
+  if (el) urlAc.pick(el, index)
+}
+
 /** 地址栏 cURL 粘贴解析中（防重复触发）。 */
 const curlPasting = ref(false)
 
@@ -459,16 +492,49 @@ const urlPath = computed({
   },
 })
 
+/**
+ * 路径变量代入（镜像 fox-core util::replace_path_variables：`{key}` 与
+ * `{{key}}` 两种写法，长 key 先替换避免前缀冲突）。
+ *
+ * 后端 execute_request 直接使用前端拼好的完整 URL，不会消费
+ * request.path_variables（该字段目前仅在 OpenAPI 导出与文档预览中读取），
+ * 故代入放在前端 buildUrl：仅替换「已启用且取值非空」的行，
+ * 未配置时路径原样发送（历史行为不变）。
+ */
+function applyPathVariables(path: string, pathVars: RequestSpec['path_variables']): string {
+  const rows = (pathVars ?? [])
+    .filter((r) => r.enabled !== false && r.key && r.value)
+    .sort((a, b) => b.key.length - a.key.length)
+  let out = path
+  for (const row of rows) {
+    out = out.split(`{{${row.key}}}`).join(row.value).split(`{${row.key}}`).join(row.value)
+  }
+  return out
+}
+
 /** 请求地址（与 send / 代码生成 / 压测共用）；有环境时按默认模块（优先当前项目绑定）拼接，变量由 resolveRequestUrl 解析。 */
 function buildUrl(): string {
   const d = draft.value
   if (!d) return ''
-  if (isAbsolutePath(d.path)) return d.path
+  const path = applyPathVariables(d.path, d.request.path_variables)
+  if (isAbsolutePath(path)) return path
   if (activeEnv.value && envBaseUrl(activeEnv.value)) {
-    return resolveRequestUrl(activeEnv.value, null, d.path, envVars.value, d.project_id).url
+    return resolveRequestUrl(activeEnv.value, null, path, envVars.value, d.project_id).url
   }
-  const path = d.path.startsWith('/') ? d.path : `/${d.path}`
-  return `${store.urlDomain}${path}`
+  const rel = path.startsWith('/') ? path : `/${path}`
+  return `${store.urlDomain}${rel}`
+}
+
+/** 单请求超时输入：空串 = null（跟随全局超时），非法输入不写回（避免打字中途被清空）。 */
+function onTimeoutInput(value: string | number): void {
+  const request = draft.value?.request
+  if (!request) return
+  if (value === '' || value === null || value === undefined) {
+    request.timeout_ms = null
+    return
+  }
+  const n = typeof value === 'number' ? value : Number(value)
+  if (Number.isFinite(n) && n > 0) request.timeout_ms = Math.round(n)
 }
 
 async function send(): Promise<void> {
@@ -679,6 +745,22 @@ function toggleRequestBody(): void {
   requestBodyHeight.value = requestBodyCollapsed.value ? REQUEST_DEFAULT : REQUEST_MIN
 }
 
+/** 键盘调高（分割条可 Tab 聚焦）：↑ ↓ 每次 10px，Shift 40px，PgUp/PgDn 更大步长，Home/End 到上下限。 */
+function onSplitterKeydown(event: KeyboardEvent): void {
+  const max = requestMaxHeight()
+  const step = event.shiftKey ? 40 : 10
+  let next = requestBodyHeight.value
+  if (event.key === 'ArrowUp') next -= step
+  else if (event.key === 'ArrowDown') next += step
+  else if (event.key === 'PageUp') next -= step * 4
+  else if (event.key === 'PageDown') next += step * 4
+  else if (event.key === 'Home') next = REQUEST_MIN
+  else if (event.key === 'End') next = max
+  else return
+  event.preventDefault()
+  requestBodyHeight.value = Math.min(Math.max(next, REQUEST_MIN), max)
+}
+
 // ---------- 响应示例 ----------
 const viewingExample = ref<ResponseExample | null>(null)
 const activeExamples = computed(() => store.examples.get(draft.value?.id ?? '') ?? [])
@@ -728,6 +810,9 @@ const requestUrl = computed(() => (draft.value ? buildUrl() : ''))
 
 /** 路径输入框 Enter → 发送；Esc → 清空路径（setter 忽略空串，直接写草稿）。 */
 function onUrlKeydown(event: KeyboardEvent): void {
+  const el = event.target as HTMLInputElement
+  // 补全弹层打开时接管 ↑↓/Enter/Tab/Esc，避免 Enter 直接触发发送
+  if (urlAc.handleKeydown(event, el)) return
   if (event.key === 'Enter') {
     event.preventDefault()
     event.stopPropagation()
@@ -896,6 +981,16 @@ onUnmounted(() => {
             :placeholder="urlPlaceholder"
             @keydown="onUrlKeydown"
             @paste="onUrlPaste"
+            @input="onUrlAcSync"
+            @click="onUrlAcSync"
+            @blur="urlAc.close"
+          />
+          <VarSuggest
+            v-if="urlAcOpen"
+            :anchor="urlAcAnchor"
+            :items="urlAcItems"
+            :active-index="urlAcIndex"
+            @pick="onUrlAcPick"
           />
           <template v-if="urlPath">
             <Tooltip :content="t('editor.copyUrl')" placement="top" class="url-qbtn url-qbtn-copy">
@@ -957,17 +1052,50 @@ onUnmounted(() => {
       <AuthPanel v-else-if="activeTab === 'auth'" :draft="draft" />
       <HeadersPanel v-else-if="activeTab === 'headers'" :draft="draft" />
       <BodyPanel v-else-if="activeTab === 'body'" :draft="draft" />
+      <PathVariablesPanel v-else-if="activeTab === 'path'" :draft="draft" />
       <RequestExamplesPanel v-else-if="activeTab === 'examples'" :draft="draft" />
       <CodePanel v-else :draft="draft" :url="requestUrl" />
+
+      <!-- 配置区底部：单请求超时 / 跟随重定向（绑定 draft.request，走既有脏检查与保存链路） -->
+      <div class="req-settings">
+        <span class="rs-label">{{ t('editor.reqSettings') }}</span>
+        <label class="rs-field" :title="t('editor.timeoutPh')">
+          <span class="rs-text">{{ t('editor.timeoutLabel') }}</span>
+          <CustomNumberInput
+            class="rs-timeout"
+            size="sm"
+            :model-value="draft.request.timeout_ms ?? ''"
+            :placeholder="t('editor.timeoutPh')"
+            @update:model-value="onTimeoutInput"
+          />
+          <span class="rs-unit">{{ t('editor.msUnit') }}</span>
+        </label>
+        <label class="rs-check" :title="t('editor.followRedirects')">
+          <input
+            :checked="draft.request.follow_redirects"
+            type="checkbox"
+            @change="draft.request.follow_redirects = ($event.target as HTMLInputElement).checked"
+          />
+          {{ t('editor.followRedirects') }}
+        </label>
+      </div>
     </div>
 
     <template v-if="hasResponse">
       <div
         class="rp-splitter"
         :class="{ dragging: splitterDragging }"
+        role="separator"
+        tabindex="0"
+        aria-orientation="horizontal"
+        :aria-label="t('editor.splitterHint')"
+        :aria-valuenow="Math.round(requestBodyHeight)"
+        :aria-valuemin="REQUEST_MIN"
+        :aria-valuemax="Math.round(requestMaxHeight())"
         :title="t('editor.splitterHint')"
         @mousedown="onSplitterDown"
         @dblclick="toggleRequestBody"
+        @keydown="onSplitterKeydown"
       >
         <button
           class="rp-splitter-btn"
@@ -1695,6 +1823,48 @@ onUnmounted(() => {
   flex: 1 1 auto;
 }
 
+/* ---- 配置区底部：单请求超时 / 跟随重定向（请求设置行） ---- */
+.req-settings {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.rs-label {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.rs-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rs-text {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.rs-timeout {
+  width: 96px;
+}
+.rs-unit {
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+}
+.rs-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.rs-check input {
+  accent-color: var(--accent);
+}
+
 .response-hint {
   margin: 0;
   padding: 10px 4px;
@@ -1739,6 +1909,14 @@ onUnmounted(() => {
 .rp-splitter.dragging::before {
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
+}
+.rp-splitter:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.rp-splitter:focus-visible::before {
+  background: var(--accent);
 }
 
 /* 居中拖拽指示胶囊：默认隐约（opacity .4），Hover/拖拽时主题色高亮 */

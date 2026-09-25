@@ -9,7 +9,10 @@
  */
 import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useLocaleStore } from '../../stores/locale'
+import { useVarAutocomplete } from '../../composables/useVarAutocomplete'
+import { rowKey } from '../../utils/rowKey'
 import IconButton from './IconButton.vue'
+import VarSuggest from './VarSuggest.vue'
 
 export interface KVRow {
   key?: string
@@ -23,18 +26,22 @@ const props = withDefaults(
     modelValue: KVRow[]
     showEnable?: boolean
     showDescription?: boolean
+    /** 缺省时在模板里用 t() 兜底（defineProps 默认值不能调 t()）。 */
     keyPlaceholder?: string
     valuePlaceholder?: string
     descriptionPlaceholder?: string
     disabled?: boolean
     /** 自定义列宽（key / value / description 百分比）。缺省时使用 flex 自适应布局。 */
     columnWidths?: [string, string, string]
+    /**
+     * Value 列 {{变量}} 自动补全候选；不传则不启用（保持既有调用方行为不变）。
+     * 由调用方传 computed（如 useVarCandidates），变量增删后候选即时刷新。
+     */
+    varCandidates?: string[]
   }>(),
   {
     showEnable: true,
     showDescription: true,
-    keyPlaceholder: 'Key',
-    valuePlaceholder: 'Value',
     descriptionPlaceholder: '',
     disabled: false,
   },
@@ -45,6 +52,29 @@ const emit = defineEmits<{ 'update:modelValue': [rows: KVRow[]] }>()
 const locale = useLocaleStore()
 const t = locale.t
 
+/** Value 列 {{变量}} 补全（未传 varCandidates 时候选为空 → onInput 永不展开）。 */
+const varAc = useVarAutocomplete(computed(() => props.varCandidates ?? []))
+const { open: varAcOpen, items: varAcItems, activeIndex: varAcIndex, anchor: varAcAnchor } = varAc
+
+function onValueAcInput(event: Event): void {
+  onCellInput()
+  varAc.onInput(event.target as HTMLInputElement)
+}
+
+function onValueAcPick(index: number): void {
+  const el = varAcAnchor.value
+  if (el instanceof HTMLInputElement) varAc.pick(el, index)
+}
+
+/** Value 列失焦：清空中间空行 + 收起补全弹层（点弹层候选项时因 mousedown.prevent 不会触发）。 */
+function onValueBlur(row: KVRow): void {
+  onCellBlur(row)
+  varAc.close()
+}
+
+/** 未传 key / value / 描述列 placeholder 时按当前语言兜底。 */
+const effectiveKeyPh = computed(() => props.keyPlaceholder || t('kv.colKey'))
+const effectiveValuePh = computed(() => props.valuePlaceholder || t('kv.colValue'))
 /** 未传描述列 placeholder 时按当前语言兜底。 */
 const effectiveDescPh = computed(() => props.descriptionPlaceholder || t('kv.descPh'))
 
@@ -59,20 +89,55 @@ function isEmpty(row: KVRow): boolean {
   return !row.key && !row.value
 }
 
+/** 上抛内容指纹：四列内容拼串，内容没变就不重复上抛（省掉父级无谓整表回写）。 */
+function contentFingerprint(list: KVRow[]): string {
+  let out = ''
+  for (const r of list) {
+    out += `${r.key ?? ''}\u0000${r.value ?? ''}\u0000${r.enabled ? 1 : 0}\u0000${r.description ?? ''}\u0001`
+  }
+  return out
+}
+
+let lastEmittedFp: string | null = null
+
+function rebuild(v: KVRow[] | undefined): void {
+  const list = [...(v ?? [])]
+  const last = list[list.length - 1]
+  if (!last || !isEmpty(last)) list.push(blank())
+  rows.value = list
+  // 外部结构变化后，下一次输入必须重新上抛（本地指纹基线失效）。
+  lastEmittedFp = null
+}
+
+/**
+ * 结构指纹 watch（原 deep watch）：
+ *
+ * - deep watch 把每次键入（v-model 就地写行字段）都算作变更，触发整表重建 +
+ *   父级回写 + 重渲染，键入一路 O(行数×列数) 地跑；
+ * - 输入框绑定的本就是行对象属性，字段级的外部改动由渲染副作用自行更新 DOM，
+ *   不需要重建行数组；
+ * - 这里只跟踪「行对象身份」：换引用 / 增删行 / 整组换对象才重建。
+ *   用指纹字符串而非直接 watch 数组，是为避免 `?? []` 这类每次求值返回新数组
+ *   的取值器造成「引用永远在变」的重建风暴。
+ */
 watch(
-  () => props.modelValue,
-  (v) => {
-    const list = [...(v ?? [])]
-    const last = list[list.length - 1]
-    if (!last || !isEmpty(last)) list.push(blank())
-    rows.value = list
+  () => {
+    const list = props.modelValue
+    if (!list?.length) return String(list?.length ?? -1)
+    let fp = String(list.length)
+    for (let i = 0; i < list.length; i++) fp += `|${rowKey(list[i])}`
+    return fp
   },
-  { immediate: true, deep: true },
+  () => rebuild(props.modelValue),
+  { immediate: true },
 )
 
-/** 上抛：过滤掉中间的空行（保留底部幽灵行）。 */
+/** 上抛：过滤掉中间的空行（保留底部幽灵行）；内容未变时跳过。 */
 function sync(): void {
   const list = rows.value.filter((r, i) => i === rows.value.length - 1 || r.key || r.value)
+  const fp = contentFingerprint(list)
+  if (fp === lastEmittedFp) return
+  lastEmittedFp = fp
   emit('update:modelValue', list)
 }
 
@@ -82,13 +147,13 @@ function isGhost(row: KVRow): boolean {
 
 function ensureTail(): void {
   const last = rows.value[rows.value.length - 1]
+  // 就地 push：ref 数组的 push 本身即触发重渲染，无需整体换新数组引用
+  //（换引用会让每次键入都触发整表 v-for 重摊一遍）。
   if (!isEmpty(last)) rows.value.push(blank())
-  rows.value = [...rows.value]
 }
 
 function remove(index: number): void {
   rows.value.splice(index, 1)
-  rows.value = [...rows.value]
   sync()
 }
 
@@ -102,7 +167,6 @@ function onCellBlur(row: KVRow): void {
   if (i === -1 || i === rows.value.length - 1) return
   if (isEmpty(row)) {
     rows.value.splice(i, 1)
-    rows.value = [...rows.value]
     sync()
   }
 }
@@ -117,6 +181,8 @@ function setKeyRef(i: number): (ref: Element | ComponentPublicInstance | null) =
 
 /** Key/Value/描述共用：仅 Value 内 Enter/Tab 跳下一行 Key；Key 内 Tab 走默认顺序（→Value）。 */
 function onKeydown(event: KeyboardEvent, i: number): void {
+  // 补全弹层打开时接管 ↑↓/Enter/Tab/Esc（Enter 插入变量而非跳行）
+  if (varAc.handleKeydown(event, event.target as HTMLInputElement)) return
   if (!(event.key === 'Enter' || event.key === 'Tab')) return
   if (!(event.target as HTMLElement).classList.contains('kvt-value')) return
   event.preventDefault()
@@ -148,15 +214,15 @@ function gridStyle(): Record<string, string> | undefined {
   <div class="kvt" :class="{ disabled }">
     <div class="kvt-head" :style="gridStyle()">
       <span v-if="showEnable" class="kvt-col kvt-enable"></span>
-      <span class="kvt-col kvt-key rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">Key</span>
-      <span class="kvt-col kvt-value rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">Value</span>
-      <span v-if="showDescription" class="kvt-col kvt-desc rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">Description</span>
+      <span class="kvt-col kvt-key rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">{{ t('kv.colKey') }}</span>
+      <span class="kvt-col kvt-value rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">{{ t('kv.colValue') }}</span>
+      <span v-if="showDescription" class="kvt-col kvt-desc rf-mono" :style="gridStyle() ? { width: '100%' } : undefined">{{ t('kv.colDesc') }}</span>
       <span class="kvt-col kvt-actions"></span>
     </div>
 
     <div
       v-for="(row, i) in rows"
-      :key="i"
+      :key="rowKey(row)"
       class="kvt-row"
       :class="{ off: showEnable && row.enabled === false, ghost: isGhost(row) }"
       :style="gridStyle()"
@@ -174,7 +240,7 @@ function gridStyle(): Record<string, string> | undefined {
         v-model="row.key"
         class="kvt-input kvt-col kvt-key rf-mono"
         :style="gridStyle() ? { width: '100%' } : undefined"
-        :placeholder="keyPlaceholder"
+        :placeholder="effectiveKeyPh"
         :disabled="disabled"
         spellcheck="false"
         :ref="setKeyRef(i)"
@@ -186,12 +252,12 @@ function gridStyle(): Record<string, string> | undefined {
         v-model="row.value"
         class="kvt-input kvt-col kvt-value rf-mono"
         :style="gridStyle() ? { width: '100%' } : undefined"
-        :placeholder="valuePlaceholder"
+        :placeholder="effectiveValuePh"
         :disabled="disabled"
         spellcheck="false"
-        @input="onCellInput"
+        @input="onValueAcInput"
         @keydown="onKeydown($event, i)"
-        @blur="onCellBlur(row)"
+        @blur="onValueBlur(row)"
       />
       <input
         v-if="showDescription"
@@ -216,6 +282,14 @@ function gridStyle(): Record<string, string> | undefined {
         />
       </span>
     </div>
+
+    <VarSuggest
+      v-if="varAcOpen && varAcAnchor"
+      :anchor="varAcAnchor"
+      :items="varAcItems"
+      :active-index="varAcIndex"
+      @pick="onValueAcPick"
+    />
   </div>
 </template>
 

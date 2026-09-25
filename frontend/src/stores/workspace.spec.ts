@@ -45,6 +45,12 @@ const backend = vi.hoisted(() => {
   const endpointsByProject = new Map<string, Endpoint[]>()
   const envsByProject = new Map<string, Environment[]>()
   let activeId: string | null = null
+  /** 历史接口行为控制（分页 / 失败提示用例）。 */
+  const historyRows: { id: string }[] = []
+  const historyCalls: (number | undefined)[] = []
+  let historyImpl:
+    | ((projectId: string, limit?: number, endpointId?: string | null) => Promise<{ id: string }[]>)
+    | null = null
   return {
     projects,
     endpointsByProject,
@@ -53,8 +59,24 @@ const backend = vi.hoisted(() => {
       activeId = id
     },
     active: () => activeId,
+    historyRows,
+    historyCalls,
+    setHistoryImpl: (
+      fn: ((projectId: string, limit?: number, endpointId?: string | null) => Promise<{ id: string }[]>) | null,
+    ) => {
+      historyImpl = fn
+    },
+    historyImpl: () => historyImpl,
   }
 })
+
+/** useToast 单例句柄（断言失败提示只出现一次时用）。 */
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+}))
 
 vi.mock('../composables/useFoxApi', () => ({
   useFoxApi: () => ({
@@ -76,7 +98,14 @@ vi.mock('../composables/useFoxApi', () => ({
     listExamples: vi.fn().mockResolvedValue([]),
     listRequestExamples: vi.fn().mockResolvedValue([]),
     listTestCases: vi.fn().mockResolvedValue([]),
-    listRequestHistories: vi.fn().mockResolvedValue([]),
+    listRequestHistories: vi
+      .fn()
+      .mockImplementation((projectId: string, limit?: number, endpointId?: string | null) => {
+        backend.historyCalls.push(limit)
+        const impl = backend.historyImpl()
+        if (impl) return impl(projectId, limit, endpointId)
+        return Promise.resolve(backend.historyRows.slice(0, limit ?? 50))
+      }),
     saveEndpoint: vi.fn().mockImplementation(async (ep: Endpoint) => {
       const list = backend.endpointsByProject.get(ep.project_id) ?? []
       const idx = list.findIndex((x) => x.id === ep.id)
@@ -88,7 +117,7 @@ vi.mock('../composables/useFoxApi', () => ({
 }))
 
 vi.mock('../composables/useToast', () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
+  useToast: () => toastMock,
 }))
 
 import { useWorkspaceStore } from '../stores/workspace'
@@ -369,5 +398,90 @@ describe('cURL 导入：环境前缀优先时不覆写环境，path 存完整 UR
     expect(store.draftOf(id)!.path).toBe('https://httpbin.org/post')
     expect(store.draftOf(id)!.method).toBe('POST')
     expect(env.modules[0]!.base_url).toBe('https://env.example.com')
+  })
+})
+
+describe('请求历史：增量分页与失败提示', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+    backend.projects.length = 0
+    backend.endpointsByProject.clear()
+    backend.envsByProject.clear()
+    backend.setActive(null)
+    backend.projects.push(makeProject('p-a', '项目A'), makeProject('p-b', '项目B'))
+    backend.endpointsByProject.set('p-a', [])
+    backend.endpointsByProject.set('p-b', [])
+    backend.envsByProject.set('p-a', [])
+    backend.envsByProject.set('p-b', [])
+    backend.historyRows.length = 0
+    backend.historyCalls.length = 0
+    backend.setHistoryImpl(null)
+    toastMock.error.mockClear()
+    toastMock.success.mockClear()
+  })
+
+  function seedHistory(n: number): void {
+    backend.historyRows.length = 0
+    for (let i = 0; i < n; i++) backend.historyRows.push({ id: `h-${i}` })
+  }
+
+  it('首屏 50，加载更多窗口 +50；返回不足一屏即到底', async () => {
+    seedHistory(120)
+    const store = useWorkspaceStore()
+    backend.setActive('p-a')
+    await store.init()
+
+    await store.loadHistories()
+    expect(backend.historyCalls.at(-1)).toBe(50)
+    expect(store.histories).toHaveLength(50)
+    expect(store.historyHasMore).toBe(true)
+
+    await store.loadMoreHistories()
+    expect(backend.historyCalls.at(-1)).toBe(100)
+    expect(store.histories).toHaveLength(100)
+    expect(store.historyHasMore).toBe(true)
+
+    // 后端无 offset：窗口 150 但只剩 120 条 → 不足一屏，判定到底
+    await store.loadMoreHistories()
+    expect(backend.historyCalls.at(-1)).toBe(150)
+    expect(store.histories).toHaveLength(120)
+    expect(store.historyHasMore).toBe(false)
+  })
+
+  it('切换项目重置分页窗口（新项目从首屏 50 条重新拉）', async () => {
+    seedHistory(120)
+    const store = useWorkspaceStore()
+    backend.setActive('p-a')
+    await store.init()
+    await store.loadHistories()
+    await store.loadMoreHistories()
+    expect(backend.historyCalls.at(-1)).toBe(100)
+
+    await store.switchProject('p-b')
+    await store.loadHistories()
+    expect(backend.historyCalls.at(-1)).toBe(50)
+    expect(store.historyHasMore).toBe(true)
+  })
+
+  it('加载失败只提示一次；成功加载后再次失败重新提示', async () => {
+    seedHistory(10)
+    const store = useWorkspaceStore()
+    backend.setActive('p-a')
+    await store.init()
+
+    backend.setHistoryImpl(() => Promise.reject(new Error('backend down')))
+    await store.loadHistories()
+    await store.loadHistories()
+    expect(toastMock.error).toHaveBeenCalledTimes(1)
+    expect(toastMock.error.mock.calls[0]?.[0]).toBe('加载请求历史失败')
+
+    backend.setHistoryImpl(null)
+    await store.loadHistories()
+    expect(toastMock.error).toHaveBeenCalledTimes(1)
+
+    backend.setHistoryImpl(() => Promise.reject(new Error('down again')))
+    await store.loadHistories()
+    expect(toastMock.error).toHaveBeenCalledTimes(2)
   })
 })

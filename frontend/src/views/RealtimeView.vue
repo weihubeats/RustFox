@@ -14,8 +14,10 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
+import { formatTime } from '../utils/dateTime'
 import Icon from '../components/ui/Icon.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import KeyValueTable, { type KVRow } from '../components/ui/KeyValueTable.vue'
 import Tabs, { type TabItem } from '../components/ui/Tabs.vue'
 import type { SseEventPayload, WsEventPayload } from '../types/foxApi'
 
@@ -75,7 +77,7 @@ function cap<T>(arr: T[]): T[] {
   return arr
 }
 function nowTime(): string {
-  return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  return formatTime(new Date(), { hour12: false })
 }
 
 // ---------- WebSocket ----------
@@ -84,6 +86,42 @@ const wsAutoReconnect = ref(true)
 const wsConnId = ref<string | null>(null)
 const wsState = ref<'idle' | 'connecting' | 'open' | 'closed' | 'error'>('idle')
 const wsConnecting = ref(false)
+
+/**
+ * 连接级自定义请求头 / WS 子协议：与 URL 同为组件本地状态（RealtimeView
+ * 现有状态组织方式即本地 ref，不落库）——鉴权头是 WS/SSE 的真实需求，
+ * 后端 ws_connect / sse_connect 早已接受 headers / subprotocols。
+ */
+const wsHeadersOpen = ref(false)
+const wsHeaders = ref<KVRow[]>([])
+const wsSubprotocols = ref('')
+const sseHeadersOpen = ref(false)
+const sseHeaders = ref<KVRow[]>([])
+
+/** 已启用且有键名的头行数（折叠按钮上的计数）。 */
+function headerCount(rows: KVRow[]): number {
+  return rows.filter((r) => r.enabled !== false && (r.key ?? '').trim()).length
+}
+
+/** KV 行 → 握手头映射（跳过停用行与空键行）。 */
+function toHeaderMap(rows: KVRow[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const r of rows) {
+    if (r.enabled === false) continue
+    const k = (r.key ?? '').trim()
+    if (!k) continue
+    out[k] = r.value ?? ''
+  }
+  return out
+}
+
+/** 逗号分隔的子协议输入 → 数组（去空白、去空项）。 */
+function toSubprotocols(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 interface WsLogItem {
   t: string
@@ -104,6 +142,8 @@ async function wsConnect(): Promise<void> {
   try {
     const id = await api.wsConnect({
       url: wsUrl.value.trim(),
+      headers: toHeaderMap(wsHeaders.value),
+      subprotocols: toSubprotocols(wsSubprotocols.value),
       auto_reconnect: wsAutoReconnect.value,
     })
     wsConnId.value = id
@@ -219,6 +259,7 @@ async function sseConnect(): Promise<void> {
   try {
     const id = await api.sseConnect({
       url: sseUrl.value.trim(),
+      headers: toHeaderMap(sseHeaders.value),
       last_event_id: sseLastId.value || null,
     })
     sseConnId.value = id
@@ -357,6 +398,33 @@ onUnmounted(() => {
         <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="wsLog = []">{{ t('realtime.clearLog') }}</button>
       </div>
 
+      <!-- 折叠区：自定义请求头（握手携带）+ WS 子协议 -->
+      <div class="rt-adv">
+        <button class="rt-adv-toggle" type="button" :aria-expanded="wsHeadersOpen" @click="wsHeadersOpen = !wsHeadersOpen">
+          <Icon :name="wsHeadersOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
+          {{ t('realtime.headersToggle', { n: headerCount(wsHeaders) }) }}
+        </button>
+        <span v-if="wsHeadersOpen" class="rt-adv-hint">{{ t('realtime.headersHint') }}</span>
+      </div>
+      <div v-if="wsHeadersOpen" class="rt-adv-body">
+        <KeyValueTable
+          v-model="wsHeaders"
+          :show-description="false"
+          :disabled="!!wsConnId"
+        />
+        <label class="rt-sub">
+          <span class="rt-sub-label">{{ t('realtime.subprotocolsLabel') }}</span>
+          <input
+            v-model="wsSubprotocols"
+            class="rf-input rf-input-sm rt-sub-input"
+            :placeholder="t('realtime.subprotocolsPh')"
+            :title="t('realtime.subprotocolsHint')"
+            :disabled="!!wsConnId"
+            spellcheck="false"
+          />
+        </label>
+      </div>
+
       <div class="rt-log">
         <div v-if="!wsLog.length"><EmptyState icon="terminal" :title="t('realtime.wsEmpty')" compact /></div>
         <div v-for="(m, i) in wsLog" :key="i" class="rt-line" :class="`dir-${m.dir}`">
@@ -420,6 +488,18 @@ onUnmounted(() => {
         </button>
         <button class="rf-btn rf-btn-sm rf-btn-ghost" type="button" @click="sseLog = []">{{ t('realtime.clearLog') }}</button>
         <span v-if="sseLastId" class="hint-inline">{{ t('realtime.lastEventId', { v: sseLastId }) }}</span>
+      </div>
+
+      <!-- 折叠区：自定义请求头（订阅请求携带） -->
+      <div class="rt-adv">
+        <button class="rt-adv-toggle" type="button" :aria-expanded="sseHeadersOpen" @click="sseHeadersOpen = !sseHeadersOpen">
+          <Icon :name="sseHeadersOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
+          {{ t('realtime.headersToggle', { n: headerCount(sseHeaders) }) }}
+        </button>
+        <span v-if="sseHeadersOpen" class="rt-adv-hint">{{ t('realtime.headersHint') }}</span>
+      </div>
+      <div v-if="sseHeadersOpen" class="rt-adv-body">
+        <KeyValueTable v-model="sseHeaders" :show-description="false" :disabled="!!sseConnId" />
       </div>
 
       <div class="rt-log">
@@ -500,6 +580,63 @@ onUnmounted(() => {
   color: var(--danger);
   background: var(--danger-tint);
 }
+/* ---- 折叠区：自定义请求头 / 子协议 ---- */
+.rt-adv {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.rt-adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.rt-adv-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.rt-adv-hint {
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+}
+.rt-adv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.rt-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rt-sub-label {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.rt-sub-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .rt-log {
   flex: 1;
   min-height: 200px;
@@ -520,6 +657,24 @@ onUnmounted(() => {
 }
 .rt-line:hover {
   background: var(--bg-hover);
+}
+
+/* ---- 窄窗回退（<1080px）：日志行改为两行制（时间/方向/帧在上，正文独占整行），
+   顶部 URL 输入保底宽度，根容器内边距收紧，避免横向溢出 ---- */
+@media (max-width: 1080px) {
+  .rt-root {
+    padding: 10px;
+  }
+  .rt-url {
+    min-width: 180px;
+  }
+  .rt-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .rt-line .rt-text {
+    flex: 1 0 100%;
+  }
 }
 .rt-time {
   flex-shrink: 0;

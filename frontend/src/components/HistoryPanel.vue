@@ -25,7 +25,8 @@ const t = locale.t
 
 /**
  * 本地搜索 + 状态筛选：原来仅「仅当前接口」复选，无关键字/状态码检索。
- * 历史上限 50 条，前端过滤足够（无需后端改接口）。
+ * 历史按页加载（首屏 50 + 加载更多，后端无 offset 只有 limit），
+ * 本地过滤只作用于已加载部分。
  */
 const keyword = ref('')
 const statusFilter = ref<'all' | '2xx' | '4xx5xx'>('all')
@@ -57,6 +58,18 @@ onMounted(() => {
 
 function reload(): void {
   void store.loadHistories()
+}
+
+/** 加载更多（后端无 offset，按窗口增量重拉）。 */
+const loadingMore = ref(false)
+async function loadMore(): Promise<void> {
+  if (loadingMore.value) return
+  loadingMore.value = true
+  try {
+    await store.loadMoreHistories()
+  } finally {
+    loadingMore.value = false
+  }
 }
 
 async function clear(): Promise<void> {
@@ -179,6 +192,15 @@ function shortTime(iso: string): string {
       <p v-else-if="!filtered.length" class="hp-no-match">
         {{ keyword.trim() ? t('history.noMatchQ', { q: keyword.trim() }) : t('history.noMatch') }}
       </p>
+      <button
+        v-if="store.historyHasMore && store.histories.length"
+        class="hp-more"
+        type="button"
+        :disabled="loadingMore"
+        @click="loadMore"
+      >
+        {{ t('history.loadMore') }}
+      </button>
     </div>
   </div>
 </template>
@@ -284,6 +306,33 @@ function shortTime(iso: string): string {
   font-size: var(--fs-xs);
   color: var(--text-3);
   text-align: center;
+}
+
+/* ---- 加载更多：列表尾部整宽弱按钮 ---- */
+.hp-more {
+  flex-shrink: 0;
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.hp-more:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text-1);
+}
+.hp-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ---- 列表：卡片间距 4px ---- */

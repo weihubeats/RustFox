@@ -43,6 +43,24 @@ describe('RealtimeView', () => {
     wrapper.unmount()
   })
 
+  it('WS/SSE 可展开自定义请求头，仅 WS 提供子协议输入', async () => {
+    const wrapper = mountView()
+    // 默认折叠：只露出「请求头 (n)」开关
+    expect(wrapper.find('.rt-adv-toggle').text()).toBe('请求头 (0)')
+    expect(wrapper.find('.rt-adv-body').exists()).toBe(false)
+
+    await wrapper.find('.rt-adv-toggle').trigger('click')
+    expect(wrapper.find('.rt-adv-body').exists()).toBe(true)
+    expect(wrapper.find('.rt-sub-input').exists()).toBe(true)
+
+    // SSE 页：同样可展开请求头，但没有子协议（Sec-WebSocket-Protocol 仅 WS 生效）
+    await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+    await wrapper.find('.rt-adv-toggle').trigger('click')
+    expect(wrapper.find('.rt-adv-body').exists()).toBe(true)
+    expect(wrapper.find('.rt-sub-input').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('日志区在 flex 页签容器内撑满（block 包裹会断掉高度传递）', async () => {
     const wrapper = mountView()
     for (const tab of [0, 1]) {

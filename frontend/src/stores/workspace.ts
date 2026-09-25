@@ -15,6 +15,7 @@ import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from './locale'
 import { planCrossGroupMove, planSameGroupMove, wouldCreateCycle } from './treeOps'
+import { deepClone } from '../utils/clone'
 import { splitUrl } from '../utils/url'
 import { envBaseUrl } from '../utils/environment'
 import { applyCaseToRequest, restoreBody, snapshotRequest } from '../utils/testCases'
@@ -250,7 +251,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (project.value?.id === projectId) return
     // 应用可能从项目列表页直接进入：确保持久化的标签已恢复再操作
     await ensureOpenProjectsRestored()
-    if (project.value) snapshots.set(project.value.id, snapshotCurrent())
+    if (project.value) putSnapshot(project.value.id, snapshotCurrent())
     const p = await api.setActiveProject(projectId)
     if (!p) {
       // 目标项目已不存在（他处删除）：移除标签后抛错
@@ -287,6 +288,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   /** 快照无需响应式：仅在切换瞬间读写。 */
   const snapshots = new Map<string, ProjectSnapshot>()
+  /** 快照含 folders/endpoints/drafts 等整份项目态，多项目来回切会线性堆积：
+   *  按「最近使用」留最近 3 个（够覆盖常见来回切），超出的丢最旧一份——
+   *  被丢的项目下次切回走全新 load()，代价与首次打开一致，只是丢 UI 态。 */
+  const SNAPSHOT_LIMIT = 3
+
+  function putSnapshot(projectId: string, snap: ProjectSnapshot): void {
+    snapshots.delete(projectId) // 重置插入序：Map 迭代序即「最旧在前」
+    snapshots.set(projectId, snap)
+    while (snapshots.size > SNAPSHOT_LIMIT) {
+      const oldest = snapshots.keys().next().value
+      if (oldest === undefined) break
+      snapshots.delete(oldest)
+    }
+  }
 
   function snapshotCurrent(): ProjectSnapshot {
     return {
@@ -436,7 +451,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function openEndpoint(endpoint: Endpoint): void {
     if (!openTabs.value.includes(endpoint.id)) {
       openTabs.value.push(endpoint.id)
-      drafts.value.set(endpoint.id, { ...endpoint, request: JSON.parse(JSON.stringify(endpoint.request)) })
+      drafts.value.set(endpoint.id, { ...endpoint, request: deepClone(endpoint.request) })
     }
     activeTabId.value = endpoint.id
     // 缓存命中跳过：切 Tab 原来无条件触发三 IPC（示例/用例/测试用例各一次）。
@@ -520,7 +535,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: crypto.randomUUID(),
       endpoint_id: endpointId,
       name: trimmed,
-      request: JSON.parse(JSON.stringify(request)),
+      request: deepClone(request),
       created_at: now,
       updated_at: now,
     }
@@ -543,7 +558,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function applyRequestExample(endpointId: string, example: RequestExample): void {
     const draft = drafts.value.get(endpointId)
     if (!draft) return
-    draft.request = JSON.parse(JSON.stringify(example.request)) as Endpoint['request']
+    draft.request = deepClone(example.request)
   }
 
   async function deleteRequestExample(endpointId: string, exampleId: string): Promise<void> {
@@ -658,7 +673,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 克隆用例（另存为「名称 副本」，保留原快照）。 */
   async function cloneTestCase(endpointId: string, source: TestCase): Promise<boolean> {
     const testCase: TestCase = {
-      ...JSON.parse(JSON.stringify(source)) as TestCase,
+      ...deepClone(source),
       id: crypto.randomUUID(),
       name: t('examples.copyName', { name: source.name }),
       last_run_status: 'Untested',
@@ -878,7 +893,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       updated_at: now,
     }
     drafts.value.set(blank.id, blank)
-    pristineBaselines.set(blank.id, JSON.parse(JSON.stringify(blank)) as Endpoint)
+    pristineBaselines.set(blank.id, deepClone(blank))
     if (!openTabs.value.includes(blank.id)) openTabs.value.push(blank.id)
     activeTabId.value = blank.id
     focusTitle()
@@ -939,7 +954,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     try {
       const saved = await api.saveEndpoint(draft)
-      const savedClone = JSON.parse(JSON.stringify(saved)) as Endpoint
+      const savedClone = deepClone(saved)
       const idx = endpoints.value.findIndex((e) => e.id === saved.id)
       if (idx === -1) {
         endpoints.value.push(savedClone)
@@ -948,7 +963,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       drafts.value.set(saved.id, {
         ...saved,
-        request: JSON.parse(JSON.stringify(saved.request)),
+        request: deepClone(saved.request),
       })
       // 落库后以保存态为准，创建快照使命完成
       pristineBaselines.delete(saved.id)
@@ -994,17 +1009,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function collectSubtree(folderId: string): { folders: Folder[]; endpoints: Endpoint[] } {
+    // 单遍建索引（按 id / 父子 / 直属文件夹分桶）：原来每往下一层都对全量
+    // folders、endpoints 各 find/filter 一遍，深树下是 O(节点 × 全量)。
+    const folderById = new Map<string, Folder>()
+    const childrenOf = new Map<string, Folder[]>()
+    for (const f of folders.value) {
+      folderById.set(f.id, f)
+      const key = f.parent_id ?? ''
+      const bucket = childrenOf.get(key)
+      if (bucket) bucket.push(f)
+      else childrenOf.set(key, [f])
+    }
+    const epsOf = new Map<string, Endpoint[]>()
+    for (const e of endpoints.value) {
+      const key = e.folder_id ?? ''
+      const bucket = epsOf.get(key)
+      if (bucket) bucket.push(e)
+      else epsOf.set(key, [e])
+    }
     const outFolders: Folder[] = []
     const outEndpoints: Endpoint[] = []
     const walk = (fid: string): void => {
-      const f = folders.value.find((x) => x.id === fid)
+      const f = folderById.get(fid)
       if (f) outFolders.push({ ...f })
-      for (const e of endpoints.value.filter((e) => e.folder_id === fid)) {
-        outEndpoints.push({ ...e })
-      }
-      for (const child of folders.value.filter((x) => x.parent_id === fid)) {
-        walk(child.id)
-      }
+      for (const e of epsOf.get(fid) ?? []) outEndpoints.push({ ...e })
+      for (const child of childrenOf.get(fid) ?? []) walk(child.id)
     }
     walk(folderId)
     return { folders: outFolders, endpoints: outEndpoints }
@@ -1377,32 +1406,25 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         cur = folderById.get(cur)?.parent_id ?? null
       }
     }
-    const directEps = epIds.filter(
-      (id) => !coveredEps.has(id) && endpoints.value.some((e) => e.id === id),
-    )
+    // 接口索引一次：直选接口的「存在 + 取对象」原来是 O(所选 × 全量) 的 some/find
+    const epIndex = new Map(endpoints.value.map((e) => [e.id, e]))
+    const directEps = epIds.filter((id) => !coveredEps.has(id) && epIndex.has(id))
     if (!topFolders.length && !directEps.length) return
 
-    const snapFolders = topFolders.flatMap((id) => collectSubtree(id).folders)
+    // 子树只收集一次（原来 folders / endpoints 两条 flatMap 各自把整棵子树走一遍）
+    const subtrees = topFolders.map((id) => collectSubtree(id))
+    const snapFolders = subtrees.flatMap((sub) => sub.folders)
     const snapEndpoints = [
-      ...topFolders.flatMap((id) => collectSubtree(id).endpoints),
+      ...subtrees.flatMap((sub) => sub.endpoints),
       ...directEps.flatMap((id) => {
-        const e = endpoints.value.find((x) => x.id === id)
+        const e = epIndex.get(id)
         return e ? [{ ...e }] : []
       }),
     ]
-    for (const id of topFolders) {
-      for (const e of endpoints.value.filter((x) => {
-        let cur: string | null = x.folder_id
-        while (cur) {
-          if (cur === id) return true
-          cur = folderById.get(cur)?.parent_id ?? null
-        }
-        return false
-      })) {
-        closeTab(e.id)
-      }
-      await api.deleteFolder(id)
-    }
+    // 要关标签的接口就是子树覆盖集（coveredEps 单遍已算出）：原来是
+    // 「每个选中文件夹 × 全量接口 × 祖先链」再走一遍的 O(文件夹 × 接口 × 深度)。
+    for (const id of coveredEps) closeTab(id)
+    for (const id of topFolders) await api.deleteFolder(id)
     for (const id of directEps) {
       await api.deleteEndpoint(id)
       closeTab(id)
@@ -1520,14 +1542,51 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 「仅当前接口」过滤（HistoryPanel 复选框；变更后需重新 loadHistories）。 */
   const historyOnlyCurrent = ref(false)
 
+  /** 首屏条数 / 每次「加载更多」增量（后端 list_request_histories 只有 limit 无 offset）。 */
+  const HISTORY_PAGE_SIZE = 50
+  /** 本次会话请求的上限（loadMore 累加），按 (project, endpoint) 过滤条件分桶。 */
+  const historyLimit = ref(HISTORY_PAGE_SIZE)
+  /** 是否还有未加载的历史（返回条数达到当前 limit 视为可能还有）。 */
+  const historyHasMore = ref(false)
+  /** 最近一次加载失败：只提示一次，成功后复位（避免刷新/加载更多时重复刷屏）。 */
+  const historyLoadFailed = ref(false)
+  /** 当前历史查询对应的 (project, endpoint) —— 条件变化即重置分页窗口。 */
+  const historyQueryKey = ref('')
+
+  /**
+   * 拉取历史。后端无 offset：按「增量 limit」分页——首次 50 条，
+   * loadMoreHistories 每次 +50 重拉（项目保留上限 500 条，见后端 HISTORY_RETENTION_PER_PROJECT）。
+   * 查询条件（项目 / 仅当前接口）变化时自动把窗口重置回首屏，调用方无需传参。
+   */
   async function loadHistories(): Promise<void> {
     if (!project.value) return
     const endpointId = historyOnlyCurrent.value ? activeEndpoint.value?.id ?? null : null
-    try {
-      histories.value = (await api.listRequestHistories(project.value.id, 50, endpointId)) ?? []
-    } catch {
-      // 历史为辅助数据，加载失败静默（避免干扰主流程）
+    const key = `${project.value.id}|${endpointId ?? ''}`
+    if (historyQueryKey.value !== key) {
+      historyQueryKey.value = key
+      historyLimit.value = HISTORY_PAGE_SIZE
     }
+    try {
+      const list = (await api.listRequestHistories(project.value.id, historyLimit.value, endpointId)) ?? []
+      histories.value = list
+      historyHasMore.value = list.length >= historyLimit.value
+      historyLoadFailed.value = false
+    } catch (err) {
+      // 历史为辅助数据，但失败完全静默会让用户以为「没有记录」——提示一次即可
+      if (!historyLoadFailed.value) {
+        historyLoadFailed.value = true
+        toast.error(t('ws.historyLoadFail'), {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+  }
+
+  /** 「加载更多」：窗口 +1 页并重拉（返回条数仍达 limit 则继续可加载）。 */
+  async function loadMoreHistories(): Promise<void> {
+    if (!historyHasMore.value) return
+    historyLimit.value += HISTORY_PAGE_SIZE
+    await loadHistories()
   }
 
   async function clearHistories(): Promise<void> {
@@ -1536,6 +1595,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const removed = await api.clearRequestHistories(project.value.id, endpointId)
       histories.value = []
+      historyHasMore.value = false
       toast.success(t('ws.historyCleared', { n: removed }))
     } catch (err) {
       toast.error(t('ws.historyClearFail'), {
@@ -1689,7 +1749,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     cancelAllTestCases,
     histories,
     historyOnlyCurrent,
+    historyHasMore,
     loadHistories,
+    loadMoreHistories,
     clearHistories,
     restoreFromHistory,
   }
