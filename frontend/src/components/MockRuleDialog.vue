@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useFoxApi } from '../composables/useFoxApi'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
+import { rowKey } from '../utils/rowKey'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomNumberInput from './ui/CustomNumberInput.vue'
 import Icon from './ui/Icon.vue'
@@ -178,22 +179,22 @@ const listTitle = computed(() => t('mockrule.listTitle', { n: rules.value.length
         </label>
       </div>
       <div class="rule-sub">{{ t('mockrule.queryMatch') }}</div>
-      <div v-for="(m, i) in editing.match_query" :key="i" class="kv-row">
-        <input v-model="m.key" class="rf-input rf-input-sm kv-key" placeholder="key" />
-        <input v-model="m.value" class="rf-input rf-input-sm kv-value" placeholder="value" />
+      <div v-for="(m, i) in editing.match_query" :key="rowKey(m)" class="kv-row">
+        <input v-model="m.key" class="rf-input rf-input-sm kv-key" :placeholder="t('kv.colKey')" />
+        <input v-model="m.value" class="rf-input rf-input-sm kv-value" :placeholder="t('kv.colValue')" />
         <IconButton name="x" :size="13" :title="t('common.delete')" @click="removeMatch(editing, 'match_query', i)" />
       </div>
       <button class="rf-btn rf-btn-sm" type="button" @click="addMatch(editing, 'match_query')">
         <Icon name="plus" :size="13" /> Query
       </button>
       <div class="rule-sub">{{ t('mockrule.headerMatch') }}</div>
-      <div v-for="(m, i) in editing.match_headers" :key="i" class="kv-row">
-        <input v-model="m.key" class="rf-input rf-input-sm kv-key" placeholder="key" />
-        <input v-model="m.value" class="rf-input rf-input-sm kv-value" placeholder="value" />
+      <div v-for="(m, i) in editing.match_headers" :key="rowKey(m)" class="kv-row">
+        <input v-model="m.key" class="rf-input rf-input-sm kv-key" :placeholder="t('kv.colKey')" />
+        <input v-model="m.value" class="rf-input rf-input-sm kv-value" :placeholder="t('kv.colValue')" />
         <IconButton name="x" :size="13" :title="t('common.delete')" @click="removeMatch(editing, 'match_headers', i)" />
       </div>
       <button class="rf-btn rf-btn-sm" type="button" @click="addMatch(editing, 'match_headers')">
-        <Icon name="plus" :size="13" /> Header
+        <Icon name="plus" :size="13" /> {{ t('mockrule.addHeader') }}
       </button>
       <textarea
         v-model="editing.response_body_template"

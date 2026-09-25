@@ -105,7 +105,7 @@ function importToEditor(): void {
         <span>{{ t('curldlg.count', { n: parsed.headers.length }) }}</span>
       </div>
       <div class="preview-row" v-if="parsed.body">
-        <span class="preview-label">Body</span>
+        <span class="preview-label">{{ t('curldlg.body') }}</span>
         <pre class="preview-body">{{ bodyPreview }}</pre>
       </div>
       <div class="preview-row" v-if="parsed.auth.type !== 'none'">

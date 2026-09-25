@@ -84,9 +84,9 @@ type ReqTabKey = 'params' | 'headers' | 'body'
 const reqTab = ref<ReqTabKey>('params')
 
 const reqTabs = computed<TabItem[]>(() => [
-  { key: 'params', label: 'Params', count: d.value?.request.params.length ?? 0 },
-  { key: 'headers', label: 'Headers', count: d.value?.request.headers.length ?? 0 },
-  { key: 'body', label: 'Body' },
+  { key: 'params', label: t('design.tabParams'), count: d.value?.request.params.length ?? 0 },
+  { key: 'headers', label: t('design.tabHeaders'), count: d.value?.request.headers.length ?? 0 },
+  { key: 'body', label: t('design.tabBody') },
 ])
 
 function writeRows(list: KeyValue[], rows: KeyValue[]): void {
@@ -931,7 +931,7 @@ onBeforeUnmount(() => {
             @update:model-value="previewView = $event as PreviewView"
           />
           <Tooltip :content="copied ? t('design.copied') : t('design.copySchema')" placement="bottom">
-            <IconButton name="copy" :size="13" @click="copyPreview" />
+            <IconButton name="copy" :size="13" :label="t('design.copySchema')" @click="copyPreview" />
           </Tooltip>
         </div>
         <pre v-if="previewHtml" class="preview-code mono" v-html="previewHtml"></pre>

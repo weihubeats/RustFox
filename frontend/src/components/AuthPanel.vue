@@ -250,7 +250,7 @@ function setAuthType(type: string): void {
       <input
         v-model="authAny.token"
         class="rf-input rf-input-sm kv-value"
-        placeholder="Token"
+        :placeholder="t('auth.tokenPh')"
         spellcheck="false"
       />
     </div>
@@ -280,24 +280,24 @@ function setAuthType(type: string): void {
         </button>
       </p>
       <div class="kv-row">
-        <input v-model="authAny.client_id" class="rf-input rf-input-sm kv-key" placeholder="Client ID" />
-        <input v-model="authAny.client_secret" class="rf-input rf-input-sm kv-value" placeholder="Client Secret" type="password" />
+        <input v-model="authAny.client_id" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.clientIdPh')" />
+        <input v-model="authAny.client_secret" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.clientSecretPh')" type="password" />
       </div>
       <div class="kv-row">
-        <input v-model="authAny.auth_url" class="rf-input rf-input-sm kv-key" placeholder="Authorize URL" />
-        <input v-model="authAny.token_url" class="rf-input rf-input-sm kv-value" placeholder="Token URL" />
+        <input v-model="authAny.auth_url" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.authUrlPh')" />
+        <input v-model="authAny.token_url" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.tokenUrlPh')" />
       </div>
       <div class="kv-row">
         <input v-model="authAny.scope" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.scopePh')" />
-        <input v-model="authAny.redirect_uri" class="rf-input rf-input-sm kv-value" placeholder="Redirect URI" />
+        <input v-model="authAny.redirect_uri" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.redirectUriPh')" />
       </div>
     </div>
     <div v-else-if="authAny?.type === 'apikey'" class="kv-row">
-      <input v-model="authAny.key" class="rf-input rf-input-sm kv-key" placeholder="Key" />
+      <input v-model="authAny.key" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.keyPh')" />
       <input
         v-model="authAny.value"
         class="rf-input rf-input-sm kv-value"
-        placeholder="Value"
+        :placeholder="t('auth.valuePh')"
         spellcheck="false"
       />
       <CustomSelect v-model="authAny.in" :options="AUTH_IN_OPTIONS" size="sm" class="auth-in-select" />
@@ -316,19 +316,19 @@ function setAuthType(type: string): void {
       />
     </div>
     <div v-else-if="authAny?.type === 'hawk'" class="kv-row">
-      <input v-model="authAny.key_id" class="rf-input rf-input-sm kv-key" placeholder="Key ID" spellcheck="false" />
+      <input v-model="authAny.key_id" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.keyIdPh')" spellcheck="false" />
       <input
         v-model="authAny.key"
         class="rf-input rf-input-sm kv-value"
-        placeholder="Key"
+        :placeholder="t('auth.keyPh')"
         type="password"
         spellcheck="false"
       />
     </div>
     <div v-else-if="authAny?.type === 'awsv4'" class="sign-form">
       <div class="kv-row">
-        <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" placeholder="Access Key" spellcheck="false" />
-        <input v-model="authAny.secret_key" class="rf-input rf-input-sm kv-value" placeholder="Secret Key" type="password" spellcheck="false" />
+        <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.accessKeyPh')" spellcheck="false" />
+        <input v-model="authAny.secret_key" class="rf-input rf-input-sm kv-value" :placeholder="t('auth.secretKeyPh')" type="password" spellcheck="false" />
       </div>
       <div class="kv-row">
         <input v-model="authAny.region" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.regionPh')" spellcheck="false" />
@@ -339,11 +339,11 @@ function setAuthType(type: string): void {
       </div>
     </div>
     <div v-else-if="authAny?.type === 'hmac'" class="kv-row">
-      <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" placeholder="Access Key" spellcheck="false" />
+      <input v-model="authAny.access_key" class="rf-input rf-input-sm kv-key" :placeholder="t('auth.accessKeyPh')" spellcheck="false" />
       <input
         v-model="authAny.secret_key"
         class="rf-input rf-input-sm kv-value"
-        placeholder="Secret Key"
+        :placeholder="t('auth.secretKeyPh')"
         type="password"
         spellcheck="false"
       />
@@ -356,13 +356,13 @@ function setAuthType(type: string): void {
         <input
           v-model="sigConfig.app_key"
           class="rf-input rf-input-sm kv-key"
-          placeholder="App Key"
+          :placeholder="t('auth.appKeyPh')"
           spellcheck="false"
         />
         <input
           v-model="sigConfig.app_secret"
           class="rf-input rf-input-sm kv-value"
-          placeholder="App Secret"
+          :placeholder="t('auth.appSecretPh')"
           type="password"
           spellcheck="false"
         />

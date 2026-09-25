@@ -4,6 +4,7 @@
  */
 import { computed } from 'vue'
 import { useLocaleStore } from '../stores/locale'
+import { useVarCandidates } from '../composables/useVarCandidates'
 import KeyValueTable, { type KVRow } from './ui/KeyValueTable.vue'
 import type { Endpoint, KeyValue } from '../types/foxApi'
 
@@ -11,6 +12,9 @@ const props = defineProps<{ draft: Endpoint | null }>()
 
 const locale = useLocaleStore()
 const t = locale.t
+
+/** value 列 {{变量}} 自动补全候选（内置 + 环境/项目/全局变量）。 */
+const varCandidates = useVarCandidates()
 
 const headers = computed(() => props.draft?.request.headers ?? [])
 
@@ -42,9 +46,9 @@ function applyHeaders(rows: KVRow[]): void {
     </label>
     <KeyValueTable
       :model-value="headers"
-      key-placeholder="Header"
-      value-placeholder="Value"
+      :key-placeholder="t('headers.keyPh')"
       :description-placeholder="t('headers.descPh')"
+      :var-candidates="varCandidates"
       @update:model-value="applyHeaders"
     />
   </div>

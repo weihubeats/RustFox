@@ -53,6 +53,11 @@ RustFox：Tauri 2 + Vue 3 的跨平台 API 调试工具（Rust 工作区 + 前�
   允许的例外只有存库数据值（测试用例分类 `'正向'` 等，展示经 `caseCategoryLabel`
   映射翻译）、`'简体中文'` 语言自称、`module_name: '默认'`（有按名匹配逻辑）、
   正则输入匹配与 console 日志——新增特例先改该 spec 的白名单再写代码。
+- **英文硬编码（placeholder / 列头 / 页签 label）同样禁止**，一律走 `t()`；
+  `src/i18nPattern.spec.ts` 除中文外另扫 `.vue` 模板（静态 `placeholder` 属性 +
+  纯文本节点）拦截英文。白名单只放行两种语言都显示原文的专有名词（cURL / JSON /
+  GraphQL 术语 / HTTP 方法与状态短语 / 语言名）与示例内容（路径 / URL / JSON 片段），
+  可译 UI 词（Key / Value / Body …）不放行——新增特例先改该 spec 再写代码。
 - **组件 spec 必须固定语言**：组件 setup 已调 `useLocaleStore`，spec 需要
   `setActivePinia(createPinia()) + useLocaleStore().setMode('zh')`（模式见
   AuthPanel.spec.ts），否则断言文案随环境语言漂移或直接缺 Pinia 报错。
