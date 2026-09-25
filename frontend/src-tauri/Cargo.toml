@@ -1,6 +1,6 @@
 [package]
 name = "rustfox"
-version = "0.0.25"
+version = "0.0.26"
 edition = "2021"
 description = "RustFox Tauri 2 应用壳：装配 fox-tauri 插件与窗口生命周期"
 license = "Apache-2.0"
