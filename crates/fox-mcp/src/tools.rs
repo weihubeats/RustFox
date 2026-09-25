@@ -33,9 +33,15 @@ pub(crate) async fn handle_line_with(
         "initialize" => Ok(initialize_result(&params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
-        "tools/call" => match connect().await {
-            Err(e) => Err(tool_error(&e.user_message())),
-            Ok(client) => call_tool(&client, &params).await,
+        // 先校验工具与参数，全部通过才建立控制面连接——缺参 / 未知工具
+        // 这类注定失败的调用不该付一次连接往返（也不该把连接错误盖过
+        // 更贴近调用方的 -32602 参数错误）。
+        "tools/call" => match validate_tool_call(&params) {
+            Err(e) => Err(e),
+            Ok(()) => match connect().await {
+                Err(e) => Err(tool_error(&e.user_message())),
+                Ok(client) => call_tool(&client, &params).await,
+            },
         },
         // 未知 notification：静默忽略；未知 request：协议错误
         _ if id.is_none() => return None,
@@ -108,6 +114,32 @@ fn tool_definitions() -> Vec<Value> {
 }
 
 // ---------- 工具调用 ----------
+
+/// 连接控制面前的参数校验：工具名与必填参数（含 UUID 格式）先过一遍，
+/// 返回与 [`call_tool`] 完全一致的 -32602 错误；通过后才建连接。
+/// `call_tool` 内部会再取一次值（校验是幂等的，值本就要在那里消费）。
+fn validate_tool_call(params: &Value) -> Result<(), (i64, String)> {
+    let name = params["name"].as_str().unwrap_or_default();
+    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+    match name {
+        "save_curl" => {
+            str_arg(&args, "command")
+                .ok_or_else(|| (-32602, "缺少必填参数 command".to_string()))?;
+            opt_uuid_arg(&args, "projectId").map_err(|e| (-32602, e))?;
+            opt_uuid_arg(&args, "folderId").map_err(|e| (-32602, e))?;
+            Ok(())
+        }
+        "list_projects" | "agent_info" => Ok(()),
+        "list_endpoints" => {
+            str_arg(&args, "projectId")
+                .ok_or_else(|| (-32602, "缺少必填参数 projectId".to_string()))?
+                .parse::<Uuid>()
+                .map_err(|_| (-32602, "projectId 不是合法 UUID".to_string()))?;
+            Ok(())
+        }
+        other => Err((-32602, format!("未知工具：{other}"))),
+    }
+}
 
 async fn call_tool(client: &ControlClient, params: &Value) -> Result<Value, (i64, String)> {
     let name = params["name"].as_str().unwrap_or_default();
@@ -256,13 +288,13 @@ mod tests {
         assert!(text.contains("/users"));
         assert_eq!(parsed["result"]["isError"], false);
 
-        // 缺参数 → 参数错误（connect 在校验前调用，需指向同一服务端）
+        // 缺参数 → 参数错误（校验在连接之前，connect 闭包不会被调用）
         let bad = serde_json::json!({
             "jsonrpc": "2.0", "id": 4, "method": "tools/call",
             "params": { "name": "save_curl", "arguments": {} }
         })
         .to_string();
-        let reply = handle_line_with(&bad, test_connect(format!("http://{addr}")))
+        let reply = handle_line_with(&bad, || unreachable!("参数校验应先于连接失败"))
             .await
             .unwrap();
         assert!(reply.contains("-32602"), "{reply}");

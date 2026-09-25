@@ -123,6 +123,23 @@ fn api_error(err: fox_core::AppError) -> (StatusCode, Json<ApiErrorBody>) {
 
 // ---------- 中间件 ----------
 
+/// 令牌常数时间比较：长度先行比较（长度本身非秘密），等长时逐字节异或
+/// 累加后统一判零——与 `!=` 的早退比较不同，比较耗时不随匹配前缀变化，
+/// 避免被计时侧信道逐字节猜出 token。手写实现，不引入新依赖。
+fn token_matches(provided: Option<&str>, expected: &str) -> bool {
+    let Some(provided) = provided else {
+        return false;
+    };
+    if provided.len() != expected.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in provided.as_bytes().iter().zip(expected.as_bytes()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
 async fn auth(State(state): State<AgentState>, req: Request, next: Next) -> Response {
     let provided = req
         .headers()
@@ -137,7 +154,7 @@ async fn auth(State(state): State<AgentState>, req: Request, next: Next) -> Resp
                 .map(str::to_string)
         });
     // 不泄露 token 内容，只记录是否缺失。
-    if provided.as_deref() != Some(state.token.as_str()) {
+    if !token_matches(provided.as_deref(), state.token.as_str()) {
         tracing::warn!("[agent] 未授权请求：{} {}", req.method(), req.uri().path());
         return (
             StatusCode::UNAUTHORIZED,
