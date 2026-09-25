@@ -696,14 +696,34 @@ async fn send_request_inner(
     apply_auth(&mut headers, &mut query_extra, &spec.auth, &sign_ctx).await?;
     append_query(&mut url, &query_extra);
 
+    // 签名阶段建好的 payload 复用为首轮请求体（原来 Digest 循环内再建一次：
+    // 重复序列化 / 重复开文件）；仅 Digest 401 重发时才重建——流式 body
+    //（文件流 / multipart）一次性不可复用，重建 = 重新打开，语义一致。
+    let mut pending_payload = Some(payload);
+    // 只有 Digest 认证可能重发（见下方 `digest_retry_header`）：非 Digest
+    // 路径发完即结束，把 url move 进请求，省掉一次 Url 克隆。
+    let is_digest = matches!(spec.auth, AuthSpec::Digest { .. });
+    let mut url_slot: Option<Url> = Some(url);
     let start = std::time::Instant::now();
     // Digest 挑战-应答：首轮无凭据 → 401 携质询 → 补 Authorization 重发一次。
-    // payload 按值 move 进请求，重试时重新构建（文件流重新打开，语义一致）。
     let mut digest_authz: Option<String> = None;
     let resp: Response = loop {
-        let payload = build_payload(spec).await?;
+        // 首轮 payload 直接取签名阶段那一份；重发轮（pending_payload 已被取走）
+        // 才重新构建。
+        let payload = match pending_payload.take() {
+            Some(p) => p,
+            None => build_payload(spec).await?,
+        };
+        // Digest 首轮发完还要用 url 算质询，只能克隆；非 Digest（或已重发过）
+        // 是最后一轮，url 直接 move 进请求。
+        let retry_possible = is_digest && digest_authz.is_none();
+        let req_url = if retry_possible {
+            url_slot.as_ref().expect("Digest 首轮保留 url").clone()
+        } else {
+            url_slot.take().expect("最后一轮 move url")
+        };
         let mut req = client
-            .request(reqwest_method(method), url.clone())
+            .request(reqwest_method(method), req_url)
             .timeout(Duration::from_millis(timeout_ms));
 
         for (k, v) in &headers {
@@ -761,8 +781,13 @@ async fn send_request_inner(
         };
         // 仅 Digest 首轮 401 且质询可解析时重试；算法不支持 / 密码错误等情况
         // 直接返回服务端响应（用户可见真实 401，而不是客户端报错）。
+        // 非 Digest 路径 url 已 move 进请求，此处取不到 url 同样 break——
+        // 与 digest_retry_header 对非 Digest 恒返回 None 等价。
         if digest_authz.is_none() {
-            if let Some(authz) = digest_retry_header(&one, &spec.auth, method, &url) {
+            if let Some(authz) = url_slot
+                .as_ref()
+                .and_then(|u| digest_retry_header(&one, &spec.auth, method, u))
+            {
                 digest_authz = Some(authz);
                 continue;
             }
