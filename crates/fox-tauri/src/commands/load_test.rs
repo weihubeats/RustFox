@@ -46,7 +46,7 @@ pub async fn test_endpoint(
             .await;
     // 自增序列若被本次测试推进，回写磁盘（尽力而为）。
     if let Err(e) = super::seq::sync_seq_counters_if_dirty(&state.db).await {
-        eprintln!("[test_endpoint] 同步自增序列失败：{e}");
+        tracing::warn!("[test_endpoint] 同步自增序列失败：{e}");
     }
     Ok(result)
 }
@@ -103,7 +103,7 @@ pub async fn load_test(
         state
             .run_cancels
             .lock()
-            .expect("run_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .insert(id.clone(), token.clone());
         (id.clone(), token)
     });
@@ -134,12 +134,12 @@ pub async fn load_test(
         state
             .run_cancels
             .lock()
-            .expect("run_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .remove(id);
     }
     // 压测结束后回写一次自增序列（高并发下避免逐请求落库）。
     if let Err(e) = super::seq::sync_seq_counters_if_dirty(&state.db).await {
-        eprintln!("[load_test] 同步自增序列失败：{e}");
+        tracing::warn!("[load_test] 同步自增序列失败：{e}");
     }
     Ok(result)
 }
@@ -161,7 +161,7 @@ fn cancel_run(state: &AppState, run_id: &str) -> bool {
     let token = state
         .run_cancels
         .lock()
-        .expect("run_cancels poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .remove(run_id);
     if let Some(token) = token {
         token.cancel();
@@ -245,7 +245,7 @@ pub async fn test_collection(
         state
             .run_cancels
             .lock()
-            .expect("run_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .insert(id.clone(), token.clone());
         (id.clone(), token)
     });
@@ -265,11 +265,11 @@ pub async fn test_collection(
         state
             .run_cancels
             .lock()
-            .expect("run_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .remove(id);
     }
     if let Err(e) = super::seq::sync_seq_counters_if_dirty(&state.db).await {
-        eprintln!("[test_collection] 同步自增序列失败：{e}");
+        tracing::warn!("[test_collection] 同步自增序列失败：{e}");
     }
     Ok(result)
 }

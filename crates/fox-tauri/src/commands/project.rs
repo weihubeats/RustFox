@@ -62,6 +62,8 @@ pub async fn save_project(state: State<'_, AppState>, project: Project) -> Comma
         return Err(CommandError::validation("项目名称不能为空"));
     }
     repo::save_project(&state.db, &project).await?;
+    // 激活项目被编辑：同步覆盖缓存，否则发请求仍用旧变量
+    state.refresh_active_project(project.clone()).await;
     Ok(project)
 }
 

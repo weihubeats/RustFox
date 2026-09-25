@@ -68,7 +68,7 @@ pub fn builtin_value(name: &str) -> Option<String> {
 /// 自增序号：返回当前值（即下一次输出），随后 +1。
 /// `{{$seq}}` 全局计数，`{{$seq:名字}}` 各名字独立计数。未设置时从 1 开始。
 fn seq_value(key: &str) -> String {
-    let mut map = seq_counters().lock().expect("seq counters poisoned");
+    let mut map = seq_counters().lock().unwrap_or_else(|p| p.into_inner());
     let cur = map.get(key).copied().unwrap_or(0);
     let out = if cur == 0 { 1 } else { cur };
     map.insert(key.to_string(), out + 1);
@@ -83,7 +83,7 @@ pub fn take_seq_dirty() -> bool {
 
 /// 列出全部自增序列（key + 下一次输出值，按 key 排序；含全局 `$seq`，其 key 为空串）。
 pub fn list_seq_counters() -> Vec<(String, u64)> {
-    let map = seq_counters().lock().expect("seq counters poisoned");
+    let map = seq_counters().lock().unwrap_or_else(|p| p.into_inner());
     let mut v: Vec<_> = map.iter().map(|(k, val)| (k.clone(), *val)).collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
     v
@@ -93,7 +93,7 @@ pub fn list_seq_counters() -> Vec<(String, u64)> {
 pub fn set_seq_counter(key: &str, value: u64) {
     seq_counters()
         .lock()
-        .expect("seq counters poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .insert(key.to_string(), value);
     seq_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
 }
@@ -102,7 +102,7 @@ pub fn set_seq_counter(key: &str, value: u64) {
 pub fn delete_seq_counter(key: &str) {
     seq_counters()
         .lock()
-        .expect("seq counters poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .remove(key);
     seq_dirty().store(true, std::sync::atomic::Ordering::Relaxed);
 }
@@ -111,7 +111,7 @@ pub fn delete_seq_counter(key: &str) {
 pub fn dump_seq_counters() -> HashMap<String, u64> {
     seq_counters()
         .lock()
-        .expect("seq counters poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .clone()
 }
 
@@ -119,7 +119,7 @@ pub fn dump_seq_counters() -> HashMap<String, u64> {
 pub fn load_seq_counters(map: HashMap<String, u64>) {
     seq_counters()
         .lock()
-        .expect("seq counters poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .extend(map);
 }
 

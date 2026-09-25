@@ -85,7 +85,7 @@ pub async fn execute_request(
         state
             .request_cancels
             .lock()
-            .expect("request_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .insert(id.clone(), token.clone());
         (id.clone(), token)
     });
@@ -130,7 +130,7 @@ pub async fn execute_request(
             let db = state.db.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = repo::save_request_history(&db, &history).await {
-                    eprintln!("[execute_request] 保存历史失败：{}", e.user_message());
+                    tracing::warn!("[execute_request] 保存历史失败：{}", e.user_message());
                 }
             });
         }
@@ -144,13 +144,13 @@ pub async fn execute_request(
         state
             .request_cancels
             .lock()
-            .expect("request_cancels poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .remove(id);
     }
 
     // 8. 自增序列若被本次请求推进，回写磁盘（尽力而为，失败仅告警不阻断）。
     if let Err(e) = super::seq::sync_seq_counters_if_dirty(&state.db).await {
-        eprintln!("[execute_request] 同步自增序列失败：{e}");
+        tracing::warn!("[execute_request] 同步自增序列失败：{e}");
     }
 
     result
@@ -165,7 +165,7 @@ pub fn cancel_request(state: State<'_, AppState>, request_id: String) -> Command
     let token = state
         .request_cancels
         .lock()
-        .expect("request_cancels poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .remove(&request_id);
     if let Some(token) = token {
         token.cancel();
@@ -194,7 +194,9 @@ fn build_history(
 ) -> RequestHistory {
     // 响应预览按字节截断（字符边界安全）：`chars().take(n)` 会对 20MB
     // 大响应做全量字符迭代，耗时与 body 成正比；字节截断为 O(截断长度)。
-    let body_preview: String = byte_truncate(&data.body, 2000);
+    // 返回切片而非 String：截断与否都不产生中间拷贝——json! 内部
+    // `to_value(&x)` 本来就会克隆一次进 Value，先前的 `to_string()` 属于白拷。
+    let body_preview: &str = byte_truncate(&data.body, 2000);
     let mut spec_value = serde_json::to_value(spec).unwrap_or(serde_json::Value::Null);
     if let Some(obj) = spec_value.as_object_mut() {
         obj.insert("auth".into(), serde_json::json!({ "type": "none" }));
@@ -226,16 +228,19 @@ fn build_history(
     }
 }
 
-/// 按字节上限截断字符串（保证字符边界；上限内无分配直接借用返回 owned）。
-fn byte_truncate(s: &str, max_bytes: usize) -> String {
+/// 按字节上限截断字符串（保证字符边界），返回借用切片。
+///
+/// 上限内原样返回 `&s`（零分配）；超限时返回前缀切片——同样是借用，
+/// 不再像返回 `String` 那样在 `<= max` 分支多做一次整体拷贝。
+fn byte_truncate(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
-        return s.to_string();
+        return s;
     }
     let mut end = max_bytes;
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    s[..end].to_string()
+    &s[..end]
 }
 
 /// 渲染请求规格中的全部变量（key/value、认证、body）。

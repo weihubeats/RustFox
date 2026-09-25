@@ -181,7 +181,7 @@ impl MockStore {
             inner.index.entry(key).or_default().push(inner.routes.len());
             inner.routes.push(route);
         }
-        *self.inner.write().unwrap() = inner;
+        *self.inner.write().unwrap_or_else(|p| p.into_inner()) = inner;
     }
 
     /// 索引化匹配：每请求只切分一次 path、解析一次 query；
@@ -193,7 +193,7 @@ impl MockStore {
         query: &str,
         headers: &HeaderMap,
     ) -> Option<MatchHit> {
-        let guard = self.inner.read().unwrap();
+        let guard = self.inner.read().unwrap_or_else(|p| p.into_inner());
         let req_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         let query_map = parse_query(query);
         let candidates = guard

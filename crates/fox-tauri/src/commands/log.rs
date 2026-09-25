@@ -37,6 +37,14 @@ pub struct LogFile {
 /// 列出日志文件（最新在前；目录缺失返回空）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn log_files() -> CommandResult<Vec<LogFile>> {
+    // 目录扫描 + 元数据读取为同步文件 IO：挪到阻塞线程池。
+    tokio::task::spawn_blocking(list_log_files)
+        .await
+        .map_err(|e| CommandError::with_code("INTERNAL", format!("日志扫描任务失败：{e}")))?
+}
+
+/// 同步实现（阻塞线程池内执行）。
+fn list_log_files() -> CommandResult<Vec<LogFile>> {
     let dir = fox_storage::db::log_dir();
     let mut out = Vec::new();
     let Ok(rd) = std::fs::read_dir(&dir) else {
@@ -79,16 +87,29 @@ pub async fn log_tail(file: Option<String>, lines: Option<u64>) -> CommandResult
         return Err(CommandError::validation("非法的文件名"));
     }
     let path = dir.join(&name);
-    let content = std::fs::read(&path)
-        .map_err(|e| CommandError::with_code("IO", format!("读取日志失败（{name}）：{e}")))?;
-    const MAX_TAIL_BYTES: usize = 512 * 1024;
+    const MAX_TAIL_BYTES: u64 = 512 * 1024;
     const MAX_LINES: u64 = 2000;
     let want = lines.unwrap_or(300).clamp(1, MAX_LINES) as usize;
-    // 取末尾字节（字符边界安全），再按行截取。
-    let start = content.len().saturating_sub(MAX_TAIL_BYTES);
-    let mut start = start;
-    while start < content.len() && !is_utf8_boundary(&content, start) {
-        start += 1;
+    // 只 seek 到末尾 512KB 再读：滚动日志可达数百 MB，整文件读入会内存尖峰。
+    let mut file = std::fs::File::open(&path)
+        .map_err(|e| CommandError::with_code("IO", format!("读取日志失败（{name}）：{e}")))?;
+    use std::io::{Read, Seek, SeekFrom};
+    let len = file
+        .metadata()
+        .map_err(|e| CommandError::with_code("IO", format!("读取日志失败（{name}）：{e}")))?
+        .len();
+    let offset = len.saturating_sub(MAX_TAIL_BYTES);
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| CommandError::with_code("IO", format!("读取日志失败（{name}）：{e}")))?;
+    let mut content = Vec::with_capacity((len - offset) as usize);
+    file.read_to_end(&mut content)
+        .map_err(|e| CommandError::with_code("IO", format!("读取日志失败（{name}）：{e}")))?;
+    // 非文件起点时跳过被截断的 UTF-8 首字符（字符边界安全）。
+    let mut start = 0usize;
+    if offset > 0 {
+        while start < content.len() && !is_utf8_boundary(&content, start) {
+            start += 1;
+        }
     }
     let text = String::from_utf8_lossy(&content[start..]);
     let all: Vec<&str> = text.lines().collect();
@@ -135,7 +156,11 @@ pub async fn set_log_retention_days(state: State<'_, AppState>, days: u32) -> Co
     let json = serde_json::to_string(&days)
         .map_err(|e| CommandError::with_code("INTERNAL", format!("序列化失败：{e}")))?;
     repo::set_setting(&state.db, LOG_RETENTION_KEY, &json).await?;
-    let removed = cleanup_expired_logs(&fox_storage::db::log_dir(), days);
+    // 目录扫描 + 删除为同步文件 IO：挪到阻塞线程池，不占 IPC 线程。
+    let dir = fox_storage::db::log_dir();
+    let removed = tokio::task::spawn_blocking(move || cleanup_expired_logs(&dir, days))
+        .await
+        .map_err(|e| CommandError::with_code("INTERNAL", format!("日志清理任务失败：{e}")))?;
     if removed > 0 {
         tracing::info!("[log] 按保留 {days} 天清理，删除 {removed} 个过期日志文件");
     }

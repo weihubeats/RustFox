@@ -30,9 +30,10 @@ pub async fn save_environment(
     if environment.name.trim().is_empty() {
         return Err(CommandError::validation("环境名称不能为空"));
     }
-    repo::save_environment(&state.db, &environment)
-        .await
-        .map_err(Into::into)
+    let saved = repo::save_environment(&state.db, &environment).await?;
+    // 激活环境被编辑：同步覆盖缓存，否则发请求仍用旧环境变量
+    state.refresh_active_environment(saved.clone()).await;
+    Ok(saved)
 }
 
 /// 切换激活环境（`null` 表示不使用环境变量）。返回切换后的环境缓存。

@@ -88,34 +88,69 @@ impl AppState {
 
     /// 当前激活项目（缓存命中直接返回；否则查询并写回缓存）。
     pub async fn active_project(&self) -> CommandResult<Option<Project>> {
-        let read = self.active.read().await;
-        if let Some(project) = &read.project {
-            return Ok(Some(project.clone()));
+        loop {
+            let read = self.active.read().await;
+            if let Some(project) = &read.project {
+                return Ok(Some(project.clone()));
+            }
+            let Some(id) = read.project_id else {
+                return Ok(None);
+            };
+            drop(read);
+            let project = repo::get_project(&self.db, id).await?;
+            let mut write = self.active.write().await;
+            if write.project_id != Some(id) {
+                // 查库期间被切换 / 清空：放弃回填，按新上下文重读
+                drop(write);
+                continue;
+            }
+            // 回填仅在缓存为空时写入，避免覆盖并发 set_active 刚写入的新值
+            if write.project.is_none() {
+                write.project = Some(project.clone());
+            }
+            return Ok(Some(project));
         }
-        let Some(id) = read.project_id else {
-            return Ok(None);
-        };
-        drop(read);
-        let project = repo::get_project(&self.db, id).await?;
-        let mut write = self.active.write().await;
-        write.project = Some(project.clone());
-        Ok(Some(project))
     }
 
     /// 当前激活环境（缓存命中直接返回；否则查询并写回缓存）。
     pub async fn active_environment(&self) -> CommandResult<Option<Environment>> {
-        let read = self.active.read().await;
-        if let Some(environment) = &read.environment {
-            return Ok(Some(environment.clone()));
+        loop {
+            let read = self.active.read().await;
+            if let Some(environment) = &read.environment {
+                return Ok(Some(environment.clone()));
+            }
+            let Some(id) = read.environment_id else {
+                return Ok(None);
+            };
+            drop(read);
+            let environment = repo::get_environment(&self.db, id).await?;
+            let mut write = self.active.write().await;
+            if write.environment_id != Some(id) {
+                drop(write);
+                continue;
+            }
+            if write.environment.is_none() {
+                write.environment = Some(environment.clone());
+            }
+            return Ok(Some(environment));
         }
-        let Some(id) = read.environment_id else {
-            return Ok(None);
-        };
-        drop(read);
-        let environment = repo::get_environment(&self.db, id).await?;
+    }
+
+    /// 激活项目被编辑（upsert）后同步覆盖缓存，
+    /// 否则 `variables_for` 会继续使用旧变量，直到重启 / 重新激活。
+    pub async fn refresh_active_project(&self, project: Project) {
         let mut write = self.active.write().await;
-        write.environment = Some(environment.clone());
-        Ok(Some(environment))
+        if write.project_id == Some(project.id) {
+            write.project = Some(project);
+        }
+    }
+
+    /// 激活环境被编辑（upsert）后同步覆盖缓存（同 `refresh_active_project`）。
+    pub async fn refresh_active_environment(&self, environment: Environment) {
+        let mut write = self.active.write().await;
+        if write.environment_id == Some(environment.id) {
+            write.environment = Some(environment);
+        }
     }
 
     /// 设置激活项目（`None` 表示清空）。
@@ -312,6 +347,63 @@ mod tests {
             vars.get("base_url").map(String::as_str),
             Some("https://jsonplaceholder.typicode.com")
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 激活项目被编辑后，缓存必须同步刷新：
+    /// 否则 `variables_for` 继续用旧变量，直到重启 / 重新激活。
+    #[tokio::test]
+    async fn refresh_active_project_updates_cache() {
+        let path: PathBuf =
+            std::env::temp_dir().join(format!("rustfox-refresh-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = fox_storage::db::init_db(&path).await.expect("建库");
+        let state = AppState::new(db.clone());
+
+        let mut project = Project {
+            id: Uuid::new_v4(),
+            name: "项目".into(),
+            description: String::new(),
+            variables: Default::default(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        repo::save_project(&db, &project).await.expect("落库项目");
+        state
+            .set_active_project(Some(project.id))
+            .await
+            .expect("激活");
+        // 预热缓存
+        state.active_project().await.expect("读缓存");
+
+        // 编辑变量（模拟 save_project 的 upsert + 刷新）
+        project
+            .variables
+            .insert("base_url".into(), "http://new".into());
+        state.refresh_active_project(project.clone()).await;
+
+        let cached = state.active_project().await.expect("读缓存");
+        assert_eq!(
+            cached.and_then(|p| p.variables.get("base_url").cloned()),
+            Some("http://new".into()),
+            "刷新后缓存应含新变量"
+        );
+
+        // 非激活项目刷新不生效
+        let mut other = project.clone();
+        other.id = Uuid::new_v4();
+        other
+            .variables
+            .insert("base_url".into(), "http://other".into());
+        state.refresh_active_project(other).await;
+        let cached = state.active_project().await.expect("读缓存");
+        assert_eq!(
+            cached.and_then(|p| p.variables.get("base_url").cloned()),
+            Some("http://new".into()),
+            "非激活项目不应污染缓存"
+        );
+
+        db.close().await;
         let _ = std::fs::remove_file(&path);
     }
 

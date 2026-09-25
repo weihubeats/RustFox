@@ -40,7 +40,7 @@ impl GeneratorRegistry {
     /// 同键重复注册返回 [`CodeGenError::GeneratorAlreadyRegistered`]。
     pub fn register(&self, generator: impl CodeGenerator + 'static) -> Result<(), CodeGenError> {
         let key = generator.language_name();
-        let mut inner = self.inner.lock().expect("registry lock poisoned");
+        let mut inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         if inner.contains_key(key) {
             return Err(CodeGenError::GeneratorAlreadyRegistered(key.to_string()));
         }
@@ -50,7 +50,7 @@ impl GeneratorRegistry {
 
     /// 按语言标识提取生成器（返回共享句柄，可跨线程持有）。
     pub fn get(&self, language: &str) -> Option<Arc<dyn CodeGenerator>> {
-        let inner = self.inner.lock().expect("registry lock poisoned");
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         inner.get(language).cloned()
     }
 
@@ -65,7 +65,7 @@ impl GeneratorRegistry {
     /// 未注册该语言时返回 [`CodeGenError::GeneratorNotFound`]，
     /// 其余错误透传生成器自身错误。
     pub fn generate(&self, language: &str, api: &ApiDefinition) -> Result<String, CodeGenError> {
-        let inner = self.inner.lock().expect("registry lock poisoned");
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let generator = inner
             .get(language)
             .ok_or_else(|| CodeGenError::GeneratorNotFound(language.to_string()))?;
@@ -74,7 +74,7 @@ impl GeneratorRegistry {
 
     /// 已注册的全部生成器元信息（按语言标识排序，供 UI 选项列表使用）。
     pub fn languages(&self) -> Vec<LanguageInfo> {
-        let inner = self.inner.lock().expect("registry lock poisoned");
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let mut infos: Vec<LanguageInfo> = inner.values().map(|gen| gen.metadata()).collect();
         infos.sort_by(|a, b| a.name.cmp(b.name));
         infos
@@ -82,7 +82,7 @@ impl GeneratorRegistry {
 
     /// 已注册的生成器数量。
     pub fn len(&self) -> usize {
-        self.inner.lock().expect("registry lock poisoned").len()
+        self.inner.lock().unwrap_or_else(|p| p.into_inner()).len()
     }
 
     /// 是否为空。

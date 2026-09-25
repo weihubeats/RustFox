@@ -165,10 +165,16 @@ pub struct WsSendArgs {
 /// 发送 WebSocket 帧（连接未就绪时进内部缓冲，重连后自动补发）。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn ws_send(state: State<'_, AppState>, args: WsSendArgs) -> CommandResult<()> {
-    let guard = state.ws.read().await;
-    let session = guard
-        .get(&args.connection_id)
-        .ok_or_else(|| CommandError::validation("连接不存在或已断开"))?;
+    // 先克隆 Arc 句柄再释放读锁：send_message 内部含 await（溢出落库等），
+    // 持锁跨 await 会阻塞 ws_disconnect 的写锁与并发发送。
+    let client = {
+        let guard = state.ws.read().await;
+        guard
+            .get(&args.connection_id)
+            .ok_or_else(|| CommandError::validation("连接不存在或已断开"))?
+            .client
+            .clone()
+    };
     let message = match args.frame.as_str() {
         "text" => WsMessage::Text(args.payload),
         "binary" => WsMessage::Binary(decode_b64(&args.payload)?),
@@ -179,8 +185,7 @@ pub async fn ws_send(state: State<'_, AppState>, args: WsSendArgs) -> CommandRes
             )))
         }
     };
-    session
-        .client
+    client
         .send_message(message)
         .await
         .map_err(CommandError::from)?;
