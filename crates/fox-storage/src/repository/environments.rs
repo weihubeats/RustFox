@@ -190,6 +190,49 @@ pub async fn save_environment_with_projects<'e>(
     Ok(model)
 }
 
+/// 批量写入环境（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 语义与逐条 [`save_environment_with_projects`] 一致（先按 `projects`
+/// 同步模块表，再 upsert；变量同样走 `encrypt_env_json` 加密）。
+pub async fn save_environments_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    environments: &[Environment],
+    projects: &[Project],
+) -> Result<()> {
+    if environments.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<EnvironmentRow> = environments
+        .iter()
+        .map(|env| {
+            let mut model = env.clone();
+            sync_modules_with_projects(&mut model.modules, projects);
+            EnvironmentRow::from_model(&model)
+        })
+        .collect();
+    for chunk in rows.chunks(200) {
+        let mut qb = sqlx::QueryBuilder::new(
+            "INSERT INTO environments (id, name, variables_json, modules_json, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.name)
+                .push_bind(&row.variables_json)
+                .push_bind(&row.modules_json)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.push(
+            " ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                variables_json = excluded.variables_json,
+                modules_json = excluded.modules_json,
+                updated_at = excluded.updated_at",
+        );
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

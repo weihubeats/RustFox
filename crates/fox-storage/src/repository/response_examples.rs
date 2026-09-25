@@ -120,3 +120,48 @@ pub async fn save_response_example<'e>(
         .await
         .map(|_| ())
 }
+
+/// 批量写入响应示例（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 语义与逐条 [`save_response_example`] 的 upsert 一致。
+pub async fn save_response_examples_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    examples: &[ResponseExample],
+) -> Result<()> {
+    if examples.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<ResponseExampleRow> = examples
+        .iter()
+        .map(ResponseExampleRow::from_model)
+        .collect();
+    for chunk in rows.chunks(200) {
+        let mut qb = QueryBuilder::new(
+            "INSERT INTO response_examples (id, endpoint_id, name, status, headers_json, body, content_type, docs_json, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.endpoint_id)
+                .push_bind(&row.name)
+                .push_bind(row.status)
+                .push_bind(&row.headers_json)
+                .push_bind(&row.body)
+                .push_bind(&row.content_type)
+                .push_bind(&row.docs_json)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.push(
+            " ON CONFLICT(id) DO UPDATE SET
+                endpoint_id = excluded.endpoint_id,
+                name = excluded.name,
+                status = excluded.status,
+                headers_json = excluded.headers_json,
+                body = excluded.body,
+                content_type = excluded.content_type,
+                docs_json = excluded.docs_json,
+                updated_at = excluded.updated_at",
+        );
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}

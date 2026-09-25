@@ -63,6 +63,66 @@ pub async fn create_mock_rule<'e>(
     Ok(rule.clone())
 }
 
+/// 批量写入 Mock 规则（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 语义与逐条 [`create_mock_rule`] 的 upsert 一致（同 id 覆盖更新）。
+pub async fn save_mock_rules_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    rules: &[MockRule],
+) -> Result<()> {
+    if rules.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<MockRuleRow> = rules.iter().map(MockRuleRow::from_model).collect();
+    for chunk in rows.chunks(200) {
+        let mut qb = sqlx::QueryBuilder::new(
+            "INSERT INTO mock_rules (id, project_id, endpoint_id, name, method, path, match_query_json, match_headers_json,
+                 response_status, response_headers_json, response_body_template, delay_ms,
+                 fault_rate_pct, fault_status, enabled, priority, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.project_id)
+                .push_bind(&row.endpoint_id)
+                .push_bind(&row.name)
+                .push_bind(&row.method)
+                .push_bind(&row.path)
+                .push_bind(&row.match_query_json)
+                .push_bind(&row.match_headers_json)
+                .push_bind(row.response_status)
+                .push_bind(&row.response_headers_json)
+                .push_bind(&row.response_body_template)
+                .push_bind(row.delay_ms)
+                .push_bind(row.fault_rate_pct)
+                .push_bind(row.fault_status)
+                .push_bind(row.enabled)
+                .push_bind(row.priority)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.push(
+            " ON CONFLICT(id) DO UPDATE SET
+                project_id = excluded.project_id,
+                endpoint_id = excluded.endpoint_id,
+                name = excluded.name,
+                method = excluded.method,
+                path = excluded.path,
+                match_query_json = excluded.match_query_json,
+                match_headers_json = excluded.match_headers_json,
+                response_status = excluded.response_status,
+                response_headers_json = excluded.response_headers_json,
+                response_body_template = excluded.response_body_template,
+                delay_ms = excluded.delay_ms,
+                fault_rate_pct = excluded.fault_rate_pct,
+                fault_status = excluded.fault_status,
+                enabled = excluded.enabled,
+                priority = excluded.priority,
+                updated_at = excluded.updated_at",
+        );
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}
+
 pub async fn list_mock_rules(db: &SqlitePool, project_id: Uuid) -> Result<Vec<MockRule>> {
     let rows: Vec<MockRuleRow> = sqlx::query_as(
         "SELECT id, project_id, endpoint_id, name, method, path, match_query_json, match_headers_json,

@@ -1,6 +1,6 @@
 //! TestCase（测试用例）仓储：新建 / 列表 / 删除 / 更新名称与分组 / 更新运行状态。
 
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, SqlitePool};
 use uuid::Uuid;
 
 use fox_core::model::{HttpMethod, KeyValue, TestCase, TestCaseStatus};
@@ -42,6 +42,38 @@ pub async fn list_test_cases(db: &SqlitePool, request_id: Uuid) -> Result<Vec<Te
     .fetch_all(db)
     .await?;
     rows.into_iter().map(TestCaseRow::into_model).collect()
+}
+
+/// 批量列出多个接口的测试用例（一次查询，按接口分组交给调用方；
+/// 冒烟文档导出等去 N+1 用）。
+///
+/// SQLite 变量数上限按 500 分片，避免超长 IN 列表；排序按
+/// `request_id, created_at`，保证每个接口内部与 [`list_test_cases`] 一致。
+pub async fn list_test_cases_by_endpoints(
+    db: &SqlitePool,
+    request_ids: &[Uuid],
+) -> Result<Vec<TestCase>> {
+    let mut out = Vec::new();
+    for chunk in request_ids.chunks(500) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let mut qb = QueryBuilder::new(
+            "SELECT id, request_id, name, category, method, url_path, params, headers,
+                    body_type, body_content, last_run_status, created_at
+             FROM test_cases WHERE request_id IN (",
+        );
+        let mut separated = qb.separated(", ");
+        for id in chunk {
+            separated.push_bind(id.to_string());
+        }
+        separated.push_unseparated(") ORDER BY request_id, created_at");
+        let rows: Vec<TestCaseRow> = qb.build_query_as().fetch_all(db).await?;
+        for row in rows {
+            out.push(row.into_model()?);
+        }
+    }
+    Ok(out)
 }
 
 /// 删除单条测试用例。

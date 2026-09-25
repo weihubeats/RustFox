@@ -212,3 +212,50 @@ pub async fn save_endpoint<'e>(
     .await?;
     Ok(())
 }
+
+/// 批量写入接口（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 语义与逐条 [`save_endpoint`] 的 upsert 一致（同 id 覆盖更新，
+/// 含 `app_secret` 加密，见 [`EndpointRow::from_model`]）。
+pub async fn save_endpoints_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    endpoints: &[Endpoint],
+) -> Result<()> {
+    if endpoints.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<EndpointRow> = endpoints.iter().map(EndpointRow::from_model).collect();
+    for chunk in rows.chunks(200) {
+        let mut qb = sqlx::QueryBuilder::new(
+            "INSERT INTO endpoints (id, project_id, folder_id, name, method, path, description, status, sort_order, request_json, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.project_id)
+                .push_bind(&row.folder_id)
+                .push_bind(&row.name)
+                .push_bind(&row.method)
+                .push_bind(&row.path)
+                .push_bind(&row.description)
+                .push_bind(&row.status)
+                .push_bind(row.sort_order)
+                .push_bind(&row.request_json)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.push(
+            " ON CONFLICT(id) DO UPDATE SET
+                project_id = excluded.project_id,
+                folder_id = excluded.folder_id,
+                name = excluded.name,
+                method = excluded.method,
+                path = excluded.path,
+                description = excluded.description,
+                status = excluded.status,
+                sort_order = excluded.sort_order,
+                request_json = excluded.request_json,
+                updated_at = excluded.updated_at",
+        );
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}

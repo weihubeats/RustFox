@@ -83,6 +83,46 @@ pub async fn delete_request_example(db: &SqlitePool, example_id: Uuid) -> Result
     Ok(())
 }
 
+/// 批量写入请求用例（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 与逐条 [`create_request_example`] 语义一致（普通 INSERT，不做 upsert）。
+pub async fn save_request_examples_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    examples: &[RequestExample],
+) -> Result<()> {
+    if examples.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<RequestExampleRow> = examples
+        .iter()
+        .map(|example| {
+            Ok(RequestExampleRow {
+                id: example.id.to_string(),
+                endpoint_id: example.endpoint_id.to_string(),
+                name: example.name.clone(),
+                request_json: serde_json::to_string(&example.request)
+                    .map_err(fox_core::AppError::Json)?,
+                created_at: example.created_at.to_rfc3339(),
+                updated_at: example.updated_at.to_rfc3339(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for chunk in rows.chunks(200) {
+        let mut qb = QueryBuilder::new(
+            "INSERT INTO request_examples (id, endpoint_id, name, request_json, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.endpoint_id)
+                .push_bind(&row.name)
+                .push_bind(&row.request_json)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}
+
 #[derive(sqlx::FromRow)]
 struct RequestExampleRow {
     id: String,

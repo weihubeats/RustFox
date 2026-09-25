@@ -6,7 +6,10 @@ use fox_storage::db::memory_pool;
 use fox_storage::repository as repo;
 use uuid::Uuid;
 
-use fox_core::model::{EnvironmentVariable, ModuleUrlConfig, ResponseExample, WsMessageType};
+use fox_core::model::{
+    EnvironmentVariable, HttpMethod, MockRule, ModuleUrlConfig, RequestExample, RequestHistory,
+    RequestSpec, ResponseExample, TestCase, TestCaseStatus, WsMessageType,
+};
 
 async fn pool() -> SqlitePool {
     memory_pool().await.unwrap()
@@ -514,4 +517,339 @@ async fn save_response_example_repeated_id_updates_not_conflicts() {
     let list = repo::list_response_examples(&db, ep.id).await.unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].body, "{\"code\":0}");
+}
+
+/// 备份恢复的批量多值 INSERT：六张表的 SQL（含 ON CONFLICT upsert）在真库上
+/// 可执行，且与逐条 save_* 同语义——同 id 重复批量写入是覆盖更新而非冲突。
+#[tokio::test]
+async fn bulk_save_matches_per_row_save_semantics() {
+    let db = pool().await;
+    let project = repo::create_project(&db, "P", "").await.unwrap();
+    let folder = repo::create_folder(&db, project.id, None, "F")
+        .await
+        .unwrap();
+    let ep = repo::create_endpoint(&db, project.id, Some(folder.id), "E")
+        .await
+        .unwrap();
+    let env = repo::create_environment(&db, "dev", &[], &[])
+        .await
+        .unwrap();
+
+    let now = chrono::Utc::now();
+    let rule = MockRule {
+        id: Uuid::new_v4(),
+        project_id: project.id,
+        endpoint_id: Some(ep.id),
+        name: "命中用户列表".into(),
+        method: HttpMethod::GET,
+        path: "/users".into(),
+        match_query: Vec::new(),
+        match_headers: Vec::new(),
+        response_status: 200,
+        response_headers: Default::default(),
+        response_body_template: "{}".into(),
+        delay_ms: 0,
+        fault_rate_pct: 0,
+        fault_status: 500,
+        enabled: true,
+        priority: 1,
+        created_at: now,
+        updated_at: now,
+    };
+    repo::create_mock_rule(&db, project.id, &rule)
+        .await
+        .unwrap();
+
+    let example = ResponseExample {
+        id: Uuid::new_v4(),
+        endpoint_id: ep.id,
+        name: "200".into(),
+        status: 200,
+        headers: Default::default(),
+        body: "{}".into(),
+        content_type: "application/json".into(),
+        docs: Default::default(),
+        created_at: now,
+        updated_at: now,
+    };
+    repo::save_response_example(&db, &example).await.unwrap();
+
+    let snapshot = RequestExample {
+        id: Uuid::new_v4(),
+        endpoint_id: ep.id,
+        name: "下单快照".into(),
+        request: RequestSpec::default(),
+        created_at: now,
+        updated_at: now,
+    };
+    repo::create_request_example(&db, &snapshot).await.unwrap();
+
+    // 走与备份导出相同的读路径拿模型，再整批回写。
+    let folders = repo::list_folders(&db, project.id).await.unwrap();
+    let endpoints = repo::list_endpoints(&db, project.id).await.unwrap();
+    let environments = repo::list_environments(&db).await.unwrap();
+    let rules = repo::list_mock_rules(&db, project.id).await.unwrap();
+    let examples = repo::list_response_examples(&db, ep.id).await.unwrap();
+    let projects = repo::list_projects(&db).await.unwrap();
+
+    // request_examples 是普通 INSERT（与逐条 create_* 一致）：批量写入一条新 id。
+    let mut fresh = snapshot.clone();
+    fresh.id = Uuid::new_v4();
+
+    // 内存库单连接：批量写入持连接期间不得再走 pool 查询（否则自锁）。
+    {
+        let mut conn = db.acquire().await.unwrap();
+        repo::save_folders_bulk(&mut conn, &folders).await.unwrap();
+        repo::save_endpoints_bulk(&mut conn, &endpoints)
+            .await
+            .unwrap();
+        repo::save_environments_bulk(&mut conn, &environments, &projects)
+            .await
+            .unwrap();
+        repo::save_mock_rules_bulk(&mut conn, &rules).await.unwrap();
+        repo::save_response_examples_bulk(&mut conn, &examples)
+            .await
+            .unwrap();
+        repo::save_request_examples_bulk(&mut conn, std::slice::from_ref(&fresh))
+            .await
+            .unwrap();
+    }
+
+    // upsert 类表：同 id 重复批量写入行数不变。
+    assert_eq!(repo::list_folders(&db, project.id).await.unwrap().len(), 1);
+    assert_eq!(
+        repo::list_endpoints(&db, project.id).await.unwrap().len(),
+        1
+    );
+    assert_eq!(repo::list_environments(&db).await.unwrap().len(), 1);
+    assert_eq!(
+        repo::list_mock_rules(&db, project.id).await.unwrap().len(),
+        1
+    );
+    assert_eq!(
+        repo::list_response_examples(&db, ep.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // 普通 INSERT 类表：新增一行。
+    assert_eq!(
+        repo::list_request_examples(&db, ep.id).await.unwrap().len(),
+        2
+    );
+
+    // 批量回写同样覆盖更新。
+    let mut folders = repo::list_folders(&db, project.id).await.unwrap();
+    folders[0].name = "改名".into();
+    {
+        let mut conn = db.acquire().await.unwrap();
+        repo::save_folders_bulk(&mut conn, &folders).await.unwrap();
+    }
+    assert_eq!(
+        repo::list_folders(&db, project.id).await.unwrap()[0].name,
+        "改名"
+    );
+    // 环境批量写入后仍可读出（模块同步 + 变量解密路径未被破坏）。
+    let fetched_env = repo::get_environment(&db, env.id).await.unwrap();
+    assert_eq!(fetched_env.name, "dev");
+    assert!(
+        fetched_env.modules.iter().any(|m| m.project_id.is_some()),
+        "批量写入的环境应保留项目模块"
+    );
+}
+
+/// 设置批量读取：一次 IN 查询取回全部命中键，缺失键不进结果。
+#[tokio::test]
+async fn get_settings_returns_only_requested_keys() {
+    let db = pool().await;
+    repo::set_setting(&db, "http_proxy", "\"http://127.0.0.1:7890\"")
+        .await
+        .unwrap();
+    repo::set_setting(&db, "http_timeout_ms", "30000")
+        .await
+        .unwrap();
+    repo::set_setting(&db, "log_retention_days", "7")
+        .await
+        .unwrap();
+
+    let got = repo::get_settings(&db, &["http_proxy", "http_timeout_ms", "missing"])
+        .await
+        .unwrap();
+    assert_eq!(got.len(), 2, "缺失键不返回");
+    assert_eq!(got["http_timeout_ms"], "30000");
+    assert!(got.contains_key("http_proxy"));
+    assert!(!got.contains_key("log_retention_days"), "未请求的键不返回");
+
+    let empty = repo::get_settings(&db, &[]).await.unwrap();
+    assert!(empty.is_empty());
+}
+
+/// 批量测试用例查询（冒烟文档导出去 N+1）：按 endpoint 分组正确，
+/// 组内顺序与单接口查询一致。
+#[tokio::test]
+async fn list_test_cases_by_endpoints_groups_and_orders() {
+    let db = pool().await;
+    let project = repo::create_project(&db, "P", "").await.unwrap();
+    let ep_a = repo::create_endpoint(&db, project.id, None, "A")
+        .await
+        .unwrap();
+    let ep_b = repo::create_endpoint(&db, project.id, None, "B")
+        .await
+        .unwrap();
+
+    let mk = |ep: Uuid, name: &str, created: chrono::DateTime<chrono::Utc>| TestCase {
+        id: Uuid::new_v4(),
+        request_id: ep,
+        name: name.into(),
+        category: "正向".into(),
+        method: HttpMethod::GET,
+        url_path: "/users".into(),
+        params: Vec::new(),
+        headers: Vec::new(),
+        body_type: "none".into(),
+        body_content: String::new(),
+        last_run_status: TestCaseStatus::Untested,
+        created_at: created,
+    };
+    let base = chrono::Utc::now();
+    let older = base - chrono::Duration::seconds(5);
+    // A 组两条（老→新），B 组一条。
+    repo::create_test_case(&db, &mk(ep_a.id, "a1", older))
+        .await
+        .unwrap();
+    repo::create_test_case(&db, &mk(ep_a.id, "a2", base))
+        .await
+        .unwrap();
+    repo::create_test_case(&db, &mk(ep_b.id, "b1", base))
+        .await
+        .unwrap();
+
+    let ids = [ep_a.id, ep_b.id];
+    let all = repo::list_test_cases_by_endpoints(&db, &ids).await.unwrap();
+    assert_eq!(all.len(), 3);
+    let a: Vec<&TestCase> = all.iter().filter(|c| c.request_id == ep_a.id).collect();
+    let b: Vec<&TestCase> = all.iter().filter(|c| c.request_id == ep_b.id).collect();
+    assert_eq!(a.len(), 2);
+    assert_eq!(b.len(), 1);
+    assert_eq!(a[0].name, "a1", "组内按 created_at 升序");
+    assert_eq!(a[1].name, "a2");
+
+    // 与单接口查询结果一致（顺序 + 内容）。
+    let single = repo::list_test_cases(&db, ep_a.id).await.unwrap();
+    let names: Vec<&str> = single.iter().map(|c| c.name.as_str()).collect();
+    let batch_names: Vec<&str> = a.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, batch_names);
+
+    // 空入参不查库。
+    assert!(repo::list_test_cases_by_endpoints(&db, &[])
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+fn history_row(project: Uuid, endpoint: Option<Uuid>, i: usize) -> RequestHistory {
+    RequestHistory {
+        id: Uuid::new_v4(),
+        project_id: project,
+        endpoint_id: endpoint,
+        method: "GET".into(),
+        url: format!("https://api.example.com/items/{i}"),
+        status: Some(200),
+        duration_ms: Some(12),
+        request_summary_json: "{}".into(),
+        response_summary_json: "{}".into(),
+        created_at: chrono::Utc::now(),
+    }
+}
+
+async fn history_count(db: &SqlitePool, project: Uuid, endpoint: Option<Uuid>) -> i64 {
+    let row: (i64,) = match endpoint {
+        Some(ep) => sqlx::query_as(
+            "SELECT COUNT(*) FROM request_histories WHERE project_id = ? AND endpoint_id = ?",
+        )
+        .bind(project.to_string())
+        .bind(ep.to_string())
+        .fetch_one(db)
+        .await
+        .unwrap(),
+        None => sqlx::query_as("SELECT COUNT(*) FROM request_histories WHERE project_id = ?")
+            .bind(project.to_string())
+            .fetch_one(db)
+            .await
+            .unwrap(),
+    };
+    row.0
+}
+
+/// 按接口清空历史只删该接口的记录（DELETE 按 endpoint 索引过滤）。
+#[tokio::test]
+async fn clear_request_histories_filters_by_endpoint() {
+    let db = pool().await;
+    let project = repo::create_project(&db, "P", "").await.unwrap();
+    let ep_a = repo::create_endpoint(&db, project.id, None, "A")
+        .await
+        .unwrap();
+    let ep_b = repo::create_endpoint(&db, project.id, None, "B")
+        .await
+        .unwrap();
+    let project = project.id;
+    let ep_a = ep_a.id;
+    let ep_b = ep_b.id;
+    repo::save_request_history(&db, &history_row(project, Some(ep_a), 1))
+        .await
+        .unwrap();
+    repo::save_request_history(&db, &history_row(project, Some(ep_a), 2))
+        .await
+        .unwrap();
+    repo::save_request_history(&db, &history_row(project, Some(ep_b), 3))
+        .await
+        .unwrap();
+    repo::save_request_history(&db, &history_row(project, None, 4))
+        .await
+        .unwrap();
+
+    let removed = repo::clear_request_histories(&db, project, Some(ep_a))
+        .await
+        .unwrap();
+    assert_eq!(removed, 2, "只删 ep_a 的两条");
+    assert_eq!(history_count(&db, project, Some(ep_a)).await, 0);
+    assert_eq!(history_count(&db, project, Some(ep_b)).await, 1);
+    assert_eq!(history_count(&db, project, None).await, 2);
+
+    let removed = repo::clear_request_histories(&db, project, None)
+        .await
+        .unwrap();
+    assert_eq!(removed, 2, "无 endpoint 条件清空整个项目");
+    assert_eq!(history_count(&db, project, None).await, 0);
+}
+
+/// 多项目交替写入时各自的保留上限都生效：裁剪节流按项目计数
+///（原全局计数在交替写入时只推进一个项目的裁剪，另一项目无上限增长）。
+#[tokio::test]
+async fn history_retention_applies_per_project_under_interleaved_writes() {
+    let db = pool().await;
+    let a = repo::create_project(&db, "A", "").await.unwrap();
+    let b = repo::create_project(&db, "B", "").await.unwrap();
+    let cap = repo::HISTORY_RETENTION_PER_PROJECT;
+    // 超过上限 100 条：旧全局节流下 B 会原样涨到 600。
+    let total = cap + 100;
+    for i in 0..total as usize {
+        for p in [&a, &b] {
+            repo::save_request_history(&db, &history_row(p.id, None, i))
+                .await
+                .unwrap();
+        }
+    }
+    let count_a = history_count(&db, a.id, None).await;
+    let count_b = history_count(&db, b.id, None).await;
+    // 裁剪节流：超额最多延迟一个节流周期（20 条）被清理。
+    assert!(
+        count_a <= cap + 20,
+        "项目 A 应受保留上限约束，实际 {count_a}"
+    );
+    assert!(
+        count_b <= cap + 20,
+        "项目 B 应受保留上限约束，实际 {count_b}"
+    );
 }

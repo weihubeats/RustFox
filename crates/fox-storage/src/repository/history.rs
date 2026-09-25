@@ -14,10 +14,31 @@ use super::rows::HistoryRow;
 /// 列表查询与启动迁移，故写入时顺带按项目裁剪。
 pub const HISTORY_RETENTION_PER_PROJECT: i64 = 500;
 
-/// 裁剪节流计数：每 N 次写入做一次保留策略裁剪，而非逐次双写。
+/// 裁剪节流：每项目计数，该项目每 N 次写入做一次保留策略裁剪，而非逐次双写。
 /// 逐次裁剪意味着请求热路径每次 2 次写（INSERT + 全表 DELETE…NOT IN）。
+///
+/// 原来是全局 `AtomicU64`，但裁剪只针对当前写入的项目——多项目交替写入时
+/// 计数被摊薄，任何单个项目都可能长期攒不满阈值，保留上限形同虚设。
+/// 改为按项目 id 分别计数，各项目独立达到阈值即各自裁剪。
 const TRIM_EVERY_INSERTS: u64 = 20;
-static INSERT_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 各项目已写入次数（key = project_id 文本，与库中列一致）。
+fn project_insert_ticks() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    use std::sync::OnceLock;
+    static TICKS: OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        OnceLock::new();
+    TICKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 项目写入计数 +1，返回该计数（用于判断是否到达裁剪阈值）。
+fn bump_project_tick(project_id: &str) -> u64 {
+    let mut map = project_insert_ticks()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let entry = map.entry(project_id.to_string()).or_insert(0);
+    *entry += 1;
+    *entry
+}
 
 pub async fn save_request_history(db: &SqlitePool, model: &RequestHistory) -> Result<()> {
     let row = HistoryRow::from_model(model);
@@ -38,9 +59,11 @@ pub async fn save_request_history(db: &SqlitePool, model: &RequestHistory) -> Re
     .bind(row.created_at.clone())
     .execute(db)
     .await?;
-    // 保留策略节流：超额最多延迟 N 条被清理，换热路径少一次写。
-    let tick = INSERT_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if tick % TRIM_EVERY_INSERTS == 0 {
+    // 保留策略节流：该项目超额最多延迟 N 条被清理，换热路径少一次写。
+    // `tick` 为 1 起的写入序号，取 `tick % N == 1` 让首轮写入就裁一次
+    //（清掉历史遗留的超额行），此后每 N 条一轮，与原全局节流节奏一致。
+    let tick = bump_project_tick(&row.project_id);
+    if tick % TRIM_EVERY_INSERTS == 1 {
         trim_request_history(db, &row.project_id).await?;
     }
     Ok(())
@@ -101,18 +124,29 @@ pub async fn list_request_histories(
 }
 
 /// 清空项目请求历史；`endpoint_id` 为 Some 时仅清该接口的记录。返回删除条数。
+///
+/// 按有无 endpoint 条件拆两条 SQL（同 [`list_request_histories`]）：
+/// `(? IS NULL OR endpoint_id = ?)` 会让 DELETE 走不上 endpoint 索引，
+/// 按接口清空时全表扫描。
 pub async fn clear_request_histories(
     db: &SqlitePool,
     project_id: Uuid,
     endpoint_id: Option<Uuid>,
 ) -> Result<u64> {
-    let result = sqlx::query(
-        "DELETE FROM request_histories WHERE project_id = ? AND (? IS NULL OR endpoint_id = ?)",
-    )
-    .bind(project_id.to_string())
-    .bind(endpoint_id.map(|id| id.to_string()))
-    .bind(endpoint_id.map(|id| id.to_string()))
-    .execute(db)
-    .await?;
+    let result = match endpoint_id {
+        Some(ep_id) => {
+            sqlx::query("DELETE FROM request_histories WHERE project_id = ? AND endpoint_id = ?")
+                .bind(project_id.to_string())
+                .bind(ep_id.to_string())
+                .execute(db)
+                .await?
+        }
+        None => {
+            sqlx::query("DELETE FROM request_histories WHERE project_id = ?")
+                .bind(project_id.to_string())
+                .execute(db)
+                .await?
+        }
+    };
     Ok(result.rows_affected())
 }

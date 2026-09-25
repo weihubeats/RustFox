@@ -148,3 +148,42 @@ pub async fn save_folder<'e>(
     .await?;
     Ok(())
 }
+
+/// 批量写入文件夹（备份恢复用）：事务内每 200 行一条多值 INSERT，
+/// 语义与逐条 [`save_folder`] 的 upsert 一致（同 id 覆盖更新）。
+///
+/// 传 `&mut SqliteConnection`（事务连接）以复用同一 executor 逐批执行；
+/// 空列表为 no-op。
+pub async fn save_folders_bulk(
+    conn: &mut sqlx::SqliteConnection,
+    folders: &[Folder],
+) -> Result<()> {
+    if folders.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<FolderRow> = folders.iter().map(FolderRow::from_model).collect();
+    for chunk in rows.chunks(200) {
+        let mut qb = sqlx::QueryBuilder::new(
+            "INSERT INTO folders (id, project_id, parent_id, name, sort_order, created_at, updated_at) ",
+        );
+        qb.push_values(chunk, |mut b, row| {
+            b.push_bind(&row.id)
+                .push_bind(&row.project_id)
+                .push_bind(&row.parent_id)
+                .push_bind(&row.name)
+                .push_bind(row.sort_order)
+                .push_bind(&row.created_at)
+                .push_bind(&row.updated_at);
+        });
+        qb.push(
+            " ON CONFLICT(id) DO UPDATE SET
+                project_id = excluded.project_id,
+                parent_id = excluded.parent_id,
+                name = excluded.name,
+                sort_order = excluded.sort_order,
+                updated_at = excluded.updated_at",
+        );
+        qb.build().execute(&mut *conn).await?;
+    }
+    Ok(())
+}
