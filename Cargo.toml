@@ -93,7 +93,7 @@ fake = "2.9"
 rand = "0.10"
 
 serde_urlencoded = "0.7"
-rquickjs = "0.12"
+rquickjs = "0.14"
 tokio-tungstenite = { version = "0.30", default-features = false, features = [
     "connect",
     "handshake",
