@@ -64,7 +64,7 @@ hex = "0.4"
 # 动态签名（App-Key/Secret/Timestamp/Sig）：fox-http signature.rs 用（md-5 与 sha2/hmac 同步 digest 0.11）
 md-5 = "0.11"
 
-sqlx = { version = "0.7", features = [
+sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
     "sqlite",
     "uuid",
