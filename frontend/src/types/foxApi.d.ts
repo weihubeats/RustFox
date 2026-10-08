@@ -372,6 +372,11 @@ export interface ExecuteResponse {
   duration_ms: number
   size_bytes: number
   truncated: boolean
+  /**
+   * `body` 仅为 IPC 预览（Rust 侧超 2MB 时截断，全文经 `get_response_body` 按需取）。
+   * 可选：旧后端返回缺失时按 `false` 处理。
+   */
+  body_omitted?: boolean
 }
 
 /** cURL 命令解析结果（Rust `CurlParsed`，fox-tauri `parse_curl_command` 返回）。 */

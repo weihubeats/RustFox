@@ -168,6 +168,65 @@ describe('ResponsePanel：大响应保护', () => {
     expect(wrapper.findAll('.rp-line').length).toBeLessThanOrEqual(1000)
     wrapper.unmount()
   })
+
+  it('压缩 JSON 单行超长：截断到 10 万字符 + 提示，且不做语法高亮（回归：单行全量分词冻结）', () => {
+    // 压缩 JSON 常见「整页一行」且超 1MB（跳过 parse/树）→ 原实现对该行全量 jsonTokens 分词 → 主线程假死。
+    const line = `{"data":"${'x'.repeat(1_100_000)}"}`
+    const wrapper = mount(ResponsePanel, { props: { response: makeResponse(line) } })
+
+    expect(wrapper.text()).toMatch(/超长单行/)
+    const first = wrapper.find('.rp-line-text')
+    expect(first.exists()).toBe(true)
+    expect(first.text().length).toBeLessThanOrEqual(100_000)
+    // 超长行走纯转义：无语法高亮 span。
+    expect(first.html()).not.toContain('<span class="hl-')
+    wrapper.unmount()
+  })
+
+  it('HTML 预览超 1MB 不渲染 iframe（防渲染进程卡死），保留过大提示', async () => {
+    const resp = makeResponse(`<html>${'a'.repeat(1_100_000)}</html>`)
+    resp.content_type = 'text/html'
+    const wrapper = mount(ResponsePanel, { props: { response: resp } })
+
+    // 切到「预览」段（pretty / raw / preview）
+    await wrapper.findAll('.seg-item')[2].trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toMatch(/超过 1 MB/)
+    wrapper.unmount()
+  })
+})
+
+describe('ResponsePanel：全文缓存回退（body_omitted）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+  })
+
+  it('IPC 只传预览时先经 loadFullBody 取全文再复制', async () => {
+    const resp = makeResponse('"preview"')
+    resp.body_omitted = true
+    const loadFullBody = vi.fn(async () => '"full-body"')
+    const wrapper = mount(ResponsePanel, { props: { response: resp, loadFullBody } })
+
+    await wrapper.findAll('.rp-icon-btn').at(-2)!.trigger('click')
+    await flushPromises()
+    expect(loadFullBody).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith('"full-body"')
+    wrapper.unmount()
+  })
+
+  it('全文缓存过期（loadFullBody 返回 null）：回退复制截断预览', async () => {
+    const resp = makeResponse('"preview"')
+    resp.body_omitted = true
+    const loadFullBody = vi.fn(async () => null)
+    const wrapper = mount(ResponsePanel, { props: { response: resp, loadFullBody } })
+
+    await wrapper.findAll('.rp-icon-btn').at(-2)!.trigger('click')
+    await flushPromises()
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith('"preview"')
+    wrapper.unmount()
+  })
 })
 
 describe('ResponsePanel：展开全部 / 收起全部', () => {

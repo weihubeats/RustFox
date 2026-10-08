@@ -36,6 +36,7 @@ permissions = [
     "allow-save-global-params",
     "allow-execute-request",
     "allow-cancel-request",
+    "allow-get-response-body",
     "allow-list-examples",
     "allow-save-example",
     "allow-delete-example",

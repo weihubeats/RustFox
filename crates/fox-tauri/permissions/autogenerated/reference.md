@@ -35,6 +35,7 @@ RustFox 核心插件的默认权限：允许前端调用全部 fox 命令
 - `allow-save-global-params`
 - `allow-execute-request`
 - `allow-cancel-request`
+- `allow-get-response-body`
 - `allow-list-examples`
 - `allow-save-example`
 - `allow-delete-example`
@@ -1182,6 +1183,32 @@ Enables the get_projects command without any pre-configured scope.
 <td>
 
 Denies the get_projects command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:allow-get-response-body`
+
+</td>
+<td>
+
+Enables the get_response_body command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`fox-tauri:deny-get-response-body`
+
+</td>
+<td>
+
+Denies the get_response_body command without any pre-configured scope.
 
 </td>
 </tr>

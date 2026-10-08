@@ -364,6 +364,8 @@ export const zh = {
   'response.collapse': '折叠响应区',
   'response.tooLarge': '响应超过 1 MB，已按原始文本显示（跳过 JSON 解析与树形渲染以保证流畅）',
   'response.linesTruncated': '响应行数超过 100,000，超出部分未展示',
+  'response.lineTooLong': '存在超过 100,000 字符的超长单行，该行已截断展示',
+  'response.previewCapped': '完整响应缓存已过期，本次操作使用截断预览',
   'response.emptyBody': '响应正文为空',
   'response.showMore': '显示更多（{shown} / {total} 行）',
   'response.previewTitle': '响应预览',

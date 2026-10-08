@@ -42,6 +42,25 @@ pub struct ExecuteResponse {
     pub duration_ms: f64,
     pub size_bytes: usize,
     pub truncated: bool,
+    /// `body` 是否仅为 IPC 预览（超限时截断；全文经 `get_response_body` 按需取回）。
+    pub body_omitted: bool,
+}
+
+/// IPC 正文预览上限：webview 对 invoke 返回值做同步 `JSON.parse`，
+/// 20MB 级字符串会冻结主线程（页面假死）；超限只回预览，
+/// 全文留在 `AppState::response_bodies` 缓存按需取回。
+const IPC_BODY_PREVIEW_BYTES: usize = 2 * 1024 * 1024;
+
+/// 把响应全文切成 IPC 预览（按 UTF-8 字符边界截断，避免 panic）。
+fn cap_ipc_body(full: &str) -> (String, bool) {
+    if full.len() <= IPC_BODY_PREVIEW_BYTES {
+        return (full.to_string(), false);
+    }
+    let mut end = IPC_BODY_PREVIEW_BYTES;
+    while !full.is_char_boundary(end) {
+        end -= 1;
+    }
+    (full[..end].to_string(), true)
 }
 
 /// 执行 HTTP 请求：加载变量 → 渲染 URL/Headers/Body → 参数校验 → 发送。
@@ -102,8 +121,9 @@ pub async fn execute_request(
             }
         };
 
-        // 5. 映射为可序列化响应。
-        let body = resp.body_text();
+        // 5. 映射为可序列化响应（IPC 只传预览，防大正文冻结 webview 主线程）。
+        let full = resp.body_text();
+        let (body, body_omitted) = cap_ipc_body(&full);
         let content_type = resp.content_type();
         let response = ExecuteResponse {
             status: resp.status,
@@ -113,7 +133,20 @@ pub async fn execute_request(
             duration_ms: resp.duration_ms,
             size_bytes: resp.size_bytes,
             truncated: resp.truncated,
+            body_omitted,
         };
+
+        // 5.1 被截断的全文入缓存：前端复制 / 保存示例按 request_id 取回。
+        //     无 request_id（少数直调路径）则跳过，前端相应降级为预览。
+        if body_omitted {
+            if let Some(rid) = &args.request_id {
+                state
+                    .response_bodies
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(rid.clone(), full);
+            }
+        }
 
         // 6. 写入请求历史（尽力而为：失败仅告警，不阻断发送）。
         //    后台任务执行，磁盘写入慢时不拖慢响应返回的感知耗时。
@@ -173,6 +206,23 @@ pub fn cancel_request(state: State<'_, AppState>, request_id: String) -> Command
     } else {
         Ok(false)
     }
+}
+
+/// 按 `request_id` 取被 IPC 预览截断的完整响应正文。
+///
+/// 全文由 `execute_request` 在 `body_omitted` 时写入 `AppState::response_bodies`
+/// （容量 4 条 + 10 分钟 TTL）；缓存未命中 / 过期返回 `None`，
+/// 前端据此降级（复制 / 保存示例退回截断预览并提示）。
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_response_body(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> CommandResult<Option<String>> {
+    Ok(state
+        .response_bodies
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&request_id))
 }
 
 /// 构建历史记录。
@@ -458,6 +508,30 @@ mod tests {
     use fox_core::model::GlobalParamLocation;
     use std::collections::HashMap;
 
+    /// IPC 预览截断：小正文原样；超限截到 2MB 内；截断点落多字节字符时退字符边界。
+    #[test]
+    fn ipc_body_capped_at_preview_limit() {
+        // 未超限：原样返回，无截断标记。
+        let (body, omitted) = cap_ipc_body("hello");
+        assert_eq!(body, "hello");
+        assert!(!omitted);
+
+        // 超限：截到上限并标记。
+        let full = "a".repeat(IPC_BODY_PREVIEW_BYTES + 1024);
+        let (body, omitted) = cap_ipc_body(&full);
+        assert!(omitted);
+        assert_eq!(body.len(), IPC_BODY_PREVIEW_BYTES);
+
+        // 截断点横跨多字节字符：退回字符边界，不 panic、结果仍是合法 UTF-8。
+        let mut big = "b".repeat(IPC_BODY_PREVIEW_BYTES - 1);
+        big.push('中'); // 该字符横跨 2MB 边界（3 字节）
+        big.push_str(&"c".repeat(64));
+        let (body, omitted) = cap_ipc_body(&big);
+        assert!(omitted);
+        assert_eq!(body.len(), IPC_BODY_PREVIEW_BYTES - 1);
+        assert!(body.ends_with('b'));
+    }
+
     #[test]
     fn global_params_inject_query_and_header_fill_gaps() {
         use fox_core::model::GlobalParam;
@@ -543,6 +617,7 @@ mod tests {
             duration_ms: 12.5,
             size_bytes: 2,
             truncated: false,
+            body_omitted: false,
         };
         let history = build_history(
             Uuid::new_v4(),

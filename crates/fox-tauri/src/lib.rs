@@ -187,6 +187,7 @@ pub mod plugin {
                 commands::save_global_params,
                 commands::execute_request,
                 commands::cancel_request,
+                commands::get_response_body,
                 commands::list_examples,
                 commands::save_example,
                 commands::delete_example,

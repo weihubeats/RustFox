@@ -147,6 +147,31 @@ const sendError = computed<string | null>(() =>
   draft.value ? (sendErrors.value.get(draft.value.id) ?? null) : null,
 )
 
+/**
+ * 结果桶淘汰（响应 / 错误同规格）：EndpointEditor 单实例常驻整个会话，
+ * 每桶持全量响应体（后端上限 20MB），无限累积会拖垮内存与 GC。
+ * 超过上限按 Map 插入序淘汰最旧（当前接口除外）。
+ */
+const RESPONSE_BUCKET_MAX = 10
+
+function evictOldest<T>(map: Map<string, T>, keepId: string): void {
+  while (map.size > RESPONSE_BUCKET_MAX) {
+    const oldest = map.keys().next().value
+    if (oldest === undefined || oldest === keepId) break
+    map.delete(oldest)
+  }
+}
+
+/** 最近一次发送的 request_id（响应被 IPC 预览截断时按它向 Rust 取全文）。 */
+const lastRequestIds = ref<Map<string, string>>(new Map())
+
+/** ResponsePanel 全文加载器：按当前接口最近一次 request_id 取被截断的完整正文。 */
+async function loadFullBody(): Promise<string | null> {
+  const id = draft.value?.id
+  const rid = id ? lastRequestIds.value.get(id) : undefined
+  return rid ? api.getResponseBody(rid) : null
+}
+
 /** gRPC 响应按接口 id 分桶（口径同 responses：切接口天然隔离）。 */
 const grpcResponses = ref<Map<string, GrpcResponse | null>>(new Map())
 const grpcResponse = computed<GrpcResponse | null>(() =>
@@ -600,15 +625,20 @@ async function send(): Promise<void> {
   if (draft.value.method === 'GRPC') return sendGrpc()
   const snapshot = draft.value
   sendErrors.value.set(targetId, null)
+  evictOldest(sendErrors.value, targetId)
   const url = buildUrl()
   const rid = crypto.randomUUID()
+  lastRequestIds.value.set(targetId, rid)
+  evictOldest(lastRequestIds.value, targetId)
   sendingMap.value.set(targetId, { requestId: rid, startedAt: Date.now() })
   ensureElapsedTimer()
   try {
     const resp = await store.send(snapshot, url, rid)
     // 结果按发起请求时的接口 id 落桶：请求在途时切走再返回，不会错位。
     responses.value.set(targetId, resp)
+    evictOldest(responses.value, targetId)
     sendErrors.value.set(targetId, null)
+    evictOldest(sendErrors.value, targetId)
     triggerFlash()
     // 历史已迁至侧栏「请求历史」页签，发送后由 store 统一刷新。
     void store.loadHistories()
@@ -620,7 +650,9 @@ async function send(): Promise<void> {
       sendErrors.value.set(targetId, null)
     } else {
       sendErrors.value.set(targetId, err instanceof Error ? err.message : String(err))
+      evictOldest(sendErrors.value, targetId)
       responses.value.set(targetId, null)
+      evictOldest(responses.value, targetId)
       triggerFlash()
     }
   } finally {
@@ -901,7 +933,15 @@ async function confirmSaveExample(): Promise<void> {
     return
   }
   try {
-    await store.saveAsExample(draft.value.id, name, response.value)
+    let resp = response.value
+    if (resp.body_omitted) {
+      // IPC 只传了 2MB 预览：按 request_id 取 Rust 侧缓存的全文再落库。
+      const rid = lastRequestIds.value.get(draft.value.id)
+      const full = rid ? await api.getResponseBody(rid) : null
+      if (full != null) resp = { ...resp, body: full, body_omitted: false }
+      else toast.warning(t('response.previewCapped'))
+    }
+    await store.saveAsExample(draft.value.id, name, resp)
     showExampleDialog.value = false
   } catch (err) {
     toast.error(t('editor.exampleSaveFail'), { message: err instanceof Error ? err.message : String(err) })
@@ -1259,6 +1299,7 @@ onUnmounted(() => {
           <ResponsePanel
             v-else-if="!isGrpc && response"
             :response="response"
+            :load-full-body="loadFullBody"
             @save-example="saveExample"
             @drag-start="onSplitterDown"
           />

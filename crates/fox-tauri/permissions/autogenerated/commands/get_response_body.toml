@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-response-body"
+description = "Enables the get_response_body command without any pre-configured scope."
+commands.allow = ["get_response_body"]
+
+[[permission]]
+identifier = "deny-get-response-body"
+description = "Denies the get_response_body command without any pre-configured scope."
+commands.deny = ["get_response_body"]

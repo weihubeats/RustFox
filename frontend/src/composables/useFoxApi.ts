@@ -263,6 +263,13 @@ export function useFoxApi() {
   const cancelRequest = (requestId: string) =>
     call<boolean>('cancel_request', { requestId })
 
+  /**
+   * 按 request_id 取被 IPC 预览截断（`body_omitted`）的完整响应正文。
+   * Rust 侧仅缓存最近若干条（LRU + TTL），过期 / 未命中返回 null。
+   */
+  const getResponseBody = (requestId: string) =>
+    run(() => call<string | null>('get_response_body', { requestId }))
+
   // ---------- 响应示例 ----------
   const listExamples = (endpointId: string) =>
     quiet<ResponseExample[]>('list_examples', { endpointId })
@@ -600,6 +607,7 @@ export function useFoxApi() {
     saveGlobalParams,
     executeRequest,
     cancelRequest,
+    getResponseBody,
     listExamples,
     saveExample,
     deleteExample,

@@ -31,6 +31,7 @@ const COMMANDS: &[&str] = &[
     "save_global_params",
     "execute_request",
     "cancel_request",
+    "get_response_body",
     "list_examples",
     "save_example",
     "delete_example",

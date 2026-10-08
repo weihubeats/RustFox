@@ -23,7 +23,12 @@ import Tabs, { type TabItem } from './ui/Tabs.vue'
 import Tooltip from './ui/Tooltip.vue'
 import type { ExecuteResponse } from '../types/foxApi'
 
-const props = defineProps<{ response: ExecuteResponse }>()
+const props = defineProps<{
+  response: ExecuteResponse
+  /** 正文被 IPC 预览截断（`body_omitted`）时的全文加载器：由宿主注入，
+   * 不存在时复制退化为预览（测试/无 request_id 场景）。 */
+  loadFullBody?: () => Promise<string | null>
+}>()
 
 const emit = defineEmits<{ saveExample: []; dragStart: [event: MouseEvent] }>()
 
@@ -83,6 +88,14 @@ const headerRows = computed(() => props.response.headers.map(([k, v]) => ({ k, v
 const PARSE_LIMIT_BYTES = 1_000_000
 const LINE_CHUNK = 1000
 const visibleLines = ref(LINE_CHUNK)
+/** 单行渲染上限：压缩 JSON/HTML 常见「整页一行」，后端正文可达 20MB，
+ * 单行全量驻留 + 高亮 + 行 key 哈希会冻结主线程，超限截断展示。 */
+const MAX_RENDER_LINE = 100_000
+/** 超长行跳过语法高亮与查找标记（jsonTokens 正则 / toLowerCase 都是大行上的 O(n) 主线程开销）。 */
+const LINE_HIGHLIGHT_LIMIT = 10_000
+
+/** 正文是否有非空白内容（computed 缓存：trim 是全量扫描，禁止进模板逐渲染执行）。 */
+const hasBody = computed(() => props.response.body.trim() !== '')
 watch(
   () => props.response,
   () => {
@@ -92,7 +105,7 @@ watch(
 )
 
 const parsed = computed<unknown | null>(() => {
-  if (!props.response.body.trim()) return null
+  if (!hasBody.value) return null
   if (props.response.body.length > PARSE_LIMIT_BYTES) return null
   try {
     return JSON.parse(props.response.body)
@@ -128,13 +141,23 @@ const isImage = computed(() => props.response.content_type.toLowerCase().startsW
 /** 行数上限：后端最多放行 20MB 响应体，全量 split 会产生数十万行字符串驻留内存。 */
 const LINE_LIMIT = 100_000
 
-function splitLines(text: string): { lines: string[]; truncated: boolean } {
+function splitLines(text: string): { lines: string[]; truncated: boolean; longLine: boolean } {
   const lines = text.split('\n', LINE_LIMIT + 1)
+  let truncated = false
   if (lines.length > LINE_LIMIT) {
     lines.length = LINE_LIMIT
-    return { lines, truncated: true }
+    truncated = true
   }
-  return { lines, truncated: false }
+  // 单行截断：压缩 JSON/HTML 往往整页一行（可达 20MB），该行进高亮/查找/行 key
+  // 都是主线程 O(n) 开销，先截到 MAX_RENDER_LINE 再进渲染管线。
+  let longLine = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].length > MAX_RENDER_LINE) {
+      lines[i] = lines[i].slice(0, MAX_RENDER_LINE)
+      longLine = true
+    }
+  }
+  return { lines, truncated, longLine }
 }
 
 /**
@@ -143,14 +166,14 @@ function splitLines(text: string): { lines: string[]; truncated: boolean } {
  */
 const prettySplit = computed(() => {
   if (useTree.value || viewMode.value !== 'pretty' || activeTab.value !== 'body')
-    return { lines: [] as string[], truncated: false }
+    return { lines: [] as string[], truncated: false, longLine: false }
   return splitLines(pretty.value)
 })
 const rawSplit = computed(() => {
-  if (activeTab.value !== 'body') return { lines: [] as string[], truncated: false }
+  if (activeTab.value !== 'body') return { lines: [] as string[], truncated: false, longLine: false }
   // raw 视图与 preview 回退（非 html 按 raw 文本查）才需要行数组。
   if (viewMode.value !== 'raw' && !(viewMode.value === 'preview' && !isHtml.value))
-    return { lines: [] as string[], truncated: false }
+    return { lines: [] as string[], truncated: false, longLine: false }
   return splitLines(props.response.body)
 })
 
@@ -163,6 +186,8 @@ const hasMoreRaw = computed(() => rawLines.value.length > visibleLines.value)
 const bodyTooLarge = computed(() => props.response.body.length > PARSE_LIMIT_BYTES)
 /** 行数组截断提示：超大响应全量 split 会产生数十万行字符串驻留内存。 */
 const linesTruncated = computed(() => rawSplit.value.truncated || prettySplit.value.truncated)
+/** 超长单行截断提示（与行数截断口径不同，分开提示）。 */
+const longLinesTruncated = computed(() => rawSplit.value.longLine || prettySplit.value.longLine)
 function showMoreLines(): void {
   visibleLines.value += LINE_CHUNK
 }
@@ -228,7 +253,14 @@ const copySource = computed(() =>
 )
 
 async function copyBody(): Promise<void> {
-  const ok = await copyText(copySource.value)
+  let text = copySource.value
+  if (props.response.body_omitted) {
+    // IPC 只传了预览，先取全文再复制；缓存过期则回退预览并警告。
+    const full = props.loadFullBody ? await props.loadFullBody() : null
+    if (full != null) text = full
+    else toast.warning(t('response.previewCapped'))
+  }
+  const ok = await copyText(text)
   if (ok) toast.success(t('response.copied'))
   else toast.error(t('response.copyFail'))
 }
@@ -282,6 +314,8 @@ const searchLines = computed(() => {
 })
 
 function countIn(text: string): number {
+  // 超长行不参与查找计数（与高亮降级同口径，避免对大行逐次 toLowerCase 全量扫）。
+  if (text.length > LINE_HIGHLIGHT_LIMIT) return 0
   const ql = searchQuery.value.toLowerCase()
   let n = 0
   let from = 0
@@ -354,7 +388,10 @@ interface LineRow {
  */
 function rowKey(index: number, text: string): string {
   let h = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) {
+  // 只哈希前 4KB：行内容已可能达 100KB，全量哈希在大行上是纯主线程开销；
+  // key 已含行号 + 长度，截断哈希不引入复用歧义。
+  const n = Math.min(text.length, 4096)
+  for (let i = 0; i < n; i++) {
     h ^= text.charCodeAt(i)
     h = Math.imul(h, 0x01000193)
   }
@@ -372,7 +409,13 @@ const prettyRows = computed<LineRow[]>(() => {
   return shownPrettyLines.value.map((ln, i) => ({
     n: i + 1,
     key: rowKey(i, ln),
-    html: off ? highlightText(ln, q) : highlightPrettyText(ln, q),
+    // 超长行纯转义（跳过 JSON 分词与查找标记，见 LINE_HIGHLIGHT_LIMIT）。
+    html:
+      ln.length > LINE_HIGHLIGHT_LIMIT
+        ? escapeHtml(ln)
+        : off
+          ? highlightText(ln, q)
+          : highlightPrettyText(ln, q),
   }))
 })
 
@@ -381,7 +424,7 @@ const rawRows = computed<LineRow[]>(() => {
   return shownRawLines.value.map((ln, i) => ({
     n: i + 1,
     key: rowKey(i, ln),
-    html: highlightText(ln, q),
+    html: ln.length > LINE_HIGHLIGHT_LIMIT ? escapeHtml(ln) : highlightText(ln, q),
   }))
 })
 
@@ -413,7 +456,7 @@ function toggleFind(): void {
 /** ⌘F / Ctrl+F 打开查找（输入框内不拦截）。 */
 function onWindowKeydown(e: KeyboardEvent): void {
   if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
-  if (activeTab.value !== 'body' || !props.response.body.trim()) return
+  if (activeTab.value !== 'body' || !hasBody.value) return
   const target = e.target as HTMLElement | null
   if (
     target &&
@@ -547,7 +590,7 @@ onUnmounted(() => {
 
     <div v-show="!collapsed" v-if="activeTab === 'body'" class="rp-body">
       <FindBar
-        v-if="findOpen && response.body.trim()"
+        v-if="findOpen && hasBody"
         v-model:query="query"
         :index="activeMatch"
         :total="total"
@@ -560,7 +603,8 @@ onUnmounted(() => {
           {{ t('response.tooLarge') }}
         </p>
         <p v-if="linesTruncated" class="rp-note">{{ t('response.linesTruncated') }}</p>
-        <p v-if="!response.body.trim()" class="rp-empty">{{ t('response.emptyBody') }}</p>
+        <p v-if="longLinesTruncated" class="rp-note">{{ t('response.lineTooLong') }}</p>
+        <p v-if="!hasBody" class="rp-empty">{{ t('response.emptyBody') }}</p>
         <JsonTree
           v-else-if="viewMode === 'pretty' && isJson"
           ref="treeRef"
@@ -593,7 +637,7 @@ onUnmounted(() => {
           </button>
         </div>
         <iframe
-          v-else-if="isHtml"
+          v-else-if="isHtml && !bodyTooLarge"
           class="rp-frame"
           sandbox="allow-same-origin"
           :srcdoc="response.body"

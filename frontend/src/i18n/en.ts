@@ -368,6 +368,8 @@ export const en: Record<ZhKey, string> = {
   'response.collapse': 'Collapse response area',
   'response.tooLarge': 'Response exceeds 1 MB, shown as raw text (JSON parsing and tree rendering skipped for performance)',
   'response.linesTruncated': 'Response exceeds 100,000 lines. The rest is hidden',
+  'response.lineTooLong': 'Some lines exceed 100,000 characters and were truncated for display',
+  'response.previewCapped': 'Full response cache expired. This action used the truncated preview',
   'response.emptyBody': 'Empty response body',
   'response.showMore': 'Show more ({shown} / {total} lines)',
   'response.previewTitle': 'Response preview',

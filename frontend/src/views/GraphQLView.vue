@@ -321,6 +321,8 @@ async function retrySend() {
 }
 
 function parseResponseErrors(body: string): { message: string; locations?: string; path?: string }[] {
+  // 大响应保护（与 responseHtml 同口径）：超阈值跳过全量 JSON.parse，避免主线程冻结。
+  if (body.length > PARSE_LIMIT_BYTES) return []
   try {
     const parsed = JSON.parse(body)
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.errors)) {

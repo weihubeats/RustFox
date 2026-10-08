@@ -216,7 +216,7 @@ describe('EndpointEditor：接口响应按 id 隔离', () => {
     apiMock.executeRequest.mockImplementation((args: { endpoint_id: string | null }) =>
       args.endpoint_id === 'ep-a'
         ? Promise.reject(Object.assign(new Error('boom'), { code: 'HTTP' }))
-        : Promise.resolve(makeResponse('ep-b')),
+        : Promise.resolve(makeResponse(args.endpoint_id ?? 'unknown')),
     )
     const { wrapper, store } = await mountEditor()
 
@@ -233,6 +233,35 @@ describe('EndpointEditor：接口响应按 id 隔离', () => {
     await nextTick()
     await sendCurrent(wrapper)
     expect(wrapper.findComponent(ResponsePanel).props('response').body).toContain('ep-b')
+
+    wrapper.unmount()
+    errors.restore()
+    expect(errors.errors).toEqual([])
+  })
+
+  it('结果桶上限 10 个接口：最旧的被淘汰切回显空态，最近的保留（回归：全量响应无限驻留）', async () => {
+    const errors = collectErrors()
+    const { wrapper, store } = await mountEditor()
+    const eps = Array.from({ length: 12 }, (_, i) =>
+      makeDraft({ id: `ep-${i}`, name: `接口 ${i}`, path: `/${i}` }),
+    )
+    store.endpoints = eps
+    for (const ep of eps) {
+      store.openEndpoint(ep)
+      await nextTick()
+      await wrapper.find('.bar-send').trigger('click')
+      await flushPromises()
+    }
+
+    // 最旧的 ep-0 已被淘汰：切回显示空态（无 ResponsePanel）。
+    store.openEndpoint(eps[0])
+    await nextTick()
+    expect(wrapper.findComponent(ResponsePanel).exists()).toBe(false)
+
+    // 最近的 ep-11 仍在桶内。
+    store.openEndpoint(eps[11])
+    await nextTick()
+    expect(wrapper.findComponent(ResponsePanel).props('response').body).toContain('ep-11')
 
     wrapper.unmount()
     errors.restore()

@@ -92,6 +92,63 @@ pub struct AppState {
     /// 在途 gRPC 服务端流（stream_id → 取消令牌 + 消费任务句柄）。
     /// 与 `request_cancels` 同为普通 Mutex：持有期间不 await。
     pub grpc_streams: Mutex<HashMap<String, (CancellationToken, tokio::task::JoinHandle<()>)>>,
+    /// 被 IPC 预览截断（>2MB）的响应全文缓存（request_id → 全文）：
+    /// 前端复制 / 保存示例时经 `get_response_body` 按需取回。
+    pub response_bodies: Mutex<ResponseBodyCache>,
+}
+
+/// 响应全文缓存：容量 4 条 + 10 分钟 TTL，超限 / 过期即弃，
+/// 避免大正文（单条可达 20MB）常驻拖垮内存。
+#[derive(Default)]
+pub struct ResponseBodyCache {
+    entries: HashMap<String, (String, std::time::Instant, u64)>,
+    next_seq: u64,
+}
+
+impl ResponseBodyCache {
+    /// 同时保留的最大条数（按插入序号淘汰最旧）。
+    const CAPACITY: usize = 4;
+    /// 条目有效期：超期视为过期，`get` 返回 `None`。
+    const TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            next_seq: 0,
+        }
+    }
+
+    fn purge_expired(&mut self) {
+        let now = std::time::Instant::now();
+        self.entries
+            .retain(|_, (_, at, _)| now.duration_since(*at) < Self::TTL);
+    }
+
+    pub fn insert(&mut self, key: String, body: String) {
+        self.purge_expired();
+        while self.entries.len() >= Self::CAPACITY && !self.entries.contains_key(&key) {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, _, seq))| *seq)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => {
+                    self.entries.remove(&k);
+                }
+                None => break,
+            }
+        }
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.entries
+            .insert(key, (body, std::time::Instant::now(), seq));
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<String> {
+        self.purge_expired();
+        self.entries.get(key).map(|(body, _, _)| body.clone())
+    }
 }
 
 impl AppState {
@@ -106,6 +163,7 @@ impl AppState {
             ws: RwLock::new(HashMap::new()),
             sse: RwLock::new(HashMap::new()),
             grpc_streams: Mutex::new(HashMap::new()),
+            response_bodies: Mutex::new(ResponseBodyCache::new()),
         }
     }
 
@@ -318,6 +376,28 @@ mod tests {
     use super::*;
     use fox_core::model::{Environment, EnvironmentVariable, Project};
     use std::path::PathBuf;
+
+    /// 响应全文缓存：按插入序淘汰最旧、命中回全文、同键覆盖不淘汰自己。
+    #[test]
+    fn response_body_cache_evicts_oldest_and_hits() {
+        let mut cache = ResponseBodyCache::new();
+        for i in 0..ResponseBodyCache::CAPACITY {
+            cache.insert(format!("r{i}"), format!("body-{i}"));
+        }
+        assert_eq!(cache.get("r0").as_deref(), Some("body-0"));
+        assert_eq!(cache.get("missing"), None);
+
+        // 同键覆盖：更新内容，不触发淘汰。
+        cache.insert("r0".into(), "body-0-v2".into());
+        assert_eq!(cache.get("r0").as_deref(), Some("body-0-v2"));
+        assert_eq!(cache.get("r1").as_deref(), Some("body-1"));
+
+        // 超容量：插入新键淘汰最旧（r1，seq 最小）。
+        cache.insert("r-new".into(), "new".into());
+        assert_eq!(cache.get("r1"), None);
+        assert_eq!(cache.get("r0").as_deref(), Some("body-0-v2"));
+        assert_eq!(cache.get("r-new").as_deref(), Some("new"));
+    }
 
     fn mk_project(name: &str) -> Project {
         Project {
