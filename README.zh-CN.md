@@ -154,14 +154,9 @@ token 位于数据目录 `agent-token` 文件（0600），应用内「Agent 状�
 | macOS | `RustFox_*-aarch64.dmg`（Apple Silicon）/ `RustFox_*-x64.dmg`（Intel） |
 | Linux | `.deb` / `.rpm` / `.AppImage` |
 
-> **macOS 首次打开提示「已损坏，无法打开」？** 应用本身没有损坏——这是 Gatekeeper
-> 对未做 Apple 签名公证应用的拦截。把应用拖入「应用程序」后，在终端执行一次：
->
-> ```bash
-> xattr -cr /Applications/RustFox.app
-> ```
->
-> 然后右键 →「打开」即可。详见[使用手册](docs/USER_GUIDE.md#12-macos)。
+> **macOS 首次打开提示「无法验证开发者」？** 应用仅 ad-hoc 签名、未做 Apple 公证（未购买开发者证书），
+> 属正常现象——右键应用 →「打开」即可。若旧版本安装器提示「已损坏，无法打开」，
+> 在终端执行一次 `xattr -cr /Applications/RustFox.app` 解除隔离后重试。详见[使用手册](docs/USER_GUIDE.md#12-macos)。
 
 安装后可在应用内「关于 → Check for Updates」检查并一键升级新版本（v0.0.3 起支持自动更新）。
 

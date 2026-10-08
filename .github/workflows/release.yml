@@ -109,6 +109,18 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      # 门禁：macOS 应用必须带有效签名（tauri.conf.json bundle.macOS.signingIdentity="-"
+      # 触发 ad-hoc 签名）。v0.0.30 曾因 bundler 在 signingIdentity 缺省时静默跳过签名，
+      # 产物只有 linker 签名 → Gatekeeper 判定「已损坏」且进程被 SIGKILL，用户无法启动。
+      # 此校验确保 dmg / updater 产物（app.tar.gz 从已签名 .app 打出）都带签名。
+      - name: 校验 macOS 应用签名 (ad-hoc)
+        if: startsWith(matrix.name, 'macos')
+        shell: bash
+        run: |
+          APP="target/release/bundle/macos/RustFox.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -q "Signature=adhoc"
+
       - name: Rename macOS updater artifacts (arch suffix)
         if: startsWith(matrix.name, 'macos')
         shell: bash
@@ -272,7 +284,7 @@ jobs:
             echo
             echo '- **Windows**: `RustFox_x.x.x_x64-setup.exe`（NSIS 安装包）或 `RustFox_x.x.x_x64_en-US.msi`'
             echo '- **macOS**: `RustFox_x.x.x_aarch64.dmg`（Apple Silicon）或 `RustFox_x.x.x_x64.dmg`（Intel）'
-            echo '  —— 首次打开若提示「已损坏」，执行 `xattr -cr /Applications/RustFox.app` 解除隔离（未做 Apple 公证的正常现象，详见使用手册）'
+            echo '  —— 未做 Apple 开发者签名/公证：首次打开若提示「无法验证开发者」，右键应用 → 打开即可（或执行 `xattr -cr /Applications/RustFox.app`），详见使用手册'
             echo '- **Linux**: `rustfox_x.x.x_amd64.deb` 与 `.AppImage`'
             echo
             echo "使用手册：[docs/USER_GUIDE.md](https://github.com/\${GITHUB_REPOSITORY}/blob/\${RELEASE_TAG}/docs/USER_GUIDE.md)"
