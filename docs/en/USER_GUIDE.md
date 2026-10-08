@@ -23,16 +23,15 @@ For end users. **No Rust, no command-line knowledge required** — download, ins
 
 1. Download `RustFox-<version>-<arch>.dmg` (`aarch64` for Apple Silicon, `x64` for Intel)
 2. Mount it and drag **RustFox.app** into Applications
-3. **Remove the quarantine flag** (important): the app is not notarized by Apple, so newer macOS may say
-   "RustFox is damaged and can't be opened. You should move it to the Trash." — **the app is not damaged**;
-   it's Gatekeeper blocking un-notarized apps. Run in Terminal:
+3. First launch: right-click RustFox.app → Open, or System Settings → Privacy & Security → Open Anyway.
+   The app is ad-hoc signed but not notarized (no paid Apple Developer certificate), so Gatekeeper
+   will say the developer can't be verified — that's normal and **not a broken app**
+4. If you see "RustFox is damaged and can't be opened" (a leftover of the old unsigned installers),
+   run this in Terminal once, then try again:
 
    ```bash
    xattr -cr /Applications/RustFox.app
    ```
-
-   (Alternatively: right-click RustFox.app in Applications → Get Info → check "Override Malware Protection".)
-4. First launch: right-click RustFox.app → Open, or System Settings → Privacy & Security → Open Anyway — again a normal unsigned-app prompt
 
 Afterwards launch from Launchpad or Applications, or pin it to the Dock.
 

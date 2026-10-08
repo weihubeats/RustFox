@@ -151,13 +151,7 @@ Grab the installer for your platform from [Releases](https://github.com/weihubea
 | macOS | `RustFox_*-aarch64.dmg` (Apple Silicon) / `RustFox_*-x64.dmg` (Intel) |
 | Linux | `.deb` / `.rpm` / `.AppImage` |
 
-> **macOS says the app is damaged?** It isn't — that's Gatekeeper blocking an un-notarized app. Move the app into Applications, then run once:
->
-> ```bash
-> xattr -cr /Applications/RustFox.app
-> ```
->
-> Then right-click → Open. See the [user guide](docs/en/USER_GUIDE.md#12-macos).
+> **macOS: "developer can't be verified" on first launch?** The app is ad-hoc signed but not notarized (no paid Apple Developer cert) — right-click the app → Open to proceed. If an older installer instead says the app is "damaged", run `xattr -cr /Applications/RustFox.app` once. See the [user guide](docs/en/USER_GUIDE.md#12-macos).
 
 After installing, use "About → Check for Updates" in-app to upgrade (auto-update supported since v0.0.3).
 
