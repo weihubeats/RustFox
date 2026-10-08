@@ -404,6 +404,55 @@ describe('cURL 导入：环境前缀优先时不覆写环境，path 存完整 UR
   })
 })
 
+describe('无环境前缀按项目持久化（回归：重启丢自定义域名回 localhost）', () => {
+  const parsed: CurlParsed = {
+    url: 'https://api.example.com/v1/users',
+    method: 'GET',
+    headers: [],
+    body: null,
+    auth: { type: 'none' },
+  }
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+    backend.projects.length = 0
+    backend.endpointsByProject.clear()
+    backend.envsByProject.clear()
+    backend.projects.push(makeProject('p-prefix', '前缀项目'))
+    backend.endpointsByProject.set('p-prefix', [])
+    backend.envsByProject.set('p-prefix', [])
+    backend.setActive('p-prefix')
+    // 隔离：内存 localStorage 跨用例共享，清掉本项目可能残留的前缀记录
+    localStorage.removeItem('rustfox.base-url.p-prefix')
+  })
+
+  it('导入 cURL 后整个 app 重启（新 store 重新 init）：自定义前缀恢复，不回 localhost', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    expect(store.sessionBaseUrl).toBe('http://localhost')
+
+    store.openCurlDraft(parsed, null)
+    expect(store.sessionBaseUrl).toBe('https://api.example.com')
+
+    // 模拟重启：换新 pinia（新 store 实例）重新 init——前缀必须仍在。
+    setActivePinia(createPinia())
+    useLocaleStore().setMode('zh')
+    const reopened = useWorkspaceStore()
+    await reopened.init()
+    expect(reopened.sessionBaseUrl).toBe('https://api.example.com')
+    expect(reopened.urlDomain).toBe('https://api.example.com')
+
+    localStorage.removeItem('rustfox.base-url.p-prefix')
+  })
+
+  it('从未导入过的项目：回退默认 localhost', async () => {
+    const store = useWorkspaceStore()
+    await store.init()
+    expect(store.sessionBaseUrl).toBe('http://localhost')
+  })
+})
+
 describe('请求历史：增量分页与失败提示', () => {
   beforeEach(() => {
     setActivePinia(createPinia())

@@ -115,8 +115,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 全局参数（每个请求自动注入的 query / header）。 */
   const globalParams = ref<GlobalParam[]>([])
 
-  /** 会话级 Base URL（仅本次会话，不落库）；cURL 导入时自动预填为 URL 的 origin。 */
+  /**
+   * 无环境前缀的 Base URL（地址栏域名真源之一）：cURL 导入 / 地址栏粘贴的
+   * origin 写这里，按项目持久化到 localStorage——否则重启后回落 localhost，
+   * 用户导入的自定义前缀域名丢失。选中环境且环境声明了 Base URL 时，
+   * 展示优先级让位给 `{{base_url}}`（见 `urlDomain`）。
+   */
   const sessionBaseUrl = ref('http://localhost')
+  /** 前缀持久化键前缀（按项目隔离，风格与 `rustfox.open-projects` 一致）。 */
+  const BASE_URL_KEY_PREFIX = 'rustfox.base-url.'
 
   /**
    * 全局生效的请求超时（毫秒）：全局设置值；未配置时即内置默认（非 null，
@@ -141,6 +148,33 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const base = envBaseUrl(env)
     if (base) return '{{base_url}}'
     return sessionBaseUrl.value || ''
+  })
+
+  /**
+   * 从 localStorage 恢复当前项目的前缀（启动 `init` 与项目全新加载时调用）。
+   * 无记录时回退内置默认 localhost。
+   */
+  function restoreSessionBaseUrl(): void {
+    const pid = project.value?.id
+    if (!pid) return
+    let saved: string | null = null
+    try {
+      saved = localStorage.getItem(BASE_URL_KEY_PREFIX + pid)
+    } catch {
+      saved = null
+    }
+    sessionBaseUrl.value = saved ?? 'http://localhost'
+  }
+
+  // 前缀变更即按项目持久化（cURL 导入 / 地址栏粘贴 / 历史恢复 / 项目切换回写）。
+  watch(sessionBaseUrl, (v) => {
+    const pid = project.value?.id
+    if (!pid) return
+    try {
+      localStorage.setItem(BASE_URL_KEY_PREFIX + pid, v)
+    } catch {
+      // 存储不可用时静默：仅影响重启后的前缀恢复
+    }
   })
 
   /** 把当前选中环境的 Base URL 更新为 url（地址栏粘贴完整 URL 时同步环境）。 */
@@ -262,6 +296,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const p = await api.getActiveProject()
     if (!p) return null
     project.value = p
+    restoreSessionBaseUrl()
     await load(p.id, p)
     await loadEnvironments()
     return p
@@ -415,7 +450,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       testCases.value = new Map()
       activeTabId.value = null
       activeView.value = 'debug'
-      sessionBaseUrl.value = 'http://localhost'
+      restoreSessionBaseUrl()
       histories.value = []
       historyOnlyCurrent.value = false
       loadError.value = null
