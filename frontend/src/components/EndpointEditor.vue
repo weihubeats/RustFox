@@ -460,6 +460,12 @@ function onUrlAcSync(event: Event): void {
   urlAc.onInput(event.target as HTMLInputElement)
 }
 
+/** 失焦提交：关闭补全弹层并归一化地址栏输入（逐键不改写，失焦才定稿）。 */
+function onUrlBlur(): void {
+  urlAc.close()
+  commitUrlPath()
+}
+
 /** 弹层候选项 → 插入 `{{name}}`（composable 内 dispatch input 同步 v-model）。 */
 function onUrlAcPick(index: number): void {
   const el = urlInputEl.value
@@ -500,13 +506,17 @@ async function importCurlText(raw: string): Promise<void> {
   }
 }
 
-/** 地址栏粘贴：cURL 命令自动识别并解析，其余走常规 URL 拆分（urlPath setter）。 */
+/** 地址栏粘贴：cURL 命令自动识别并解析；其余整段一次性归一化（URL 立即拆分、相对路径补斜杠）。 */
 function onUrlPaste(event: ClipboardEvent): void {
   const text = event.clipboardData?.getData('text') ?? ''
   if (!text || !draft.value || curlPasting.value) return
-  if (!isCurlCommand(text)) return
+  if (isCurlCommand(text)) {
+    event.preventDefault()
+    void importCurlText(text)
+    return
+  }
   event.preventDefault()
-  void importCurlText(text)
+  applyUrlInput(text, true)
 }
 
 /** 路径输入框 placeholder：gRPC 提示地址格式；HTTP 提示 Base URL 拼接。 */
@@ -516,51 +526,76 @@ const urlPlaceholder = computed(() => {
   return t('editor.urlPhJoin', { v: resolvedDomain.value || urlDomain.value })
 })
 
-/** 路径输入框（与 chip 组成完整请求地址）；粘贴完整 URL 时自动拆分。 */
-const urlPath = computed({
-  get: () => {
-    const d = draft.value
-    if (!d) return ''
-    return d.path
-  },
-  set: (value: string) => {
-    const d = draft.value
-    if (!d) return
-    const v = value.trim()
-    if (!v) return
+/**
+ * 地址栏输入处理。
+ *
+ * `normalize=false`（逐键，v-model setter）：原文存草稿，禁止任何改写。
+ * 旧实现在这里就补 `/` 前缀 / 拆 URL——打一个 `h` 瞬间被改写成 `/h`，
+ * 想输自定义域名时打到 `htt…` 已被加斜杠，绝对地址分支永远无法命中。
+ *
+ * `normalize=true`（提交时机：失焦 / 发送 / 保存 / 粘贴）：
+ * 1. 完整 URL：query 并入参数；展示前缀为环境变量时 origin+path 整条存入
+ *    path（发送走 isAbsolutePath 分支，不覆写共享环境），否则 origin 写会话 Base URL。
+ * 2. `{{变量}}` 引用成为域名源。
+ * 3. 其余归一为 `/` 开头的路径（gRPC 地址原样：host:port / dns:/// 加斜杠会破坏格式）。
+ */
+function applyUrlInput(value: string, normalize: boolean): void {
+  const d = draft.value
+  if (!d) return
 
-    // 1) 粘贴/改写完整 URL：query 并入参数；展示前缀为环境变量时 origin+path
-    //    整条存入 path（发送走 isAbsolutePath 分支，不覆写共享环境），否则 origin 写会话 Base URL。
-    const abs = v.match(/^(?:https?|wss?):\/\/[^/]+/)
-    if (abs) {
-      let rest = v.slice(abs[0].length) || '/'
-      const qIdx = rest.indexOf('?')
-      if (qIdx !== -1) {
-        const qs = rest.slice(qIdx + 1)
-        rest = rest.slice(0, qIdx) || '/'
-        for (const [key, val] of new URLSearchParams(qs).entries()) {
-          d.request.params.push({ key, value: val, enabled: true, description: '' })
-        }
+  if (!normalize) {
+    d.path = value
+    return
+  }
+
+  const v = value.trim()
+  if (!v) return
+
+  // 1) 完整 URL：query 并入参数；按展示前缀决定拆分方式。
+  const abs = v.match(/^(?:https?|wss?):\/\/[^/]+/)
+  if (abs) {
+    let rest = v.slice(abs[0].length) || '/'
+    const qIdx = rest.indexOf('?')
+    if (qIdx !== -1) {
+      const qs = rest.slice(qIdx + 1)
+      rest = rest.slice(0, qIdx) || '/'
+      for (const [key, val] of new URLSearchParams(qs).entries()) {
+        d.request.params.push({ key, value: val, enabled: true, description: '' })
       }
-      const envPrefixed = store.urlDomain.startsWith('{{')
-      store.sessionBaseUrl = abs[0]
-      const rel = rest.startsWith('/') ? rest : `/${rest}`
-      d.path = envPrefixed ? `${abs[0]}${rel}` : rel
-      return
     }
+    const envPrefixed = store.urlDomain.startsWith('{{')
+    store.sessionBaseUrl = abs[0]
+    const rel = rest.startsWith('/') ? rest : `/${rest}`
+    d.path = envPrefixed ? `${abs[0]}${rel}` : rel
+    return
+  }
 
-    // 2) 以 `{{变量}}` 开头：变量引用成为域名源。
-    const varRef = v.match(/^\{\{[^{}]+\}\}/)
-    if (varRef) {
-      store.sessionBaseUrl = varRef[0]
-      d.path = v.slice(varRef[0].length) || '/'
-      return
-    }
+  // 2) 以 `{{变量}}` 开头：变量引用成为域名源。
+  const varRef = v.match(/^\{\{[^{}]+\}\}/)
+  if (varRef) {
+    store.sessionBaseUrl = varRef[0]
+    d.path = v.slice(varRef[0].length) || '/'
+    return
+  }
 
-    // 3) 其余视为路径本身。
-    d.path = v.startsWith('/') ? v : `/${v}`
-  },
+  // 3) 其余视为路径本身（gRPC 地址原样）。
+  if (d.method === 'GRPC') {
+    d.path = v
+    return
+  }
+  d.path = v.startsWith('/') ? v : `/${v}`
+}
+
+/** 路径输入框（与 chip 组成完整请求地址）：逐键原文存储，归一化在提交时机执行。 */
+const urlPath = computed({
+  get: () => draft.value?.path ?? '',
+  set: (value: string) => applyUrlInput(value, false),
 })
+
+/** 提交地址栏输入并归一化（失焦 / 发送 / 保存前调用；重复执行幂等）。 */
+function commitUrlPath(): void {
+  if (draft.value) applyUrlInput(draft.value.path, true)
+}
 
 /**
  * 路径变量代入（镜像 fox-core util::replace_path_variables：`{key}` 与
@@ -617,6 +652,7 @@ const timeoutPlaceholder = computed(() => {
 
 async function send(): Promise<void> {
   if (!draft.value) return
+  commitUrlPath()
   const targetId = draft.value.id
   if (sendingMap.value.has(targetId)) {
     toast.info(t('editor.sendingHint'))
@@ -743,6 +779,7 @@ const folderOptions = computed<FolderOption[]>(() => {
 
 async function save(): Promise<void> {
   if (!draft.value) return
+  commitUrlPath()
   const name = draft.value.name.trim()
   if (isDefaultName('endpoint', name)) {
     pendingName.value = ''
@@ -758,6 +795,7 @@ async function save(): Promise<void> {
 
 async function confirmName(): Promise<void> {
   if (!draft.value) return
+  commitUrlPath()
   const name = pendingName.value.trim()
   if (!name) {
     toast.warning(t('editor.nameRequired'))
@@ -1144,7 +1182,7 @@ onUnmounted(() => {
             @paste="onUrlPaste"
             @input="onUrlAcSync"
             @click="onUrlAcSync"
-            @blur="urlAc.close"
+            @blur="onUrlBlur"
           />
           <VarSuggest
             v-if="urlAcOpen"
