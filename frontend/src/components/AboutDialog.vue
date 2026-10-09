@@ -7,13 +7,13 @@
  *   下载（带进度）→ 安装 → 重启（tauri-plugin-process relaunch）。
  * 触发来源：macOS 原生菜单「About RustFox」→ rustfox://about 事件 → App.vue 打开。
  */
-import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { version } from '../../package.json'
 import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
+import { useUpdateDownload } from '../composables/useUpdateDownload'
 import { takePendingUpdate, restorePendingUpdate, skipUpdateVersion } from '../composables/useAutoUpdate'
 import Icon from './ui/Icon.vue'
 import Modal from './ui/Modal.vue'
@@ -40,58 +40,20 @@ async function openGitHub(): Promise<void> {
 }
 
 const checking = ref(false)
-const downloading = ref(false)
-/** 下载进度（0-1）；null = 未在下载或总量未知。 */
-const progress = ref<number | null>(null)
-/** 验签/解压/拉起安装器阶段（Finished 之后、重启之前）。 */
-const installing = ref(false)
-/** 已下载 / 总量字节（Started 的 contentLength 可能为 0 = 未知）。 */
-const downloadedBytes = ref(0)
-const totalBytes = ref(0)
-/** 平滑下载速度（MB/s，>=0.1 才展示，避免抖动噪音）。 */
-const speedMBs = ref(0)
-/** 最近一次速度采样时间与字节数（非响应式，仅计算用）。 */
-let speedLastAt = 0
-let speedLastBytes = 0
-/** 就地失败信息（重试按钮由 downloading=false 自动恢复）。 */
-const failMsg = ref('')
+/** 下载进度状态机：下载 / 安装中状态、进度条文案与失败重试（与更新详情弹窗共用）。 */
+const {
+  downloading,
+  progress,
+  installing,
+  failMsg,
+  statusText: downloadStatus,
+  start,
+} = useUpdateDownload()
 /** 待安装新版本的展示信息（Update 对象含 JS 私有字段，不能进响应式 ref——
  *  Vue 的 Proxy 会让私有字段访问抛 "Cannot read private member"，故只存字符串）。 */
 const pendingVersion = ref<string | null>(null)
 const pendingNotes = ref('')
 let pending: Update | null = null
-
-/** 下载状态行：安装中 → 阶段文案；否则 百分比 · 已下/总量 · 速度 组合。 */
-const downloadStatus = computed(() => {
-  if (installing.value) return t('about.installing')
-  const pct = progress.value != null ? `${Math.round(progress.value * 100)}%` : ''
-  const done = (downloadedBytes.value / 1_000_000).toFixed(1)
-  const size =
-    downloadedBytes.value > 0
-      ? totalBytes.value > 0
-        ? t('about.sizeOf', { done, total: (totalBytes.value / 1_000_000).toFixed(1) })
-        : t('about.sizeDone', { done })
-      : ''
-  const speed = speedMBs.value >= 0.1 ? t('about.speed', { v: speedMBs.value.toFixed(1) }) : ''
-  const parts = [pct, size, speed].filter(Boolean)
-  return parts.length ? parts.join(' · ') : t('about.downloading')
-})
-
-/** 滑动平均采样速度：≥300ms 采一次，避免逐 chunk 抖动。 */
-function sampleSpeed(): void {
-  const now = Date.now()
-  if (speedLastAt === 0) {
-    speedLastAt = now
-    speedLastBytes = downloadedBytes.value
-    return
-  }
-  const dt = now - speedLastAt
-  if (dt < 300) return
-  const sample = ((downloadedBytes.value - speedLastBytes) / dt) * 1000 / 1_000_000
-  speedLastAt = now
-  speedLastBytes = downloadedBytes.value
-  speedMBs.value = speedMBs.value > 0 ? speedMBs.value * 0.7 + sample * 0.3 : sample
-}
 
 /** 在系统浏览器打开当前待装版本的完整 Release Notes。 */
 async function openReleaseNotes(): Promise<void> {
@@ -159,58 +121,17 @@ async function checkUpdates(): Promise<void> {
   }
 }
 
+/**
+ * 下载并安装当前待装版本（状态机见 useUpdateDownload）：
+ * 成功后清本地展示状态（卡片收起），toast + 延迟重启由状态机负责。
+ */
 async function installUpdate(): Promise<void> {
   const update = pending
   if (!update || downloading.value) return
-  downloading.value = true
-  failMsg.value = ''
-  progress.value = null
-  installing.value = false
-  downloadedBytes.value = 0
-  totalBytes.value = 0
-  speedMBs.value = 0
-  speedLastAt = 0
-  speedLastBytes = 0
-  try {
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case 'Started':
-          totalBytes.value = event.data.contentLength ?? 0
-          downloadedBytes.value = 0
-          progress.value = totalBytes.value > 0 ? 0 : null
-          speedLastAt = 0
-          speedLastBytes = 0
-          speedMBs.value = 0
-          break
-        case 'Progress':
-          // Progress 只带当前块长度（chunkLength），须自行累加才能表示真实进度
-          downloadedBytes.value += event.data.chunkLength
-          sampleSpeed()
-          progress.value =
-            totalBytes.value > 0 ? Math.min(downloadedBytes.value / totalBytes.value, 1) : null
-          break
-        case 'Finished':
-          progress.value = 1
-          installing.value = true
-          break
-      }
-    })
-    update.close()
+  const ok = await start(update)
+  if (ok) {
     pending = null
     pendingVersion.value = null
-    toast.success(t('about.installed'))
-    setTimeout(() => relaunch(), 800)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    installing.value = false
-    progress.value = null
-    failMsg.value = t('about.downloadFailed', { msg })
-    toast.error(t('about.downloadFail'), {
-      message: msg,
-      action: { label: t('common.retry'), run: () => void installUpdate() },
-    })
-  } finally {
-    downloading.value = false
   }
 }
 

@@ -8,6 +8,7 @@ export const zh = {
   'app.pageError': '页面错误',
   'app.unhandledError': '未处理的 Promise 错误',
   'app.updateFound': '发现新版本 v{v}',
+  'app.updateTag': '更新 v{v}',
   'app.viewDetails': '查看详情',
 
   'common.cancel': '取消',
@@ -102,6 +103,7 @@ export const zh = {
   'settingsdbg.never': '从未',
   'settingsdbg.none': '无',
   'settingsdbg.simulatedNotes': '开发模拟数据，不可安装',
+  'settingsdbg.simulated': '已模拟发现新版本 v{v}',
 
   'about.title': '关于 RustFox',
   'about.subtitle': 'High-Performance Native API Testing Suite',
@@ -129,6 +131,10 @@ export const zh = {
   'about.sizeDone': '已下载 {done} MB',
   'about.speed': '{v} MB/s',
   'about.copyright': '© 2026 RustFox Team. Open source under MIT License.',
+
+  'release.later': '稍后再说',
+  'release.install': '立即下载并重启',
+  'release.noNotes': '此版本暂无更新说明',
 
   'history.onlyCurrent': '仅当前接口',
   'history.onlyCurrentHint': '只显示当前激活接口的请求记录',
@@ -254,9 +260,9 @@ export const zh = {
   'tree.importCurl': '导入 cURL',
   'tree.newSubfolder': '新建子文件夹',
   'tree.deleteFolder': '删除文件夹',
-  'tree.deleteFolderConfirm': '删除文件夹「{name}」及其全部子文件夹/接口？',
+  'tree.deleteFolderMessage': '确定要删除文件夹「{name}」及其全部内容吗？此操作无法恢复。',
   'tree.deleteEndpoint': '删除接口',
-  'tree.deleteEndpointConfirm': '删除接口「{name}」？',
+  'tree.deleteEndpointMessage': '确定要删除「{name}」接口吗？此操作无法恢复。',
   'tree.rootFolder': '根目录',
   'tree.folderNamePh': '文件夹名称',
   'tree.noMatch': '未找到匹配接口',
@@ -467,6 +473,7 @@ export const zh = {
   'select.ph': '请选择…',
   'confirm.title': '确定执行该操作吗？',
   'confirm.ok': '确定',
+  'confirm.delete': '确认删除',
   'confirm.undone': '此操作无法恢复。',
   'empty.title': '暂无数据',
 

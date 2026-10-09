@@ -38,7 +38,7 @@ import {
   debugUpdateState,
   hasPendingUpdate,
   pendingUpdateVersion,
-  requestOpenAbout,
+  requestOpenRelease,
   skippedUpdateVersion,
 } from '../composables/useAutoUpdate'
 import Modal from './ui/Modal.vue'
@@ -817,7 +817,8 @@ const pendingVersion = computed(() => (hasPendingUpdate.value ? pendingUpdateVer
 
 function openUpdateDetail(): void {
   emit('close')
-  requestOpenAbout()
+  // 详情走独立 ReleaseNotesModal（不把用户丢进关于弹窗 / 设置长列表）
+  requestOpenRelease()
 }
 
 // ---------- 更新调试（仅开发版可见）：免改版号验证更新链路 ----------
@@ -840,11 +841,14 @@ function refreshDebugState(): void {
 refreshDebugState()
 
 function debugSimulate(): void {
-  if (!debugSimulateUpdate(debugVersion.value.trim() || '9.9.9')) {
+  const v = debugVersion.value.trim() || '9.9.9'
+  if (!debugSimulateUpdate(v)) {
     toast.info(t('settingsdbg.noInstance'))
     return
   }
   refreshDebugState()
+  // 点击点显式反馈：模拟已生效（顶部 Tag / 发现新版本卡片 / 更新 toast 已就位）
+  toast.success(t('settingsdbg.simulated', { v }))
 }
 
 function debugFail(): void {
@@ -1031,15 +1035,21 @@ const projectSummary = computed(() => {
                     </span>
                   </button>
                 </div>
-                <div v-if="pendingVersion" class="mt-5 border-t border-zinc-200/70 dark:border-white/[0.06]">
-                  <div class="flex items-center justify-between gap-4 pt-5">
+                <!-- 发现新版本：高亮卡片提权（渐变底 + 紫色版本号 + 主紫行动按钮） -->
+                <div v-if="pendingVersion" class="su-update-card mt-5 rounded-xl border border-purple-500/30 p-4">
+                  <div class="flex items-center justify-between gap-4">
                     <div class="max-w-md">
-                      <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        {{ t('app.updateFound', { v: pendingVersion }) }}
+                      <div class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {{ t('about.newVersion') }}
+                        <span class="font-mono font-bold text-purple-600 dark:text-purple-400">v{{ pendingVersion }}</span>
                       </div>
                       <p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{{ t('settings.updateAvailableDesc') }}</p>
                     </div>
-                    <button class="rf-btn rf-btn-sm shrink-0" type="button" @click="openUpdateDetail">
+                    <button
+                      class="shrink-0 cursor-pointer rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-500"
+                      type="button"
+                      @click="openUpdateDetail"
+                    >
                       {{ t('app.viewDetails') }}
                     </button>
                   </div>
@@ -1846,5 +1856,14 @@ html[data-theme='light'] .sd-dialog {
   --bg-elevated: #ffffff;
   --border-strong: rgba(24, 24, 27, 0.12);
   --shadow-lg: 0 25px 60px -12px rgba(0, 0, 0, 0.18);
+}
+
+/* 通用设置「发现新版本」高亮卡片：深色 = 紫→锌渐变（purple-900/30 → zinc-900/50），
+   浅色 = 浅紫→浅灰渐变保证正文可读（深色系半透渐变在浅底上会压暗文字）。 */
+.su-update-card {
+  background: linear-gradient(to right, rgba(88, 28, 135, 0.3), rgba(24, 24, 27, 0.5));
+}
+html[data-theme='light'] .su-update-card {
+  background: linear-gradient(to right, rgba(168, 85, 247, 0.14), rgba(244, 244, 245, 0.9));
 }
 </style>

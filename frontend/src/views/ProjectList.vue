@@ -22,6 +22,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import Icon from '../components/ui/Icon.vue'
 import IconButton from '../components/ui/IconButton.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
+import HeaderUpdateTag from '../components/HeaderUpdateTag.vue'
 import DashboardNav from '../components/projectlist/DashboardNav.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import ImportDialog from '../components/ImportDialog.vue'
@@ -391,6 +392,7 @@ useWindowDrag(topBarEl)
       </button>
       <ProjectTabs class="top-tabs" @new-project="showCreate = true" />
       <div class="top-right">
+        <HeaderUpdateTag />
         <span class="rf-update-wrap">
           <IconButton
             name="settings"
@@ -398,7 +400,6 @@ useWindowDrag(topBarEl)
             :title="hasPendingUpdate ? t('app.updateFound', { v: pendingUpdateVersion() ?? '' }) : t('settings.title')"
             @click="showSettings = true"
           />
-          <span v-if="hasPendingUpdate" class="rf-update-dot" aria-hidden="true" />
         </span>
       </div>
     </header>

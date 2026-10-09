@@ -173,7 +173,7 @@ describe('useAutoUpdate', () => {
     expect(triggerUpdateCheckNow()).toBe(false)
   })
 
-  it('debugSimulateUpdate 走完整通知链；跳过的版本保持静默', async () => {
+  it('debugSimulateUpdate 走完整通知链；停止后返回 false', async () => {
     const checkFn = vi.fn(async () => fakeCurrent('0.0.1'))
     const onUpdateAvailable = vi.fn()
     const stop = startAutoUpdate({ checkFn, startupDelayMs: 100, onUpdateAvailable })
@@ -185,14 +185,26 @@ describe('useAutoUpdate', () => {
     expect(debugSimulateUpdate('9.9.9')).toBe(false)
   })
 
-  it('debugSimulateUpdate 命中跳过时静默', () => {
+  it('debugSimulateUpdate 绕过跳过锁存（调试按钮确定性生效）', () => {
     const checkFn = vi.fn()
     const onUpdateAvailable = vi.fn()
     const stop = startAutoUpdate({ checkFn, startupDelayMs: 100, onUpdateAvailable })
     skipUpdateVersion('9.9.9')
     expect(debugSimulateUpdate('9.9.9')).toBe(true)
-    expect(onUpdateAvailable).not.toHaveBeenCalled()
-    expect(hasPendingUpdate.value).toBe(false)
+    expect(onUpdateAvailable).toHaveBeenCalledWith({ version: '9.9.9' })
+    expect(hasPendingUpdate.value).toBe(true)
+    stop()
+  })
+
+  it('debugSimulateUpdate 绕过同版本 24h 去重（重复模拟仍提醒）', () => {
+    const checkFn = vi.fn()
+    const onUpdateAvailable = vi.fn()
+    const stop = startAutoUpdate({ checkFn, startupDelayMs: 100, onUpdateAvailable })
+    expect(debugSimulateUpdate('9.9.9')).toBe(true)
+    expect(debugSimulateUpdate('9.9.9')).toBe(true)
+    expect(onUpdateAvailable).toHaveBeenCalledTimes(2)
+    expect(hasPendingUpdate.value).toBe(true)
+    expect(pendingUpdateVersion()).toBe('9.9.9')
     stop()
   })
 

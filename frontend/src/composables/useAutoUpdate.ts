@@ -7,8 +7,8 @@
  *   检查失败不计入节流，30 分钟后重试一次；
  * - 同一版本每天最多提醒一次（替代永久锁存：错过 toast 第二天可恢复）；
  * - 跳过的版本不再提醒，直到出现更新的版本；
- * - 发现新版时暂存 Update 对象，关于弹窗打开时直接承接（免二次检查，一键下载安装）；
- * - 有待安装更新时点亮共享标识（设置齿轮小红点），安装/跳过/取走后熄灭；
+ * - 发现新版时暂存 Update 对象，更新详情弹窗 / 关于弹窗打开时直接承接（免二次检查，一键下载安装）；
+ * - 有待安装更新时点亮共享标识（顶部更新 Tag + 设置齿轮小红点），安装/跳过/取走后熄灭；
  * - 自动检查失败静默忽略（不弹错，避免噪音；手动检查仍会报错）。
  */
 import { readonly, ref, type Ref } from 'vue'
@@ -71,6 +71,15 @@ export const openAboutSignal: Readonly<Ref<number>> = readonly(openAboutSignalSt
 /** 请求打开关于弹窗（更新详情与安装都在其中）。 */
 export function requestOpenAbout(): void {
   openAboutSignalState.value += 1
+}
+
+/** 打开独立更新详情弹窗的请求信号（顶部更新 Tag / 设置更新卡片 → App 监听后打开）。 */
+const openReleaseSignalState = ref(0)
+export const openReleaseSignal: Readonly<Ref<number>> = readonly(openReleaseSignalState)
+
+/** 请求打开独立更新详情弹窗（ReleaseNotesModal：更新说明 + 一键下载重启）。 */
+export function requestOpenRelease(): void {
+  openReleaseSignalState.value += 1
 }
 
 /** 跳过指定版本（不再提醒，直到出现更新的版本；可在设置中取消）。 */
@@ -271,8 +280,12 @@ export function startAutoUpdate(opts: AutoUpdateOptions = {}): () => void {
     return { status: handleUpdateResult(update) ? 'notified' : 'none' }
   }
 
-  /** 成功检查后的通知链（真实与模拟共用），返回是否发出提醒。 */
-  function handleUpdateResult(update: Update | null): boolean {
+  /**
+   * 成功检查后的通知链（真实检查与模拟共用），返回是否发出提醒。
+   * force：调试模拟专用——绕过同版本 24h 去重与跳过锁存，
+   * 保证「模拟新版」点击确定性生效（否则模拟按钮会被门禁静默吞掉）。
+   */
+  function handleUpdateResult(update: Update | null, force = false): boolean {
     if (stopped) {
       update?.close()
       return false
@@ -281,17 +294,19 @@ export function startAutoUpdate(opts: AutoUpdateOptions = {}): () => void {
       update?.close()
       return false
     }
-    // 通知去重：同版本距上次提醒不足一天则跳过（无提醒记录的老锁存视为过期，恢复提醒一次）
-    const notified = readString(NOTIFIED_VERSION_KEY)
-    const notifiedAt = readNumber(NOTIFIED_AT_KEY)
-    if (notified === update.version && now() - notifiedAt < renotifyIntervalMs) {
-      update.close()
-      return false
-    }
-    // 用户跳过的版本不再提醒（出现更新的版本时恢复提醒）
-    if (readString(SKIPPED_VERSION_KEY) === update.version) {
-      update.close()
-      return false
+    if (!force) {
+      // 通知去重：同版本距上次提醒不足一天则跳过（无提醒记录的老锁存视为过期，恢复提醒一次）
+      const notified = readString(NOTIFIED_VERSION_KEY)
+      const notifiedAt = readNumber(NOTIFIED_AT_KEY)
+      if (notified === update.version && now() - notifiedAt < renotifyIntervalMs) {
+        update.close()
+        return false
+      }
+      // 用户跳过的版本不再提醒（出现更新的版本时恢复提醒）
+      if (readString(SKIPPED_VERSION_KEY) === update.version) {
+        update.close()
+        return false
+      }
     }
     write(NOTIFIED_VERSION_KEY, update.version)
     write(NOTIFIED_AT_KEY, String(now()))
@@ -303,12 +318,15 @@ export function startAutoUpdate(opts: AutoUpdateOptions = {}): () => void {
   function simulateUpdate(version: string): void {
     const v = version.trim()
     if (!v || stopped) return
-    handleUpdateResult({
-      available: true,
-      version: v,
-      body: tFallback('settingsdbg.simulatedNotes'),
-      close: () => undefined,
-    } as unknown as Update)
+    handleUpdateResult(
+      {
+        available: true,
+        version: v,
+        body: tFallback('settingsdbg.simulatedNotes'),
+        close: () => undefined,
+      } as unknown as Update,
+      true,
+    )
   }
 
   const debugApi: UpdateDebugApi = {

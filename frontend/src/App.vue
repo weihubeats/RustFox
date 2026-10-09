@@ -13,9 +13,10 @@ import ToastHost from './components/ToastHost.vue'
 import ProgressBar from './components/ProgressBar.vue'
 import Brand from './components/Brand.vue'
 import AboutDialog from './components/AboutDialog.vue'
+import ReleaseNotesModal from './components/ReleaseNotesModal.vue'
 import { useToast } from './composables/useToast'
 import { useLocaleStore } from './stores/locale'
-import { startAutoUpdate, openAboutSignal } from './composables/useAutoUpdate'
+import { startAutoUpdate, openAboutSignal, openReleaseSignal } from './composables/useAutoUpdate'
 
 const toast = useToast()
 const locale = useLocaleStore()
@@ -28,12 +29,19 @@ const route = useRoute()
  */
 const showFloatingBrand = computed(() => route.matched.length === 0)
 const showAbout = ref(false)
+/** 独立版本更新详情弹窗（顶部更新 Tag / 设置更新卡片 / 更新 toast 动作打开）。 */
+const showRelease = ref(false)
 let unlistenAbout: UnlistenFn | null = null
 let stopAutoUpdate: (() => void) | null = null
 
 /** 设置更新行 → 打开关于弹窗（一键下载安装）。 */
 watch(openAboutSignal, () => {
   showAbout.value = true
+})
+
+/** 顶部更新 Tag / 设置更新卡片 → 打开独立更新详情弹窗。 */
+watch(openReleaseSignal, () => {
+  showRelease.value = true
 })
 
 /** 同一消息短窗去重：连锁报错（error → unhandledrejection）只弹一次 toast。 */
@@ -81,7 +89,7 @@ onMounted(async () => {
               action: {
                 label: t('app.viewDetails'),
                 run: () => {
-                  showAbout.value = true
+                  showRelease.value = true
                 },
               },
             })
@@ -109,6 +117,7 @@ onBeforeUnmount(() => {
   <ProgressBar />
   <ToastHost />
   <AboutDialog v-model:open="showAbout" />
+  <ReleaseNotesModal v-model:open="showRelease" />
   <main class="rf-app">
     <router-view />
   </main>

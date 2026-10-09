@@ -839,22 +839,11 @@ body.dragging-dnd {
   opacity: 1;
 }
 
-/* ---- 更新提示小红点（设置齿轮共享，toast 过期后的常驻入口） ---- */
+/* ---- 设置齿轮占位（小红点已由顶部更新 Tag 取代，保留 flex-shrink 防挤压） ---- */
 .rf-update-wrap {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
-}
-.rf-update-dot {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--danger);
-  box-shadow: 0 0 6px var(--danger);
-  pointer-events: none;
 }
 
 /* ---- 动效偏好：系统开启减少动态时，压缩全部过渡/动画（无障碍合规） ---- */

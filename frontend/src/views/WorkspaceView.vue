@@ -13,6 +13,7 @@ import { useToast } from '../composables/useToast'
 import { useLocaleStore } from '../stores/locale'
 import { hasPendingUpdate, pendingUpdateVersion } from '../composables/useAutoUpdate'
 import Brand from '../components/Brand.vue'
+import HeaderUpdateTag from '../components/HeaderUpdateTag.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
 import EndpointTree from '../components/EndpointTree.vue'
 import EnvironmentBar from '../components/EnvironmentBar.vue'
@@ -471,6 +472,7 @@ onBeforeUnmount(() => {
             :title="t('workspace.shortcutsHint')"
             @click="showShortcuts = true"
           />
+          <HeaderUpdateTag />
           <span class="rf-update-wrap">
             <IconButton
               class="tb-tool"
@@ -479,7 +481,6 @@ onBeforeUnmount(() => {
               :title="hasPendingUpdate ? t('app.updateFound', { v: pendingUpdateVersion() ?? '' }) : t('settings.title')"
               @click="showSettings = true"
             />
-            <span v-if="hasPendingUpdate" class="rf-update-dot" aria-hidden="true" />
           </span>
         </div>
       </div>

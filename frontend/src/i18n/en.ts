@@ -10,6 +10,7 @@ export const en: Record<ZhKey, string> = {
   'app.pageError': 'Page error',
   'app.unhandledError': 'Unhandled promise rejection',
   'app.updateFound': 'New version v{v} available',
+  'app.updateTag': 'Update v{v}',
   'app.viewDetails': 'View details',
 
   'common.cancel': 'Cancel',
@@ -105,6 +106,7 @@ export const en: Record<ZhKey, string> = {
   'settingsdbg.never': 'never',
   'settingsdbg.none': 'none',
   'settingsdbg.simulatedNotes': 'Dev simulated data, cannot be installed',
+  'settingsdbg.simulated': 'Simulated new version v{v}',
 
   'about.title': 'About RustFox',
   'about.subtitle': 'High-Performance Native API Testing Suite',
@@ -132,6 +134,10 @@ export const en: Record<ZhKey, string> = {
   'about.sizeDone': 'Downloaded {done} MB',
   'about.speed': '{v} MB/s',
   'about.copyright': '© 2026 RustFox Team. Open source under MIT License.',
+
+  'release.later': 'Later',
+  'release.install': 'Download & Restart Now',
+  'release.noNotes': 'No release notes for this version',
 
   'history.onlyCurrent': 'Current endpoint only',
   'history.onlyCurrentHint': 'Show requests of the active endpoint only',
@@ -258,9 +264,9 @@ export const en: Record<ZhKey, string> = {
   'tree.importCurl': 'Import cURL',
   'tree.newSubfolder': 'New subfolder',
   'tree.deleteFolder': 'Delete folder',
-  'tree.deleteFolderConfirm': 'Delete folder "{name}" and everything inside?',
+  'tree.deleteFolderMessage': 'Delete folder "{name}" and all of its contents? This action cannot be undone.',
   'tree.deleteEndpoint': 'Delete endpoint',
-  'tree.deleteEndpointConfirm': 'Delete endpoint "{name}"?',
+  'tree.deleteEndpointMessage': 'Delete endpoint "{name}"? This action cannot be undone.',
   'tree.rootFolder': 'Root',
   'tree.folderNamePh': 'Folder name',
   'tree.noMatch': 'No matching endpoints',
@@ -471,6 +477,7 @@ export const en: Record<ZhKey, string> = {
   'select.ph': 'Select…',
   'confirm.title': 'Are you sure?',
   'confirm.ok': 'Confirm',
+  'confirm.delete': 'Delete',
   'confirm.undone': 'This action cannot be undone.',
   'empty.title': 'No data yet',
 
