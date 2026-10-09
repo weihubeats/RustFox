@@ -177,7 +177,7 @@ describe('TabBar：新建按钮紧跟末尾且不被滚丢', () => {
     // 进入确认视图：展示未保存数，尚未执行
     expect(document.querySelector('.rf-menu-confirm-title')?.textContent).toContain('7')
     expect(mocked.closeOtherTabs).not.toHaveBeenCalled()
-    const ok = document.querySelector<HTMLButtonElement>('.rf-menu-confirm-actions .rf-btn-danger')!
+    const ok = document.querySelector<HTMLButtonElement>('.rf-menu-confirm-actions .rf-btn-danger-solid')!
     ok.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
     expect(mocked.closeOtherTabs).toHaveBeenCalledWith('t8')

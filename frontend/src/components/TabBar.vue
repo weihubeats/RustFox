@@ -83,13 +83,13 @@ const TAB_MENU_ITEMS = computed<MenuItem[]>(() => {
       key: 'close-current',
       label: t('tabbar.closeCurrent'),
       disabled: !active,
-      ...(active && store.isDirty(active) ? { confirm: t('tabbar.closeConfirm') } : {}),
+      ...(active && store.isDirty(active) ? { confirm: t('tabbar.closeConfirm'), confirmDanger: true } : {}),
     },
     {
       key: 'close-others',
       label: t('tabbar.closeOthers'),
       disabled: others.length === 0,
-      ...(othersDirty > 0 ? { confirm: unsavedConfirm(othersDirty) } : {}),
+      ...(othersDirty > 0 ? { confirm: unsavedConfirm(othersDirty), confirmDanger: true } : {}),
     },
     {
       key: 'close-all',
@@ -97,7 +97,7 @@ const TAB_MENU_ITEMS = computed<MenuItem[]>(() => {
       danger: true,
       dividerBefore: true,
       disabled: ids.length === 0,
-      ...(allDirty > 0 ? { confirm: unsavedConfirm(allDirty) } : {}),
+      ...(allDirty > 0 ? { confirm: unsavedConfirm(allDirty), confirmDanger: true } : {}),
     },
   ]
 })

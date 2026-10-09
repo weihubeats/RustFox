@@ -25,6 +25,8 @@ export interface MenuItem {
   disabled?: boolean
   dividerBefore?: boolean
   confirm?: string
+  /** 确认视图按危险操作呈现（红色警示徽章 + 实心删除按钮 + 不可撤销提示）；默认跟随 danger。 */
+  confirmDanger?: boolean
 }
 
 const emit = defineEmits<{
@@ -46,6 +48,11 @@ const locale = useLocaleStore()
 const t = locale.t
 
 const menuStyle = computed(() => ({ left: `${pos.value.left}px`, top: `${pos.value.top}px` }))
+
+/** 确认视图危险语义：confirmDanger 显式指定，否则跟随 item.danger（列表色与确认色解耦）。 */
+const confirmDanger = computed(
+  () => view.value.kind === 'confirm' && (view.value.item.confirmDanger ?? view.value.item.danger),
+)
 
 /** 触发元素矩形与弹出方向：openAt 记录，渲染后按实测尺寸校正定位时复用。 */
 let triggerRect: DOMRect | null = null
@@ -191,12 +198,27 @@ defineExpose({ openAt, close })
         </template>
       </template>
       <template v-else>
-        <p class="rf-menu-confirm-title">{{ view.item.confirm }}</p>
-        <div class="rf-menu-confirm-actions">
-          <button class="rf-btn rf-btn-sm" type="button" @click="backToList">{{ t('common.cancel') }}</button>
-          <button class="rf-btn rf-btn-sm rf-btn-danger" type="button" @click="onConfirm">
-            {{ t('confirm.ok') }}
-          </button>
+        <div class="rf-menu-confirm" :class="{ danger: confirmDanger }">
+          <div class="rf-menu-confirm-head">
+            <span class="rf-menu-confirm-badge">
+              <Icon name="alert-triangle" :size="13" />
+            </span>
+            <p class="rf-menu-confirm-title">{{ view.item.confirm }}</p>
+          </div>
+          <p v-if="confirmDanger" class="rf-menu-confirm-hint">{{ t('confirm.undone') }}</p>
+          <div class="rf-menu-confirm-actions">
+            <button class="rf-btn rf-btn-sm" type="button" @click="backToList">
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              class="rf-btn rf-btn-sm"
+              :class="confirmDanger ? 'rf-btn-danger-solid' : undefined"
+              type="button"
+              @click="onConfirm"
+            >
+              {{ t('confirm.ok') }}
+            </button>
+          </div>
         </div>
       </template>
     </div>
@@ -310,18 +332,55 @@ defineExpose({ openAt, close })
   background: var(--border);
 }
 
+/* ---- 行内确认视图：警示徽章 + 标题 + 不可撤销提示 + 按钮行 ---- */
+.rf-menu-confirm {
+  padding: 4px;
+}
+
+.rf-menu-confirm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rf-menu-confirm-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.rf-menu-confirm.danger .rf-menu-confirm-badge {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
 .rf-menu-confirm-title {
-  margin: 2px 8px 12px;
+  margin: 2px 0 0;
   font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
   color: var(--text-1);
-  word-break: break-all;
+  word-break: break-word;
+}
+
+.rf-menu-confirm-hint {
+  /* 与标题左缘对齐：徽章 22 + gap 8 */
+  margin: 5px 0 0 30px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
 }
 
 .rf-menu-confirm-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  padding: 0 4px 2px;
+  margin-top: 12px;
 }
 
 @keyframes menu-in {

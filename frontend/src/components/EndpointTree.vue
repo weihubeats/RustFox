@@ -109,6 +109,7 @@ import IconButton from './ui/IconButton.vue'
 import EmptyState from './ui/EmptyState.vue'
 import Menu from './ui/Menu.vue'
 import Popconfirm from './ui/Popconfirm.vue'
+import DeleteConfirmModal from './DeleteConfirmModal.vue'
 import type { MenuItem } from './ui/Menu.vue'
 import type { Endpoint, Folder } from '../types/foxApi'
 
@@ -500,6 +501,52 @@ const menu = ref<InstanceType<typeof Menu> | null>(null)
 const menuOpen = ref(false)
 const menuTarget = ref<{ kind: 'folder' | 'endpoint'; id: string } | null>(null)
 
+// ---------- 删除确认弹窗（居中弹窗取代菜单行内确认，接口/文件夹共用） ----------
+const showDeleteConfirm = ref(false)
+const deleteTarget = ref<{ kind: 'folder' | 'endpoint'; id: string } | null>(null)
+
+/** 基础标题（「删除接口」/「删除文件夹」）。 */
+const deleteTitle = computed(() =>
+  deleteTarget.value?.kind === 'folder' ? t('tree.deleteFolder') : t('tree.deleteEndpoint'),
+)
+
+/** 句式提示：含被删对象名称与不可撤销说明。 */
+const deleteMessage = computed(() => {
+  const target = deleteTarget.value
+  if (!target) return ''
+  if (target.kind === 'folder') {
+    const f = store.folders.find((x) => x.id === target.id)
+    return t('tree.deleteFolderMessage', { name: f?.name ?? '' })
+  }
+  const ep = store.endpoints.find((x) => x.id === target.id)
+  return t('tree.deleteEndpointMessage', { name: ep ? ep.name || ep.path : '' })
+})
+
+/** 接口删除时展示 method/path 代码卡片，文件夹无。 */
+const deleteMethod = computed(() => {
+  const target = deleteTarget.value
+  if (!target || target.kind !== 'endpoint') return ''
+  return store.endpoints.find((x) => x.id === target.id)?.method ?? ''
+})
+const deletePath = computed(() => {
+  const target = deleteTarget.value
+  if (!target || target.kind !== 'endpoint') return ''
+  return store.endpoints.find((x) => x.id === target.id)?.path ?? ''
+})
+
+/** 确认删除：关弹窗后按类型分发（找最新实体，右键后列表可能已变化）。 */
+async function doDelete(): Promise<void> {
+  const target = deleteTarget.value
+  showDeleteConfirm.value = false
+  deleteTarget.value = null
+  if (!target) return
+  if (target.kind === 'folder') await removeFolder(target.id)
+  else {
+    const ep = store.endpoints.find((x) => x.id === target.id)
+    if (ep) await removeEndpoint(ep)
+  }
+}
+
 function openFolderMenu(event: MouseEvent, f: Folder): void {
   menuTarget.value = { kind: 'folder', id: f.id }
   menu.value?.openAt(event.currentTarget as HTMLElement, [
@@ -512,7 +559,6 @@ function openFolderMenu(event: MouseEvent, f: Folder): void {
       label: t('tree.deleteFolder'),
       icon: 'trash',
       danger: true,
-      confirm: t('tree.deleteFolderConfirm', { name: f.name }),
     },
   ], 'left')
 }
@@ -528,7 +574,6 @@ function openEndpointMenu(event: MouseEvent, e: Endpoint): void {
       icon: 'trash',
       danger: true,
       dividerBefore: true,
-      confirm: t('tree.deleteEndpointConfirm', { name: e.name || e.path }),
     },
   ], 'left')
 }
@@ -536,6 +581,11 @@ function openEndpointMenu(event: MouseEvent, e: Endpoint): void {
 function onMenuSelect(item: MenuItem): void {
   const target = menuTarget.value
   if (!target) return
+  if (item.key === 'delete') {
+    deleteTarget.value = target
+    showDeleteConfirm.value = true
+    return
+  }
   if (target.kind === 'folder') {
     if (item.key === 'subfolder') {
       // 先展开目标文件夹：输入行渲染在其子树内，折叠状态下不可见
@@ -548,17 +598,6 @@ function onMenuSelect(item: MenuItem): void {
   } else {
     if (item.key === 'copy') duplicate(store.endpoints.find((x) => x.id === target.id)!)
     else if (item.key === 'rename') startEdit('rename-endpoint', { id: target.id })
-  }
-}
-
-function onMenuConfirm(item: MenuItem): void {
-  const target = menuTarget.value
-  if (!target) return
-  if (item.key !== 'delete') return
-  if (target.kind === 'folder') removeFolder(target.id)
-  else {
-    const ep = store.endpoints.find((x) => x.id === target.id)
-    if (ep) removeEndpoint(ep)
   }
 }
 
@@ -956,8 +995,17 @@ function onBatchMenuSelect(item: MenuItem): void {
       </button>
     </div>
 
-    <Menu ref="menu" @select="onMenuSelect" @confirm="onMenuConfirm" @open="menuOpen = true" @close="menuOpen = false" />
+    <Menu ref="menu" @select="onMenuSelect" @open="menuOpen = true" @close="menuOpen = false" />
     <Menu ref="batchMenu" @select="onBatchMenuSelect" @open="menuOpen = true" @close="menuOpen = false" />
+
+    <DeleteConfirmModal
+      v-model:open="showDeleteConfirm"
+      :title="deleteTitle"
+      :message="deleteMessage"
+      :method="deleteMethod || undefined"
+      :path="deletePath || undefined"
+      @confirm="doDelete"
+    />
 
   <Teleport to="body">
     <div
